@@ -1,0 +1,10 @@
+node_modules/
+dist/
+*.log
+.env
+.DS_Store
+
+# Local clone of the shared context repo (never commit into the server repo)
+.context-store/
+pre-code-chat.MD 
+
