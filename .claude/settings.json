@@ -1,14 +1,4 @@
 {
-  "permissions": {
-    "allow": [
-      "Bash(npm run *)",
-      "mcp__memorylayer__write_context",
-      "Skill(review)",
-      "Skill(review:*)",
-      "Bash(node -e \"const p=require\\('./package.json'\\); console.log\\(JSON.stringify\\(p.scripts,null,1\\)\\)\")",
-      "Bash(node --test test/hook-clients.test.mjs)"
-    ]
-  },
   "hooks": {
     "SessionStart": [
       {

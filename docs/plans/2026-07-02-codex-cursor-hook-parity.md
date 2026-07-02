@@ -18,7 +18,7 @@
 - Commit after every task.
 - Tests assert EXACT envelope strings/shapes (match the existing style in `test/hook-clients.test.mjs` and `test/stop-hook.test.mjs`).
 
-Spec: `docs/superpowers/specs/2026-07-02-codex-cursor-hook-parity-design.md`
+Spec: `docs/specs/2026-07-02-codex-cursor-hook-parity-design.md`
 
 ---
 
