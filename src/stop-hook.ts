@@ -22,33 +22,36 @@ import {
   renderStopNoop,
   type HookClient,
 } from "./hook-clients.js";
+import { isMain } from "./is-main.js";
 
-const client: HookClient = resolveClient(process.env.MEMORYLAYER_HOOK_CLIENT);
+export async function runStopHook(): Promise<void> {
+  // Resolved here (not at module load) so the dispatcher can set the client from
+  // the subcommand arg before calling.
+  const client: HookClient = resolveClient(process.env.MEMORYLAYER_HOOK_CLIENT);
 
-function emitNoop(): never {
-  process.stdout.write(renderStopNoop(client));
-  process.exit(0);
-}
+  const emitNoop = (): never => {
+    process.stdout.write(renderStopNoop(client));
+    process.exit(0);
+  };
 
-async function readStdin(): Promise<string> {
-  if (process.stdin.isTTY) return "";
-  let data = "";
-  try {
-    for await (const chunk of process.stdin) data += chunk;
-  } catch {
-    // stdin not readable — treat as empty payload.
-  }
-  return data;
-}
+  const readStdin = async (): Promise<string> => {
+    if (process.stdin.isTTY) return "";
+    let data = "";
+    try {
+      for await (const chunk of process.stdin) data += chunk;
+    } catch {
+      // stdin not readable — treat as empty payload.
+    }
+    return data;
+  };
 
-async function main(): Promise<void> {
   const raw = await readStdin();
 
   // Loop guard: if we cannot confirm we are NOT already in a hook-driven
   // continuation, the safe choice is to let the turn end (never risk a loop).
   // Client-agnostic: Claude Code / Codex set stop_hook_active; Cursor increments
   // loop_count (and enforces loop_limit in config as a hard backstop).
-  let payload: { stop_hook_active?: boolean; loop_count?: number };
+  let payload: { stop_hook_active?: boolean; loop_count?: number } = {};
   try {
     payload = raw.trim() ? JSON.parse(raw) : {};
   } catch {
@@ -64,4 +67,6 @@ async function main(): Promise<void> {
   process.exit(0);
 }
 
-main().catch(() => emitNoop());
+if (isMain(import.meta.url)) {
+  void runStopHook();
+}
