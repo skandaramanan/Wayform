@@ -46,13 +46,18 @@ async function main(): Promise<void> {
 
   // Loop guard: if we cannot confirm we are NOT already in a hook-driven
   // continuation, the safe choice is to let the turn end (never risk a loop).
-  let payload: { stop_hook_active?: boolean };
+  // Client-agnostic: Claude Code / Codex set stop_hook_active; Cursor increments
+  // loop_count (and enforces loop_limit in config as a hard backstop).
+  let payload: { stop_hook_active?: boolean; loop_count?: number };
   try {
     payload = raw.trim() ? JSON.parse(raw) : {};
   } catch {
     emitNoop();
   }
-  if (payload.stop_hook_active === true) emitNoop();
+  const isContinuation =
+    payload.stop_hook_active === true ||
+    (typeof payload.loop_count === "number" && payload.loop_count > 0);
+  if (isContinuation) emitNoop();
 
   const project = process.env.MEMORYLAYER_PROJECT?.trim() || "memorylayer";
   process.stdout.write(renderStopReview(client, reviewInstruction(project)));
