@@ -47,3 +47,23 @@ test("raw client with loop guard emits nothing", () => {
     "",
   );
 });
+
+test("codex: fresh turn injects a decision:block Stop review naming write_context", () => {
+  const out = JSON.parse(runStopHook("codex", "{}"));
+  assert.equal(out.decision, "block");
+  assert.match(out.reason, /write_context/);
+});
+
+test("loop guard: loop_count > 0 emits the no-op (Cursor-style continuation)", () => {
+  assert.equal(
+    runStopHook("cursor", JSON.stringify({ loop_count: 1 })).trim(),
+    "{}",
+  );
+});
+
+test("codex loop guard: stop_hook_active=true emits the no-op", () => {
+  assert.equal(
+    runStopHook("codex", JSON.stringify({ stop_hook_active: true })).trim(),
+    "{}",
+  );
+});
