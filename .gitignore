@@ -3,7 +3,6 @@ dist/
 *.log
 .env
 .DS_Store
-.claude/
 # Local clone of the shared context repo (never commit into the server repo)
 .context-store/
 # Per-user hook config (identity + context repo URL) — never commit
