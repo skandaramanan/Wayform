@@ -106,6 +106,7 @@ by `MEMORYLAYER_HOOK_CLIENT`:
 |---|---|---|
 | `cursor` (default) | `{ "additional_context": "…" }` | Cursor `sessionStart` |
 | `claude-code` | `{ "hookSpecificOutput": { "hookEventName": "SessionStart", "additionalContext": "…" } }` | Claude Code `SessionStart` |
+| `codex` | `{ "hookSpecificOutput": { "hookEventName": "SessionStart", "additionalContext": "…" } }` | Codex `SessionStart` |
 | `raw` | the markdown, verbatim on stdout | any client whose start hook injects stdout |
 
 Onboarding a new tool is one `case` in `hook-clients.ts`; the core never changes. This
@@ -157,7 +158,7 @@ reads `.memorylayer-hook.env` and runs `dist/hook.js`.
 }
 ```
 
-### End-of-turn self-review (write side, Claude Code)
+### End-of-turn self-review (write side, Claude Code / Codex / Cursor)
 
 The read hook guarantees reads; the **Stop hook** does the symmetric job for writes. At the
 end of every turn it asks the model: "did we just settle a decision that isn't recorded? If
@@ -170,8 +171,18 @@ re-engage the model), so review must hang off `Stop`, which fires each turn. A
 (any error → allow the turn to end).
 
 It shares the neutral pattern: `dist/stop-hook.js` is the core, the per-vendor envelope is one
-`case` in `hook-clients.ts`. Currently wired for **Claude Code**; Cursor keeps the
-explicit-phrase and `/remember` write paths until its `Stop`-hook contract is verified.
+`case` in `hook-clients.ts`.
+
+Wired for **Claude Code** (`.claude/settings.json`), **Codex** (`.codex/hooks.json`, Stop
+re-engages via `{"decision":"block","reason":…}`), and **Cursor** (`.cursor/hooks.json`, Stop
+re-engages via `{"followup_message":…}` with a `loop_limit` backstop). The client-agnostic loop
+guard treats `stop_hook_active` (Claude Code / Codex) or `loop_count > 0` (Cursor) as a
+continuation and no-ops. **Claude Desktop** stays MCP-pull-only — no hooks.
+
+**Live-verification TODOs** (not yet exercised against real Codex/Cursor installs): (1) Codex
+`Stop` actually provides `stop_hook_active`; (2) `.codex/hooks.json` fires in interactive
+sessions (cf. openai/codex#17532, which was `config.toml`-only); (3) Cursor `sessionStart`
+`additional_context` injection lands.
 
 Wire it locally (this repo's `.gitignore` excludes `.claude/`, so add it per clone) by adding
 a `Stop` entry to `.claude/settings.json`:

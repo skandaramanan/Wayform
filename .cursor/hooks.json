@@ -5,6 +5,12 @@
       {
         "command": "bash ./hooks/session-start.sh cursor"
       }
+    ],
+    "stop": [
+      {
+        "command": "bash ./hooks/stop-review.sh cursor",
+        "loop_limit": 3
+      }
     ]
   }
 }
