@@ -9,4 +9,4 @@ dist/
 # Per-user hook config (identity + context repo URL) — never commit
 .memorylayer-hook.env
 pre-code-chat.MD 
-
+docs/
