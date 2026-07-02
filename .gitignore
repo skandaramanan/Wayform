@@ -9,6 +9,5 @@ dist/
 .memorylayer-hook.env
 # Per-user Claude Code settings (personal permissions live here, NOT in the shared settings.json)
 .claude/settings.local.json
-pre-code-chat.MD
 # Agent authoring-workflow scaffolding (task briefs, reports, diffs) — not product; decisions live in the MemoryLayer store + docs/
 .superpowers/
