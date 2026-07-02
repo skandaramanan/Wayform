@@ -51,7 +51,9 @@ async function main() {
         type: z
           .enum(["decision", "context"])
           .default("decision")
-          .describe("'decision' for a settled call, 'context' for durable background."),
+          .describe(
+            "'decision' for a settled call, 'context' for durable background.",
+          ),
         payload: z
           .string()
           .describe(
@@ -66,19 +68,28 @@ async function main() {
       },
     },
     async ({ project, type, payload, author }) => {
-      const entry = await store.write(project, {
-        author: author?.trim() || cfg.author,
-        type,
-        payload,
-      });
-      return {
-        content: [
-          {
-            type: "text",
-            text: `Recorded ${entry.type} in '${project}' as ${entry.author} at ${entry.timestamp} (${entry.file}).`,
-          },
-        ],
-      };
+      try {
+        const entry = await store.write(project, {
+          author: author?.trim() || cfg.author,
+          type,
+          payload,
+        });
+        return {
+          content: [
+            {
+              type: "text",
+              text: `Recorded ${entry.type} in '${project}' as ${entry.author} at ${entry.timestamp} (${entry.file}).`,
+            },
+          ],
+        };
+      } catch (err) {
+        // Surface the honest "recorded locally, NOT shared yet" message (and any
+        // other write failure) as a tool error rather than a raw transport crash.
+        return {
+          content: [{ type: "text", text: (err as Error).message }],
+          isError: true,
+        };
+      }
     },
   );
 

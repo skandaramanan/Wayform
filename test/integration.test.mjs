@@ -19,7 +19,16 @@ function freshRemote() {
   git(tmp, "clone", bare, seed);
   fs.writeFileSync(path.join(seed, "README.md"), "shared\n");
   git(seed, "add", ".");
-  git(seed, "-c", "user.email=s@x", "-c", "user.name=seed", "commit", "-m", "init");
+  git(
+    seed,
+    "-c",
+    "user.email=s@x",
+    "-c",
+    "user.name=seed",
+    "commit",
+    "-m",
+    "init",
+  );
   git(seed, "push", "origin", "main");
   return { tmp, bare };
 }
@@ -64,8 +73,16 @@ test("in-process concurrent writes each get their own single-file commit (A2)", 
     const clone = path.join(tmp, "c");
 
     await Promise.all([
-      s.write("proj", { author: "Alice", type: "context", payload: "note one" }),
-      s.write("proj", { author: "Alice", type: "context", payload: "note two" }),
+      s.write("proj", {
+        author: "Alice",
+        type: "context",
+        payload: "note one",
+      }),
+      s.write("proj", {
+        author: "Alice",
+        type: "context",
+        payload: "note two",
+      }),
     ]);
 
     // Two commits touching context/, and no commit bundles more than one file.
@@ -79,7 +96,11 @@ test("in-process concurrent writes each get their own single-file commit (A2)", 
         .trim()
         .split("\n")
         .filter((l) => l.endsWith(".md"));
-      assert.equal(files.length, 1, `commit ${h} touches exactly one entry file`);
+      assert.equal(
+        files.length,
+        1,
+        `commit ${h} touches exactly one entry file`,
+      );
     }
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
@@ -92,7 +113,11 @@ test("read caps to the most recent N and reports the true total (A3)", async () 
     const s = makeStore(bare, path.join(tmp, "d"), "Alice", false);
     await s.ensure();
     for (let i = 0; i < 35; i++) {
-      await s.write("proj", { author: "Alice", type: "context", payload: `entry ${i}` });
+      await s.write("proj", {
+        author: "Alice",
+        type: "context",
+        payload: `entry ${i}`,
+      });
     }
     const { entries, total } = await s.read("proj", 30);
     assert.equal(total, 35, "total counts every entry");
@@ -131,7 +156,12 @@ test("push failure surfaces an honest 'recorded locally' error (A4)", async () =
     // Break the remote after cloning: the write commits locally, push fails.
     fs.rmSync(bare, { recursive: true, force: true });
     await assert.rejects(
-      () => s.write("proj", { author: "Alice", type: "decision", payload: "stranded" }),
+      () =>
+        s.write("proj", {
+          author: "Alice",
+          type: "decision",
+          payload: "stranded",
+        }),
       /Recorded locally, NOT shared yet/,
     );
     // The decision is still recorded in the local clone (not lost).

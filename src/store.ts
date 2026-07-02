@@ -2,25 +2,25 @@ import fs from "node:fs/promises";
 import { existsSync } from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { simpleGit, type SimpleGit } from "simple-git";
 import type { Config } from "./config.js";
+import { GitRepo } from "./git-repo.js";
+import {
+  serializeEntry,
+  parseEntry,
+  type WriteEntry,
+  type ParsedEntry,
+} from "./frontmatter.js";
 
-export type EntryType = "decision" | "context";
+// Re-exported so existing importers (index.ts, context-format.ts, tests) keep a
+// single stable surface even though the entry types now live in frontmatter.ts.
+export type { EntryType, WriteEntry, ParsedEntry } from "./frontmatter.js";
 
-export interface WriteEntry {
-  author: string;
-  type: EntryType;
-  payload: string;
-}
-
-export interface ParsedEntry {
-  author: string;
-  type: EntryType;
-  timestamp: string;
-  id: string;
-  payload: string;
-  file: string;
-}
+/** Most recent entries a read returns; caps context bloat as the store grows. */
+const DEFAULT_READ_LIMIT = 30;
+/** Length of the random id suffix appended to an entry's timestamped filename. */
+const ID_LENGTH = 8;
+/** Max length of the commit-subject summary derived from a payload's first line. */
+const COMMIT_SUBJECT_MAX = 72;
 
 /**
  * Collapse arbitrary text to a filesystem-safe slug. Also the path-traversal
@@ -41,20 +41,21 @@ function fsSafeTimestamp(iso: string): string {
 }
 
 /**
- * Git-backed context store. Git is the consistency layer: append-only log,
- * immutable commits, per-write attribution via commit authorship. Each write is
- * its own file under context/<project>/<author>/, so concurrent writers never
- * touch the same file and never produce a merge conflict.
+ * Git-backed context store. Git is the consistency layer (append-only log,
+ * immutable commits, per-write attribution). This class owns orchestration and
+ * path/identity logic; git plumbing lives in GitRepo and the entry markdown
+ * format in frontmatter.ts. Each write is its own file under
+ * context/<project>/<author>/, so concurrent writers never touch the same file.
  */
 export class ContextStore {
-  private git: SimpleGit;
+  private repo: GitRepo;
   // Serializes every git-touching operation for this clone. Two concurrent
   // write()s (or a read racing a write) would otherwise collide on
   // .git/index.lock, since each git command is a separate child process.
   private queue: Promise<unknown> = Promise.resolve();
 
   constructor(private cfg: Config) {
-    this.git = simpleGit();
+    this.repo = new GitRepo(cfg);
   }
 
   private serialize<T>(fn: () => Promise<T>): Promise<T> {
@@ -63,18 +64,9 @@ export class ContextStore {
     return run;
   }
 
-  /** Clone the shared repo if absent, then pin the commit-author identity. */
+  /** Clone the shared repo if absent and pin the commit-author identity. */
   async ensure(): Promise<void> {
-    const { repoPath, repoUrl, author, authorEmail } = this.cfg;
-
-    if (!existsSync(path.join(repoPath, ".git"))) {
-      await fs.mkdir(path.dirname(repoPath), { recursive: true });
-      await simpleGit().clone(repoUrl, repoPath);
-    }
-
-    this.git = simpleGit(repoPath);
-    await this.git.addConfig("user.name", author);
-    await this.git.addConfig("user.email", authorEmail);
+    await this.repo.ensure();
   }
 
   private projectDir(project: string): string {
@@ -93,38 +85,34 @@ export class ContextStore {
     return this.serialize(() => this.writeImpl(project, entry));
   }
 
-  private async writeImpl(project: string, entry: WriteEntry): Promise<ParsedEntry> {
-    await this.pull();
+  private async writeImpl(
+    project: string,
+    entry: WriteEntry,
+  ): Promise<ParsedEntry> {
+    await this.repo.pull();
 
     const timestamp = new Date().toISOString();
-    const id = randomUUID().slice(0, 8);
+    const id = randomUUID().slice(0, ID_LENGTH);
     const authorEmail = this.emailFor(entry.author);
     const relDir = path.join(this.projectDir(project), slug(entry.author));
     const relFile = path.join(relDir, `${fsSafeTimestamp(timestamp)}-${id}.md`);
     const absFile = path.join(this.cfg.repoPath, relFile);
 
-    const contents =
-      `---\n` +
-      `author: ${entry.author}\n` +
-      `type: ${entry.type}\n` +
-      `timestamp: ${timestamp}\n` +
-      `id: ${id}\n` +
-      `project: ${project}\n` +
-      `---\n\n` +
-      `${entry.payload.trim()}\n`;
+    const contents = serializeEntry(
+      { author: entry.author, type: entry.type, timestamp, id, project },
+      entry.payload,
+    );
 
     await fs.mkdir(path.dirname(absFile), { recursive: true });
     await fs.writeFile(absFile, contents, "utf8");
 
-    // Commit ONLY this file (explicit pathspec). Without it, a second concurrent
-    // write()'s staged file could be swept into this commit under one author.
-    await this.git.add(relFile);
-    await this.git.commit(
-      `${entry.type}(${slug(project)}): ${firstLine(entry.payload)}`,
+    await this.repo.commitFile(
       relFile,
-      { "--author": `${entry.author} <${authorEmail}>` },
+      `${entry.type}(${slug(project)}): ${firstLine(entry.payload)}`,
+      entry.author,
+      authorEmail,
     );
-    await this.push();
+    await this.repo.push();
 
     return {
       author: entry.author,
@@ -148,7 +136,7 @@ export class ContextStore {
    */
   read(
     project: string,
-    limit = 30,
+    limit = DEFAULT_READ_LIMIT,
   ): Promise<{ entries: ParsedEntry[]; total: number }> {
     return this.serialize(() => this.readImpl(project, limit));
   }
@@ -157,8 +145,8 @@ export class ContextStore {
     project: string,
     limit: number,
   ): Promise<{ entries: ParsedEntry[]; total: number }> {
-    await this.pull();
-    await this.selfHealPush();
+    await this.repo.pull();
+    await this.repo.selfHealPush();
 
     const absDir = path.join(this.cfg.repoPath, this.projectDir(project));
     if (!existsSync(absDir)) return { entries: [], total: 0 };
@@ -182,58 +170,10 @@ export class ContextStore {
       limit > 0 && total > limit ? entries.slice(total - limit) : entries;
     return { entries: capped, total };
   }
-
-  private async currentBranch(): Promise<string> {
-    return (await this.git.revparse(["--abbrev-ref", "HEAD"])).trim() || "main";
-  }
-
-  private async pull(): Promise<void> {
-    try {
-      const branch = await this.currentBranch();
-      await this.git.pull("origin", branch, ["--rebase"]);
-    } catch {
-      // Empty remote, no upstream yet, or offline: reads/writes still work
-      // locally. The failure mode is documented rather than engineered around.
-    }
-  }
-
-  private async push(): Promise<void> {
-    if (!this.cfg.autoPush) return;
-    const branch = await this.currentBranch();
-    try {
-      await this.git.push(["-u", "origin", branch]);
-    } catch {
-      // Non-fast-forward or offline: rebase on latest and retry once. Per-author
-      // files mean the rebase is always clean.
-      try {
-        await this.git.pull("origin", branch, ["--rebase"]);
-        await this.git.push(["-u", "origin", branch]);
-      } catch (err) {
-        throw new Error(
-          `Recorded locally, NOT shared yet — push failed, will retry on the ` +
-            `next read/write: ${(err as Error).message}`,
-        );
-      }
-    }
-  }
-
-  /**
-   * Best-effort push of anything committed locally but not yet on the remote.
-   * Called from read() so a write whose push failed earlier still reaches
-   * collaborators. Silent on failure — it stays local and retries next read.
-   */
-  private async selfHealPush(): Promise<void> {
-    if (!this.cfg.autoPush) return;
-    try {
-      await this.push();
-    } catch {
-      // Still offline / unauthorized: entry remains local, retried next read.
-    }
-  }
 }
 
 function firstLine(s: string): string {
-  return s.trim().split("\n")[0].slice(0, 72);
+  return s.trim().split("\n")[0].slice(0, COMMIT_SUBJECT_MAX);
 }
 
 async function collectMarkdown(dir: string): Promise<string[]> {
@@ -248,30 +188,4 @@ async function collectMarkdown(dir: string): Promise<string[]> {
     }
   }
   return out;
-}
-
-export function parseEntry(raw: string, file: string): ParsedEntry | null {
-  const match = raw.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
-  if (!match) return null;
-  const front = Object.fromEntries(
-    match[1]
-      .split("\n")
-      .map((line) => {
-        const idx = line.indexOf(":");
-        return idx === -1
-          ? null
-          : [line.slice(0, idx).trim(), line.slice(idx + 1).trim()];
-      })
-      .filter((x): x is [string, string] => x !== null),
-  );
-
-  if (!front.timestamp || !front.author) return null;
-  return {
-    author: front.author,
-    type: (front.type as EntryType) || "context",
-    timestamp: front.timestamp,
-    id: front.id || "",
-    payload: match[2].trim(),
-    file,
-  };
 }
