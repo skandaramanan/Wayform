@@ -6,7 +6,7 @@
  * expects. Keeping that envelope isolated here means onboarding a new tool is a
  * single `case`, and the neutral core (store read + projection) never changes.
  */
-export type HookClient = "cursor" | "claude-code" | "raw";
+export type HookClient = "cursor" | "claude-code" | "raw" | "codex";
 
 /** Map the configured client string to a known adapter; default to Cursor. */
 export function resolveClient(raw: string | undefined): HookClient {
@@ -17,6 +17,8 @@ export function resolveClient(raw: string | undefined): HookClient {
       return "claude-code";
     case "raw":
       return "raw";
+    case "codex":
+      return "codex";
     default:
       return "cursor";
   }
@@ -29,6 +31,16 @@ export function renderContext(client: HookClient, text: string): string {
       // No envelope: clients whose start hook injects stdout verbatim.
       return text;
     case "claude-code":
+      return JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "SessionStart",
+          additionalContext: text,
+        },
+      });
+    case "codex":
+      // Codex SessionStart injection is byte-identical to Claude Code today, but
+      // kept a separate case so a future divergence in either tool is a one-line
+      // change (see spec decision a).
       return JSON.stringify({
         hookSpecificOutput: {
           hookEventName: "SessionStart",
@@ -56,9 +68,9 @@ export function renderEmpty(client: HookClient): string {
  * `hookSpecificOutput.additionalContext` on Stop as non-error feedback that continues
  * the conversation. `raw` emits the text verbatim.
  *
- * Cursor: its Stop-hook re-engagement contract is not yet verified, so Cursor gets the
- * no-op here — self-review is Claude-Code-only for now; Cursor still has the explicit
- * phrase and /remember write paths. Onboarding Cursor later = fill in this one case.
+ * Cursor and Codex are now supported: Cursor re-engages via followup_message,
+ * Codex uses decision:block with reason to trigger a re-engagement. Self-review
+ * is available to all three tools; raw still emits verbatim.
  */
 export function renderStopReview(client: HookClient, text: string): string {
   switch (client) {
@@ -71,8 +83,14 @@ export function renderStopReview(client: HookClient, text: string): string {
           additionalContext: text,
         },
       });
+    case "codex":
+      // Codex Stop re-engages differently from Claude Code: decision:block makes
+      // `reason` the next user prompt.
+      return JSON.stringify({ decision: "block", reason: text });
     case "cursor":
-      return renderStopNoop(client);
+      // Cursor Stop re-engages via followup_message (auto-submitted as next user
+      // message); loop protection is loop_count/loop_limit (see stop-hook + config).
+      return JSON.stringify({ followup_message: text });
   }
 }
 
