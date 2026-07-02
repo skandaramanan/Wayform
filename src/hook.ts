@@ -26,51 +26,59 @@ import {
   renderEmpty,
   type HookClient,
 } from "./hook-clients.js";
+import { isMain } from "./is-main.js";
 
-// Resolved at module load: cannot throw, so both the success and fail-open paths
-// always know which envelope to emit.
-const client: HookClient = resolveClient(process.env.MEMORYLAYER_HOOK_CLIENT);
+export async function runHook(): Promise<void> {
+  // Resolved here (not at module load) so the dispatcher can set
+  // MEMORYLAYER_HOOK_CLIENT from the subcommand arg before calling. Cannot throw,
+  // so both the success and fail-open paths always know which envelope to emit.
+  const client: HookClient = resolveClient(process.env.MEMORYLAYER_HOOK_CLIENT);
 
-function emitEmpty(): never {
-  process.stdout.write(renderEmpty(client));
-  process.exit(0);
-}
+  const emitEmpty = (): never => {
+    process.stdout.write(renderEmpty(client));
+    process.exit(0);
+  };
 
-/** Drain stdin so the client's write never blocks; the payload is unused today. */
-async function drainStdin(): Promise<void> {
-  if (process.stdin.isTTY) return;
-  try {
-    for await (const _ of process.stdin) {
-      // discard
+  /** Drain stdin so the client's write never blocks; the payload is unused today. */
+  const drainStdin = async (): Promise<void> => {
+    if (process.stdin.isTTY) return;
+    try {
+      for await (const _ of process.stdin) {
+        // discard
+      }
+    } catch {
+      // stdin not readable — irrelevant to producing context.
     }
+  };
+
+  try {
+    await drainStdin();
+
+    const project = process.env.MEMORYLAYER_PROJECT?.trim() || "memorylayer";
+
+    const cfg = loadConfig();
+    const store = new ContextStore(cfg);
+    await store.ensure();
+    const { entries, total } = await store.read(project);
+
+    // An empty store has nothing worth injecting — start clean rather than pushing
+    // a "(no entries yet)" placeholder into every session.
+    if (total === 0) emitEmpty();
+
+    const body = projectContext(project, entries, total);
+    const text =
+      `The following is shared planning memory (MemoryLayer) for project ` +
+      `"${project}", loaded automatically at session start. Treat these recorded ` +
+      `decisions and context as already-known; do not ask the user to re-explain ` +
+      `them.\n\n${body}`;
+
+    process.stdout.write(renderContext(client, text));
+    process.exit(0);
   } catch {
-    // stdin not readable — irrelevant to producing context.
+    emitEmpty();
   }
 }
 
-async function main(): Promise<void> {
-  await drainStdin();
-
-  const project = process.env.MEMORYLAYER_PROJECT?.trim() || "memorylayer";
-
-  const cfg = loadConfig();
-  const store = new ContextStore(cfg);
-  await store.ensure();
-  const { entries, total } = await store.read(project);
-
-  // An empty store has nothing worth injecting — start clean rather than pushing
-  // a "(no entries yet)" placeholder into every session.
-  if (total === 0) emitEmpty();
-
-  const body = projectContext(project, entries, total);
-  const text =
-    `The following is shared planning memory (MemoryLayer) for project ` +
-    `"${project}", loaded automatically at session start. Treat these recorded ` +
-    `decisions and context as already-known; do not ask the user to re-explain ` +
-    `them.\n\n${body}`;
-
-  process.stdout.write(renderContext(client, text));
-  process.exit(0);
+if (isMain(import.meta.url)) {
+  void runHook();
 }
-
-main().catch(() => emitEmpty());
