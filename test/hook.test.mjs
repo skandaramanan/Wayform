@@ -38,3 +38,7 @@ test("fail-open: raw client emits nothing and exits 0", () => {
 test("fail-open: unknown client defaults to cursor's {} no-op", () => {
   assert.equal(runHook("something-new").trim(), "{}");
 });
+
+test("fail-open: codex client emits the {} no-op and exits 0", () => {
+  assert.equal(runHook("codex").trim(), "{}");
+});
