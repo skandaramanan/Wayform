@@ -157,6 +157,55 @@ reads `.memorylayer-hook.env` and runs `dist/hook.js`.
 }
 ```
 
+### End-of-turn self-review (write side, Claude Code)
+
+The read hook guarantees reads; the **Stop hook** does the symmetric job for writes. At the
+end of every turn it asks the model: "did we just settle a decision that isn't recorded? If
+so, call `write_context`; if not, do nothing." This removes the reliance on the model
+*spontaneously* noticing — the weak half of the loop.
+
+Why per-turn and not on session close: Claude Code's `SessionEnd` is cleanup-only (it cannot
+re-engage the model), so review must hang off `Stop`, which fires each turn. A
+`stop_hook_active` loop guard means it fires at most once per turn, and it is **fail-open**
+(any error → allow the turn to end).
+
+It shares the neutral pattern: `dist/stop-hook.js` is the core, the per-vendor envelope is one
+`case` in `hook-clients.ts`. Currently wired for **Claude Code**; Cursor keeps the
+explicit-phrase and `/remember` write paths until its `Stop`-hook contract is verified.
+
+Wire it locally (this repo's `.gitignore` excludes `.claude/`, so add it per clone) by adding
+a `Stop` entry to `.claude/settings.json`:
+
+```json
+"Stop": [
+  {
+    "hooks": [
+      { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/hooks/stop-review.sh\" claude-code" }
+    ]
+  }
+]
+```
+
+### The `/remember` command (Claude Code / Cursor)
+
+A low-friction muscle-memory write. `.claude/` is gitignored, so create the command per clone
+at `.claude/commands/remember.md` with:
+
+    ---
+    description: Record a settled decision to the shared MemoryLayer store
+    ---
+
+    Record a decision to the shared MemoryLayer planning store for this project.
+    If text was provided after the command, use it as the decision. Otherwise, use the
+    most recently settled decision from our conversation. Call `write_context` with
+    project "memorylayer", type "decision" (or "context"), and a compact payload that
+    includes the "because". Only settled decisions — keep the store curated.
+
+    $ARGUMENTS
+
+Then `/remember we decided X because Y` records it; bare `/remember` records the last settled
+decision. Cursor has an equivalent command mechanism pointing at the same `write_context` tool.
+
 ### Claude Desktop is different — no auto-read
 
 Claude Desktop has **no hook system**; it only speaks MCP, and **MCP is pull-based**.
@@ -172,6 +221,16 @@ proxy (Phase 2), because the client is closed.
 A "write" is a **decision or established context** — "we decided X, because Y." NOT a
 firehose of every reasoning token. Deliberate commits keep the store from degrading
 into a junk drawer under agent load.
+
+**Three ways a write happens (softest first):**
+
+1. **Explicit phrase (any client, incl. Desktop).** Tell the agent directly: "record this
+   decision: X because Y." Because it's a direct command, the model complies near-reliably —
+   unlike it *spontaneously* noticing. This is the universal fallback and the only write path
+   on Claude Desktop.
+2. **`/remember` slash command (Claude Code / Cursor).** A one-word gesture — see setup below.
+3. **End-of-turn self-review (Claude Code).** A `Stop` hook asks the model, at the end of each
+   turn, to record any decision just settled — see setup below.
 
 ## Not in v1 (on purpose)
 
