@@ -141,8 +141,10 @@ reads `.memorylayer-hook.env` and runs `dist/hook.js`.
 }
 ```
 
-- **Claude Code** — wired via `.claude/settings.json` (this repo's `.gitignore` excludes
-  `.claude/`, so create it locally per clone):
+- **Claude Code** — already wired via the committed `.claude/settings.json` (mirrors
+  `.cursor/hooks.json` and `.codex/hooks.json`). Personal, per-user Claude Code settings
+  (e.g. `permissions`) belong in `.claude/settings.local.json`, which is gitignored — keep
+  them out of the shared `settings.json`. The committed file contains:
 
 ```json
 {
@@ -184,8 +186,8 @@ continuation and no-ops. **Claude Desktop** stays MCP-pull-only — no hooks.
 sessions (cf. openai/codex#17532, which was `config.toml`-only); (3) Cursor `sessionStart`
 `additional_context` injection lands.
 
-Wire it locally (this repo's `.gitignore` excludes `.claude/`, so add it per clone) by adding
-a `Stop` entry to `.claude/settings.json`:
+This is already wired in the committed `.claude/settings.json` via a `Stop` entry (alongside
+Codex's `.codex/hooks.json` and Cursor's `.cursor/hooks.json`):
 
 ```json
 "Stop": [
@@ -199,9 +201,9 @@ a `Stop` entry to `.claude/settings.json`:
 
 ### The `/remember` command (Claude Code / Cursor)
 
-A low-friction muscle-memory write. `.claude/` is gitignored, so create the command per clone
-at `.claude/commands/remember.md` with:
-
+A low-friction muscle-memory write. The command ships in the repo at
+`.claude/commands/remember.md`:
+ho
     ---
     description: Record a settled decision to the shared MemoryLayer store
     ---
