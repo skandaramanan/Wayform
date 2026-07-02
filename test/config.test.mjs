@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
+import fs from "node:fs";
 import path from "node:path";
-import { loadConfig } from "../dist/config.js";
+import { loadConfig, loadHookEnv } from "../dist/config.js";
 
 const MEMORYLAYER_VARS = [
   "CONTEXT_REPO_URL",
@@ -105,4 +106,46 @@ test("repoPath defaults under ~/.memorylayer and honors CONTEXT_REPO_PATH", () =
       assert.equal(loadConfig().repoPath, "/tmp/store");
     },
   );
+});
+
+test("loadHookEnv loads KEY=VALUE lines from .memorylayer-hook.env, skips comments/blanks", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ml-env-"));
+  fs.writeFileSync(
+    path.join(dir, ".memorylayer-hook.env"),
+    "# a comment\n\nMEMORYLAYER_AUTHOR=Ada\nCONTEXT_REPO_URL=https://example/x.git\n",
+  );
+  const saved = { ...process.env };
+  delete process.env.MEMORYLAYER_AUTHOR;
+  delete process.env.CONTEXT_REPO_URL;
+  try {
+    loadHookEnv(dir);
+    assert.equal(process.env.MEMORYLAYER_AUTHOR, "Ada");
+    assert.equal(process.env.CONTEXT_REPO_URL, "https://example/x.git");
+  } finally {
+    process.env = saved;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadHookEnv does NOT override an already-set env var", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ml-env-"));
+  fs.writeFileSync(
+    path.join(dir, ".memorylayer-hook.env"),
+    "MEMORYLAYER_AUTHOR=FromFile\n",
+  );
+  const saved = { ...process.env };
+  process.env.MEMORYLAYER_AUTHOR = "FromEnv";
+  try {
+    loadHookEnv(dir);
+    assert.equal(process.env.MEMORYLAYER_AUTHOR, "FromEnv");
+  } finally {
+    process.env = saved;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadHookEnv is a silent no-op when the file is absent (fail-open)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ml-env-"));
+  assert.doesNotThrow(() => loadHookEnv(dir));
+  fs.rmSync(dir, { recursive: true, force: true });
 });

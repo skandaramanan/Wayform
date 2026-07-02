@@ -1,5 +1,6 @@
 import os from "node:os";
 import path from "node:path";
+import fs from "node:fs";
 
 /**
  * MemoryLayer v1 configuration, read from the environment.
@@ -29,6 +30,33 @@ function required(name: string): string {
     );
   }
   return v.trim();
+}
+
+/**
+ * Load `.memorylayer-hook.env` (KEY=VALUE lines) from `cwd` into process.env,
+ * for keys NOT already set. This replaces the old bash launcher's `set -a; . file`
+ * so the `memorylayer` command is self-contained. Called once at the CLI entry
+ * point (cli.ts) so every subcommand sees it, while `loadConfig` stays pure
+ * (env-only) and a directly-spawned `dist/hook.js` still fail-opens with no config.
+ * Silent no-op if the file is absent or unreadable — never throws.
+ */
+export function loadHookEnv(cwd: string = process.cwd()): void {
+  const file = path.join(cwd, ".memorylayer-hook.env");
+  let text: string;
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch {
+    return; // absent/unreadable — nothing to load.
+  }
+  for (const rawLine of text.split(/\r?\n/)) {
+    const line = rawLine.trim();
+    if (!line || line.startsWith("#")) continue;
+    const eq = line.indexOf("=");
+    if (eq <= 0) continue;
+    const key = line.slice(0, eq).trim();
+    const value = line.slice(eq + 1).trim();
+    if (process.env[key] === undefined) process.env[key] = value;
+  }
 }
 
 export function loadConfig(): Config {
