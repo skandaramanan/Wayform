@@ -186,6 +186,26 @@ a `Stop` entry to `.claude/settings.json`:
 ]
 ```
 
+### The `/remember` command (Claude Code / Cursor)
+
+A low-friction muscle-memory write. `.claude/` is gitignored, so create the command per clone
+at `.claude/commands/remember.md` with:
+
+    ---
+    description: Record a settled decision to the shared MemoryLayer store
+    ---
+
+    Record a decision to the shared MemoryLayer planning store for this project.
+    If text was provided after the command, use it as the decision. Otherwise, use the
+    most recently settled decision from our conversation. Call `write_context` with
+    project "memorylayer", type "decision" (or "context"), and a compact payload that
+    includes the "because". Only settled decisions — keep the store curated.
+
+    $ARGUMENTS
+
+Then `/remember we decided X because Y` records it; bare `/remember` records the last settled
+decision. Cursor has an equivalent command mechanism pointing at the same `write_context` tool.
+
 ### Claude Desktop is different — no auto-read
 
 Claude Desktop has **no hook system**; it only speaks MCP, and **MCP is pull-based**.
