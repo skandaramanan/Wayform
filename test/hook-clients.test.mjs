@@ -15,11 +15,13 @@ test("resolveClient defaults to cursor for unset/blank/unknown", () => {
   assert.equal(resolveClient("something-new"), "cursor");
 });
 
-test("resolveClient recognizes claude-code aliases and raw, case-insensitively", () => {
+test("resolveClient recognizes claude-code aliases, raw, and codex, case-insensitively", () => {
   assert.equal(resolveClient("claude-code"), "claude-code");
   assert.equal(resolveClient("claude_code"), "claude-code");
   assert.equal(resolveClient("ClaudeCode"), "claude-code");
   assert.equal(resolveClient(" RAW "), "raw");
+  assert.equal(resolveClient("codex"), "codex");
+  assert.equal(resolveClient(" CODEX "), "codex");
 });
 
 test("cursor envelope uses additional_context", () => {
@@ -56,8 +58,10 @@ test("raw Stop review is the text verbatim", () => {
   assert.equal(renderStopReview("raw", "review please"), "review please");
 });
 
-test("cursor Stop review is a no-op (self-review deferred until Cursor Stop verified)", () => {
-  assert.equal(renderStopReview("cursor", "review please"), "{}");
+test("cursor Stop review re-engages via followup_message", () => {
+  const out = JSON.parse(renderStopReview("cursor", "review please"));
+  assert.deepEqual(Object.keys(out), ["followup_message"]);
+  assert.equal(out.followup_message, "review please");
 });
 
 test("Stop no-op is valid per client: {} for JSON clients, empty for raw", () => {
@@ -65,4 +69,22 @@ test("Stop no-op is valid per client: {} for JSON clients, empty for raw", () =>
   assert.equal(renderStopNoop("cursor"), "{}");
   assert.equal(renderStopNoop("raw"), "");
   assert.deepEqual(JSON.parse(renderStopNoop("claude-code")), {});
+});
+
+test("codex read envelope matches the claude-code SessionStart shape", () => {
+  const out = JSON.parse(renderContext("codex", "hello"));
+  assert.equal(out.hookSpecificOutput.hookEventName, "SessionStart");
+  assert.equal(out.hookSpecificOutput.additionalContext, "hello");
+});
+
+test("codex Stop review re-engages via decision:block with reason", () => {
+  const out = JSON.parse(renderStopReview("codex", "review please"));
+  assert.equal(out.decision, "block");
+  assert.equal(out.reason, "review please");
+});
+
+test("codex empty and Stop no-ops are valid {} JSON", () => {
+  assert.equal(renderEmpty("codex"), "{}");
+  assert.equal(renderStopNoop("codex"), "{}");
+  assert.deepEqual(JSON.parse(renderStopNoop("codex")), {});
 });
