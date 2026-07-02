@@ -173,6 +173,16 @@ A "write" is a **decision or established context** — "we decided X, because Y.
 firehose of every reasoning token. Deliberate commits keep the store from degrading
 into a junk drawer under agent load.
 
+**Three ways a write happens (softest first):**
+
+1. **Explicit phrase (any client, incl. Desktop).** Tell the agent directly: "record this
+   decision: X because Y." Because it's a direct command, the model complies near-reliably —
+   unlike it *spontaneously* noticing. This is the universal fallback and the only write path
+   on Claude Desktop.
+2. **`/remember` slash command (Claude Code / Cursor).** A one-word gesture — see setup below.
+3. **End-of-turn self-review (Claude Code).** A `Stop` hook asks the model, at the end of each
+   turn, to record any decision just settled — see setup below.
+
 ## Not in v1 (on purpose)
 
 No context graph, no UI/dashboard, no accounts/permissioning, no summarization/RAG/
