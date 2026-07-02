@@ -6,5 +6,7 @@ dist/
 .claude/
 # Local clone of the shared context repo (never commit into the server repo)
 .context-store/
+# Per-user hook config (identity + context repo URL) — never commit
+.memorylayer-hook.env
 pre-code-chat.MD 
 

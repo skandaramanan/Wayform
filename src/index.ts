@@ -3,28 +3,8 @@ import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
 import { loadConfig } from "./config.js";
-import { ContextStore, type ParsedEntry } from "./store.js";
-
-function projectContext(
-  project: string,
-  entries: ParsedEntry[],
-  total: number,
-): string {
-  if (total === 0) {
-    return `# Shared context: ${project}\n\n(No entries yet. Use write_context to record the first decision.)`;
-  }
-  const header =
-    total > entries.length
-      ? `# Shared context: ${project}\n\n_Showing the ${entries.length} most recent of ${total} entries._`
-      : `# Shared context: ${project}`;
-  const body = entries
-    .map(
-      (e) =>
-        `## ${e.type} — ${e.author} — ${e.timestamp}\n\n${e.payload}`,
-    )
-    .join("\n\n---\n\n");
-  return `${header}\n\n${body}`;
-}
+import { ContextStore } from "./store.js";
+import { projectContext } from "./context-format.js";
 
 async function main() {
   const cfg = loadConfig();

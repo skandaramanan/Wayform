@@ -73,9 +73,11 @@ or SSH). No accounts, no separate auth layer.
 
 ### 4. Make reads feel "unprompted"
 
-MCP tools are pull-based: an agent only reads when told to. To get the magic moment
-(a collaborator's decision already present, unpasted), tell each agent **once** to
-read on start. Add this to your project's `CLAUDE.md` and/or Cursor rules:
+MCP tools are pull-based: an agent only reads when told to. There are two ways to get
+the magic moment (a collaborator's decision already present, unpasted), softest first.
+
+**(a) The convention (soft, ~60–85%).** Tell each agent **once** to read on start.
+Add this to your project's `CLAUDE.md` and/or Cursor rules:
 
 ```markdown
 ## Shared planning memory
@@ -84,6 +86,86 @@ At the start of any planning or design discussion, call
 already recorded are in context. When we settle something ("we decided X because Y"),
 call `write_context` to record it — deliberate decisions only, not every thought.
 ```
+
+**(b) The read hook (guaranteed, for coding tools).** The convention still depends on
+the model *choosing* to call the tool, which decays over long chats. To take the
+decision away from the model, the bundled session-start hook pulls the project's context
+and injects it at the start of a session before the agent does anything.
+
+> **Scope on purpose.** The hook is **project-scoped**, not global. It lives in this
+> repo (`.cursor/hooks.json`, `.claude/settings.json`) so it fires **only when you open
+> a coding session in this project** — never in unrelated Cursor/Claude Code chats,
+> where injecting a planning doc would just pollute context. This scoping is the whole
+> reason it lives in the repo rather than in `~/.cursor` / `~/.claude`.
+
+`dist/hook.js` is the **neutral core**: it reads the store, projects the context, and
+emits it. Only the *envelope* is per-vendor, isolated in `hook-clients.ts` and selected
+by `MEMORYLAYER_HOOK_CLIENT`:
+
+| `MEMORYLAYER_HOOK_CLIENT` | Emits | For |
+|---|---|---|
+| `cursor` (default) | `{ "additional_context": "…" }` | Cursor `sessionStart` |
+| `claude-code` | `{ "hookSpecificOutput": { "hookEventName": "SessionStart", "additionalContext": "…" } }` | Claude Code `SessionStart` |
+| `raw` | the markdown, verbatim on stdout | any client whose start hook injects stdout |
+
+Onboarding a new tool is one `case` in `hook-clients.ts`; the core never changes. This
+is where — and the *only* place — vendor-neutrality is spent: the store, the MCP
+contract, and the projected context are identical across tools, so a decision written
+from Cursor is injected at the start of a Claude Code session and vice versa.
+
+The hook is **fail-open**: on any error (offline, bad config, empty store) it emits the
+client's empty no-op (`{}`, or nothing for `raw`) and exits 0, so it can never break a
+session. Config is the same env vars as the server, plus optional `MEMORYLAYER_PROJECT`
+(project to inject; default `memorylayer`) and `MEMORYLAYER_HOOK_CLIENT` (default `cursor`).
+
+**Setup (once per clone):** copy the config template — your identity/URL stay out of git:
+
+```bash
+cp .memorylayer-hook.env.example .memorylayer-hook.env   # then fill in your values
+```
+
+Both clients invoke one committed launcher, `hooks/session-start.sh <client>`, which
+reads `.memorylayer-hook.env` and runs `dist/hook.js`.
+
+- **Cursor** — already wired via committed `.cursor/hooks.json`:
+
+```json
+{
+  "version": 1,
+  "hooks": {
+    "sessionStart": [
+      { "command": "bash ./hooks/session-start.sh cursor" }
+    ]
+  }
+}
+```
+
+- **Claude Code** — wired via `.claude/settings.json` (this repo's `.gitignore` excludes
+  `.claude/`, so create it locally per clone):
+
+```json
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "hooks": [
+          { "type": "command", "command": "bash \"$CLAUDE_PROJECT_DIR/hooks/session-start.sh\" claude-code" }
+        ]
+      }
+    ]
+  }
+}
+```
+
+### Claude Desktop is different — no auto-read
+
+Claude Desktop has **no hook system**; it only speaks MCP, and **MCP is pull-based**.
+That means Desktop does **not** read context automatically on a new chat. It reads
+**only** when the model decides to call `read_context` — i.e. when the convention in
+**(a)** nudges it, which is best-effort, not guaranteed. If you want Desktop to pull on
+every new chat, you must say so explicitly in its instructions (and even then it's the
+model's choice, not a hard trigger). Guaranteed auto-read on Desktop needs the hosted
+proxy (Phase 2), because the client is closed.
 
 ## The write model (anti-junk-drawer)
 
