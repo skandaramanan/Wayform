@@ -8,5 +8,4 @@ dist/
 .context-store/
 # Per-user hook config (identity + context repo URL) — never commit
 .memorylayer-hook.env
-pre-code-chat.MD 
-docs/
+pre-code-chat.MD
