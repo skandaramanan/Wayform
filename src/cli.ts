@@ -11,12 +11,17 @@
  * `hook`/`stop-review` set MEMORYLAYER_HOOK_CLIENT from the positional arg, then
  * delegate to the neutral run functions (which self-load .memorylayer-hook.env).
  */
+import { loadHookEnv } from "./config.js";
 import { runServer } from "./index.js";
 import { runHook } from "./hook.js";
 import { runStopHook } from "./stop-hook.js";
 import { runInit } from "./init.js";
 
 async function main(): Promise<void> {
+  // Self-load .memorylayer-hook.env from the project cwd for every subcommand,
+  // so the command is self-contained (no bash launcher). loadConfig stays pure.
+  loadHookEnv();
+
   const [sub, ...rest] = process.argv.slice(2);
 
   switch (sub) {

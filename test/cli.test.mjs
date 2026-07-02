@@ -2,14 +2,22 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { execFileSync } from "node:child_process";
 import { fileURLToPath } from "node:url";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 
 const cli = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
+
+// A clean cwd with no .memorylayer-hook.env, so the CLI's self-load finds nothing
+// and the routed read hook genuinely fail-opens (the repo root has a real env file).
+const cleanCwd = fs.mkdtempSync(path.join(os.tmpdir(), "ml-cli-"));
 
 /** Run the built CLI with args + no config, so the routed hook fail-opens. */
 function run(args, client) {
   return execFileSync(process.execPath, [cli, ...args], {
     input: "",
     encoding: "utf8",
+    cwd: cleanCwd,
     env: {
       PATH: process.env.PATH ?? "",
       MEMORYLAYER_HOOK_CLIENT: client ?? "",
