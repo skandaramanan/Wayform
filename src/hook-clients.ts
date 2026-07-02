@@ -48,3 +48,38 @@ export function renderContext(client: HookClient, text: string): string {
 export function renderEmpty(client: HookClient): string {
   return client === "raw" ? "" : "{}";
 }
+
+/**
+ * Stop-hook envelope that ASKS the model to self-review (write-trigger Path C).
+ *
+ * Unlike SessionStart, the Stop event can re-engage the model: Claude Code accepts
+ * `hookSpecificOutput.additionalContext` on Stop as non-error feedback that continues
+ * the conversation. `raw` emits the text verbatim.
+ *
+ * Cursor: its Stop-hook re-engagement contract is not yet verified, so Cursor gets the
+ * no-op here — self-review is Claude-Code-only for now; Cursor still has the explicit
+ * phrase and /remember write paths. Onboarding Cursor later = fill in this one case.
+ */
+export function renderStopReview(client: HookClient, text: string): string {
+  switch (client) {
+    case "raw":
+      return text;
+    case "claude-code":
+      return JSON.stringify({
+        hookSpecificOutput: {
+          hookEventName: "Stop",
+          additionalContext: text,
+        },
+      });
+    case "cursor":
+      return renderStopNoop(client);
+  }
+}
+
+/**
+ * Stop-hook no-op: let the turn end with no injected review. Used on the loop-guard
+ * path (stop_hook_active) and the fail-open path.
+ */
+export function renderStopNoop(client: HookClient): string {
+  return client === "raw" ? "" : "{}";
+}
