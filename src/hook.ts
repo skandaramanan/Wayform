@@ -20,6 +20,7 @@
 import { loadConfig } from "./config.js";
 import { ContextStore } from "./store.js";
 import { projectContext } from "./context-format.js";
+import { recordMetric } from "./metrics.js";
 import {
   resolveClient,
   renderContext,
@@ -60,6 +61,11 @@ export async function runHook(): Promise<void> {
     const store = new ContextStore(cfg);
     await store.ensure();
     const { entries, total } = await store.read(project);
+
+    // Record the read before branching so an empty-store read still counts toward
+    // read-rate. recordMetric is internally fail-open (never throws), so it cannot
+    // divert the non-empty path into the catch/emitEmpty branch.
+    await recordMetric(cfg, { source: "hook", event: "read", project, total });
 
     // An empty store has nothing worth injecting — start clean rather than pushing
     // a "(no entries yet)" placeholder into every session.
