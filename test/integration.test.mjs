@@ -5,6 +5,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { ContextStore } from "../dist/store.js";
+import { recordMetric } from "../dist/metrics.js";
 
 const git = (cwd, ...args) =>
   execFileSync("git", args, { cwd, stdio: "pipe" }).toString();
@@ -41,6 +42,16 @@ function makeStore(bare, clonePath, author, autoPush = true) {
     authorEmail: `${author.toLowerCase()}@memorylayer.local`,
     autoPush,
   });
+}
+
+function cfgFor(bare, clonePath, author, autoPush = true) {
+  return {
+    repoUrl: bare,
+    repoPath: clonePath,
+    author,
+    authorEmail: `${author.toLowerCase()}@memorylayer.local`,
+    autoPush,
+  };
 }
 
 test("core round-trip: A writes, B reads it unpasted", async () => {
@@ -167,6 +178,51 @@ test("push failure surfaces an honest 'recorded locally' error (A4)", async () =
     // The decision is still recorded in the local clone (not lost).
     const { total } = await s.read("proj");
     assert.equal(total, 1);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("flushMetrics commits and pushes the author's metrics log", async () => {
+  const { tmp, bare } = freshRemote();
+  try {
+    const cfg = cfgFor(bare, path.join(tmp, "a"), "Alice");
+    const a = new ContextStore(cfg);
+    await a.ensure();
+
+    // Simulate a read and a write having appended metric lines locally.
+    await recordMetric(cfg, {
+      source: "hook",
+      event: "read",
+      project: "proj",
+      total: 0,
+    });
+    await recordMetric(cfg, { source: "mcp", event: "write", project: "proj" });
+
+    await a.flushMetrics();
+
+    // A fresh clone from the bare remote must now contain the pushed log.
+    const verify = path.join(tmp, "verify");
+    git(tmp, "clone", bare, verify);
+    const metricsFile = path.join(verify, "metrics", "alice.jsonl");
+    assert.ok(fs.existsSync(metricsFile), "metrics log reached the remote");
+    const lines = fs.readFileSync(metricsFile, "utf8").trim().split("\n");
+    assert.equal(lines.length, 2);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("flushMetrics is a silent no-op when nothing was recorded", async () => {
+  const { tmp, bare } = freshRemote();
+  try {
+    const cfg = cfgFor(bare, path.join(tmp, "a"), "Alice");
+    const a = new ContextStore(cfg);
+    await a.ensure();
+    await a.flushMetrics(); // no metrics file exists yet
+    // Assert that no "metrics: sync" commit was created
+    const log = git(path.join(tmp, "a"), "log", "--oneline").toString();
+    assert.equal(/metrics: sync/.test(log), false);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

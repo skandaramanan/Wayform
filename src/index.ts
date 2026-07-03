@@ -5,6 +5,7 @@ import { z } from "zod";
 import { loadConfig } from "./config.js";
 import { ContextStore } from "./store.js";
 import { projectContext } from "./context-format.js";
+import { recordMetric } from "./metrics.js";
 import { isMain } from "./is-main.js";
 
 export async function runServer(): Promise<void> {
@@ -31,6 +32,7 @@ export async function runServer(): Promise<void> {
     },
     async ({ project }) => {
       const { entries, total } = await store.read(project);
+      await recordMetric(cfg, { source: "mcp", event: "read", project, total });
       return {
         content: [
           { type: "text", text: projectContext(project, entries, total) },
@@ -75,6 +77,8 @@ export async function runServer(): Promise<void> {
           type,
           payload,
         });
+        await recordMetric(cfg, { source: "mcp", event: "write", project });
+        await store.flushMetrics();
         return {
           content: [
             {
