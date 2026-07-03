@@ -4,10 +4,7 @@
       {
         "matcher": "startup|resume",
         "hooks": [
-          {
-            "type": "command",
-            "command": "bash ./hooks/session-start.sh codex"
-          }
+          { "type": "command", "command": "node ./dist/cli.js hook codex" }
         ]
       }
     ],
@@ -16,7 +13,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "bash ./hooks/stop-review.sh codex"
+            "command": "node ./dist/cli.js stop-review codex"
           }
         ]
       }
