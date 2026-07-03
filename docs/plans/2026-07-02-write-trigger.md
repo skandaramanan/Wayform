@@ -1,5 +1,7 @@
 # Write Trigger Implementation Plan
 
+> **STATUS: SHIPPED** — merged in PR #1 (write-trigger). All tasks below are complete; the checkboxes are kept as a historical record of the build. Behavior of record lives in `src/` + `test/`.
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Give MemoryLayer a reliable, vendor-neutral write path so deliberate decisions reach the shared store without depending on the model spontaneously deciding to call `write_context`.
@@ -33,7 +35,7 @@ Path A needs almost no machinery: `write_context` already works. This task makes
 - Consumes: nothing.
 - Produces: nothing consumed by later tasks (documentation/description only).
 
-- [ ] **Step 1: Sharpen the `write_context` description**
+- [x] **Step 1: Sharpen the `write_context` description**
 
 In `src/index.ts`, replace the `description` string on the `write_context` tool (currently at lines 45–46):
 
@@ -42,7 +44,7 @@ In `src/index.ts`, replace the `description` string on the `write_context` tool 
         "Append a DELIBERATE decision or established context to the shared project space and commit it, so collaborators' sessions see it. Write decisions ('we decided X because Y') and durable context — NOT a firehose of every reasoning step. When the user says 'record this', 'remember this', 'save this decision' (or runs the /remember command), treat it as an EXPLICIT instruction to call this tool right away.",
 ```
 
-- [ ] **Step 2: Document the phrase convention in the README**
+- [x] **Step 2: Document the phrase convention in the README**
 
 In `README.md`, under `## The write model (anti-junk-drawer)`, append after the existing paragraph:
 
@@ -59,13 +61,13 @@ In `README.md`, under `## The write model (anti-junk-drawer)`, append after the 
    turn, to record any decision just settled — see setup below.
 ```
 
-- [ ] **Step 3: Build and verify it compiles + server boots**
+- [x] **Step 3: Build and verify it compiles + server boots**
 
 Run: `npm run build && node -e "require('node:child_process')" && MEMORYLAYER_AUTHOR=x CONTEXT_REPO_URL=x MEMORYLAYER_AUTO_PUSH=false node dist/index.js & sleep 1; kill %1 2>/dev/null`
 Expected: build succeeds; server prints a `memorylayer MCP server ready` line to stderr (it may error trying to clone `x` — that is fine; we only need the build to compile). If you prefer a pure compile check: `npm run build && npm run lint`.
 Simpler acceptance: `npm run build` exits 0 and `npm run lint` exits 0.
 
-- [ ] **Step 4: Commit**
+- [x] **Step 4: Commit**
 
 ```bash
 git add src/index.ts README.md
@@ -86,7 +88,7 @@ The vendor-neutral text the `Stop` hook will inject. Isolated in its own file so
 - Consumes: nothing.
 - Produces: `reviewInstruction(project: string): string` — the neutral self-review text, consumed by `src/stop-hook.ts` (Task 4).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `test/review-prompt.test.mjs`:
 
@@ -119,12 +121,12 @@ test("instructs deduplication against already-recorded context", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm test 2>&1 | grep review-prompt`
 Expected: FAIL — `Cannot find module '../dist/review-prompt.js'` (the source file does not exist yet).
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `src/review-prompt.ts`:
 
@@ -155,12 +157,12 @@ export function reviewInstruction(project: string): string {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npm test 2>&1 | grep -E "review-prompt|pass|fail"`
 Expected: the 5 review-prompt tests PASS; overall suite still green.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/review-prompt.ts test/review-prompt.test.mjs
@@ -184,7 +186,7 @@ Add the `Stop` event envelopes alongside the existing `SessionStart` ones, keepi
   - `renderStopNoop(client: HookClient): string` — envelope that lets the turn end untouched.
   Both consumed by `src/stop-hook.ts` (Task 4).
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Append to `test/hook-clients.test.mjs`:
 
@@ -218,12 +220,12 @@ test("Stop no-op is valid per client: {} for JSON clients, empty for raw", () =>
 
 (Add the new import to the existing import block at the top rather than a second statement if you prefer; a separate `import` line is also valid ESM.)
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm test 2>&1 | grep -E "Stop|hook-clients"`
 Expected: FAIL — `renderStopReview is not a function` / export missing.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 In `src/hook-clients.ts`, append after `renderEmpty`:
 
@@ -264,12 +266,12 @@ export function renderStopNoop(client: HookClient): string {
 }
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npm test 2>&1 | grep -E "Stop|pass|fail"`
 Expected: new Stop tests PASS; suite green; `npm run lint` clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/hook-clients.ts test/hook-clients.test.mjs
@@ -290,7 +292,7 @@ The executable the launcher runs each turn. Reads the `Stop` event payload, hono
 - Consumes: `reviewInstruction` (Task 2); `resolveClient`, `renderStopReview`, `renderStopNoop`, `HookClient` (Task 3).
 - Produces: a built `dist/stop-hook.js` invoked by `hooks/stop-review.sh` (Task 5). No exported symbols.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Create `test/stop-hook.test.mjs`:
 
@@ -338,12 +340,12 @@ test("raw client with loop guard emits nothing", () => {
 });
 ```
 
-- [ ] **Step 2: Run test to verify it fails**
+- [x] **Step 2: Run test to verify it fails**
 
 Run: `npm test 2>&1 | grep stop-hook`
 Expected: FAIL — `Cannot find module '../dist/stop-hook.js'`.
 
-- [ ] **Step 3: Write the implementation**
+- [x] **Step 3: Write the implementation**
 
 Create `src/stop-hook.ts`:
 
@@ -412,12 +414,12 @@ async function main(): Promise<void> {
 main().catch(() => emitNoop());
 ```
 
-- [ ] **Step 4: Run test to verify it passes**
+- [x] **Step 4: Run test to verify it passes**
 
 Run: `npm test 2>&1 | grep -E "stop-hook|pass|fail"`
 Expected: the 5 stop-hook tests PASS; full suite green; `npm run lint` clean.
 
-- [ ] **Step 5: Commit**
+- [x] **Step 5: Commit**
 
 ```bash
 git add src/stop-hook.ts test/stop-hook.test.mjs
@@ -439,7 +441,7 @@ Wire the built `dist/stop-hook.js` to fire on each turn in this project, and doc
 - Consumes: `dist/stop-hook.js` (Task 4).
 - Produces: a live `Stop` hook in this project; nothing consumed by later tasks.
 
-- [ ] **Step 1: Create the launcher script**
+- [x] **Step 1: Create the launcher script**
 
 Create `hooks/stop-review.sh`:
 
@@ -468,7 +470,7 @@ export MEMORYLAYER_HOOK_CLIENT="${1:-claude-code}"
 exec node "$REPO_ROOT/dist/stop-hook.js"
 ```
 
-- [ ] **Step 2: Make it executable and add the local Claude Code Stop hook**
+- [x] **Step 2: Make it executable and add the local Claude Code Stop hook**
 
 Run: `chmod +x hooks/stop-review.sh`
 
@@ -495,7 +497,7 @@ Edit `.claude/settings.json` to add a `Stop` hook alongside the existing `Sessio
 }
 ```
 
-- [ ] **Step 3: Manually verify the launcher fires and self-guards**
+- [x] **Step 3: Manually verify the launcher fires and self-guards**
 
 Run (fresh turn → review injected):
 `echo '{}' | bash hooks/stop-review.sh claude-code`
@@ -507,7 +509,7 @@ Expected: `{}`
 
 (Requires `npm run build` to have produced `dist/stop-hook.js` — Task 4 ensures this.)
 
-- [ ] **Step 4: Document it in the README**
+- [x] **Step 4: Document it in the README**
 
 In `README.md`, after the read-hook Claude Code block (before `### Claude Desktop is different`), add:
 
@@ -542,7 +544,7 @@ Wire it locally (this repo's `.gitignore` excludes `.claude/`, so add it per clo
 ```
 ```
 
-- [ ] **Step 5: Commit** (the committed launcher + README; `.claude/settings.json` stays local/uncommitted)
+- [x] **Step 5: Commit** (the committed launcher + README; `.claude/settings.json` stays local/uncommitted)
 
 ```bash
 git add hooks/stop-review.sh README.md
@@ -563,7 +565,7 @@ A one-word gesture that maps to `write_context`. A local per-clone command file 
 - Consumes: the `write_context` MCP tool (unchanged).
 - Produces: nothing consumed by later tasks.
 
-- [ ] **Step 1: Create the command file**
+- [x] **Step 1: Create the command file**
 
 Create `.claude/commands/remember.md`:
 
@@ -589,7 +591,7 @@ Keep it compact; the store is curated, not a firehose.
 $ARGUMENTS
 ```
 
-- [ ] **Step 2: Manually verify the command is recognized**
+- [x] **Step 2: Manually verify the command is recognized**
 
 In a Claude Code session opened in this project, type `/remember` and confirm it appears in the
 command list and, when run with text (e.g. `/remember we chose git as the substrate because it
@@ -598,7 +600,7 @@ Expected: a `Recorded decision in 'memorylayer' ...` tool result.
 
 (This is a manual check — slash-command recognition is a client behavior, not unit-testable here.)
 
-- [ ] **Step 3: Document `/remember` in the README**
+- [x] **Step 3: Document `/remember` in the README**
 
 In `README.md`, after the `### End-of-turn self-review` subsection, add:
 
@@ -624,7 +626,7 @@ Then `/remember we decided X because Y` records it; bare `/remember` records the
 decision. Cursor has an equivalent command mechanism pointing at the same `write_context` tool.
 ```
 
-- [ ] **Step 4: Commit** (README only; the command file is local/uncommitted)
+- [x] **Step 4: Commit** (README only; the command file is local/uncommitted)
 
 ```bash
 git add README.md
@@ -639,17 +641,17 @@ git commit -m "docs: /remember slash command for MemoryLayer writes (Path B)"
 
 **Interfaces:** consumes everything above.
 
-- [ ] **Step 1: Run the whole suite + lint + format check**
+- [x] **Step 1: Run the whole suite + lint + format check**
 
 Run: `npm test && npm run lint && npm run format:check`
 Expected: all tests pass (existing 30 + 5 review-prompt + 4 hook-clients Stop + 5 stop-hook = 44), lint clean, prettier clean (markdown excluded).
 
-- [ ] **Step 2: Sanity-check the neutral core still boots**
+- [x] **Step 2: Sanity-check the neutral core still boots**
 
 Run: `MEMORYLAYER_HOOK_CLIENT=claude-code echo '{}' | node dist/stop-hook.js`
 Expected: a `Stop` review envelope naming `write_context`.
 
-- [ ] **Step 3: Final commit if anything was touched** (e.g. lint autofix)
+- [x] **Step 3: Final commit if anything was touched** (e.g. lint autofix)
 
 ```bash
 git add -A

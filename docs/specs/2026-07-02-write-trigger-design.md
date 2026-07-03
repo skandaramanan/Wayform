@@ -1,7 +1,7 @@
 # MemoryLayer Write Trigger — Design
 
 Date: 2026-07-02
-Status: Approved (ready for implementation planning)
+Status: Shipped — merged in PR #1 (write-trigger). This doc is now a historical design record; behavior of record lives in the code + tests.
 Phase: 0 (last open Phase-0 engineering decision — see SoT §9 open items)
 
 ## Problem
