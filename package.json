@@ -4,13 +4,14 @@
   "description": "Vendor-neutral multiplayer planning memory: a git-backed MCP server that shares planning context across Claude, Cursor, and Codex.",
   "type": "module",
   "bin": {
-    "memorylayer": "dist/index.js"
+    "memorylayer": "dist/cli.js"
   },
   "files": [
     "dist"
   ],
   "scripts": {
     "build": "tsc",
+    "prepare": "tsc",
     "dev": "tsc --watch",
     "start": "node dist/index.js",
     "typecheck": "tsc --noEmit",
