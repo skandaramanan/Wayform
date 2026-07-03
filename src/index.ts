@@ -5,8 +5,9 @@ import { z } from "zod";
 import { loadConfig } from "./config.js";
 import { ContextStore } from "./store.js";
 import { projectContext } from "./context-format.js";
+import { isMain } from "./is-main.js";
 
-async function main() {
+export async function runServer(): Promise<void> {
   const cfg = loadConfig();
   const store = new ContextStore(cfg);
   await store.ensure();
@@ -101,7 +102,9 @@ async function main() {
   );
 }
 
-main().catch((err) => {
-  console.error("memorylayer failed to start:", err);
-  process.exit(1);
-});
+if (isMain(import.meta.url)) {
+  runServer().catch((err) => {
+    console.error("memorylayer failed to start:", err);
+    process.exit(1);
+  });
+}

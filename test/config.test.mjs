@@ -1,8 +1,9 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import os from "node:os";
+import fs from "node:fs";
 import path from "node:path";
-import { loadConfig } from "../dist/config.js";
+import { loadConfig, loadHookEnv } from "../dist/config.js";
 
 const MEMORYLAYER_VARS = [
   "CONTEXT_REPO_URL",
@@ -105,4 +106,77 @@ test("repoPath defaults under ~/.memorylayer and honors CONTEXT_REPO_PATH", () =
       assert.equal(loadConfig().repoPath, "/tmp/store");
     },
   );
+});
+
+test("loadHookEnv loads KEY=VALUE lines from .memorylayer-hook.env, skips comments/blanks", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ml-env-"));
+  fs.writeFileSync(
+    path.join(dir, ".memorylayer-hook.env"),
+    "# a comment\n\nMEMORYLAYER_AUTHOR=Ada\nCONTEXT_REPO_URL=https://example/x.git\n",
+  );
+  const saved = { ...process.env };
+  delete process.env.MEMORYLAYER_AUTHOR;
+  delete process.env.CONTEXT_REPO_URL;
+  try {
+    loadHookEnv(dir);
+    assert.equal(process.env.MEMORYLAYER_AUTHOR, "Ada");
+    assert.equal(process.env.CONTEXT_REPO_URL, "https://example/x.git");
+  } finally {
+    process.env = saved;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadHookEnv does NOT override an already-set env var", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ml-env-"));
+  fs.writeFileSync(
+    path.join(dir, ".memorylayer-hook.env"),
+    "MEMORYLAYER_AUTHOR=FromFile\n",
+  );
+  const saved = { ...process.env };
+  process.env.MEMORYLAYER_AUTHOR = "FromEnv";
+  try {
+    loadHookEnv(dir);
+    assert.equal(process.env.MEMORYLAYER_AUTHOR, "FromEnv");
+  } finally {
+    process.env = saved;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("loadHookEnv is a silent no-op when the file is absent (fail-open)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ml-env-"));
+  assert.doesNotThrow(() => loadHookEnv(dir));
+  fs.rmSync(dir, { recursive: true, force: true });
+});
+
+test("loadHookEnv ignores keys outside the allowlist (no env injection / RCE)", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ml-env-"));
+  fs.writeFileSync(
+    path.join(dir, ".memorylayer-hook.env"),
+    [
+      "MEMORYLAYER_AUTHOR=Ada",
+      "NODE_OPTIONS=--require=/tmp/evil.js",
+      "PATH=/evil/bin",
+      "GIT_SSH_COMMAND=touch /tmp/pwned",
+      "LD_PRELOAD=/evil.so",
+    ].join("\n"),
+  );
+  const saved = { ...process.env };
+  delete process.env.MEMORYLAYER_AUTHOR;
+  const beforeNode = process.env.NODE_OPTIONS;
+  const beforePath = process.env.PATH;
+  try {
+    loadHookEnv(dir);
+    // allowlisted key loaded
+    assert.equal(process.env.MEMORYLAYER_AUTHOR, "Ada");
+    // dangerous keys never touched
+    assert.equal(process.env.NODE_OPTIONS, beforeNode);
+    assert.equal(process.env.PATH, beforePath);
+    assert.equal(process.env.GIT_SSH_COMMAND, saved.GIT_SSH_COMMAND);
+    assert.equal(process.env.LD_PRELOAD, saved.LD_PRELOAD);
+  } finally {
+    process.env = saved;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });

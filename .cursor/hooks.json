@@ -1,16 +1,9 @@
 {
   "version": 1,
   "hooks": {
-    "sessionStart": [
-      {
-        "command": "bash ./hooks/session-start.sh cursor"
-      }
-    ],
+    "sessionStart": [{ "command": "node ./dist/cli.js hook cursor" }],
     "stop": [
-      {
-        "command": "bash ./hooks/stop-review.sh cursor",
-        "loop_limit": 3
-      }
+      { "command": "node ./dist/cli.js stop-review cursor", "loop_limit": 3 }
     ]
   }
 }

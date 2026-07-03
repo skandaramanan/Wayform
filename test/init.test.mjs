@@ -1,0 +1,85 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { execFileSync } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
+
+const cli = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
+
+function initRepo() {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ml-init-"));
+  execFileSync("git", ["init", "-q"], { cwd: dir });
+  return dir;
+}
+
+function runInit(dir) {
+  return execFileSync(
+    process.execPath,
+    [
+      cli,
+      "init",
+      "--author",
+      "Ada",
+      "--email",
+      "ada@x.io",
+      "--context-repo",
+      "https://t@github.com/team/mem.git",
+      "--project",
+      "team-app",
+    ],
+    { cwd: dir, encoding: "utf8", env: { PATH: process.env.PATH ?? "" } },
+  );
+}
+
+test("init writes all three hook configs, both MCP files, env, and gitignore", () => {
+  const dir = initRepo();
+  try {
+    const out = runInit(dir);
+    const read = (p) => fs.readFileSync(path.join(dir, p), "utf8");
+
+    assert.match(read(".claude/settings.json"), /memorylayer hook claude-code/);
+    assert.match(read(".cursor/hooks.json"), /memorylayer stop-review cursor/);
+    assert.match(read(".codex/hooks.json"), /startup\|resume/);
+    assert.match(read(".mcp.json"), /"memorylayer"/);
+    assert.match(read(".cursor/mcp.json"), /"memorylayer"/);
+    assert.match(read(".memorylayer-hook.env"), /MEMORYLAYER_AUTHOR=Ada/);
+    assert.match(read(".gitignore"), /\.memorylayer-hook\.env/);
+    // Codex MCP is a printed manual step, not an auto-written file.
+    assert.match(out, /\[mcp_servers\.memorylayer\]/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("init is idempotent — re-run adds no duplicate hook entries", () => {
+  const dir = initRepo();
+  try {
+    runInit(dir);
+    runInit(dir);
+    const claude = fs.readFileSync(
+      path.join(dir, ".claude/settings.json"),
+      "utf8",
+    );
+    assert.equal(claude.split("memorylayer hook claude-code").length - 1, 1);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("init backs up an unparseable existing config instead of destroying it", () => {
+  const dir = initRepo();
+  try {
+    fs.mkdirSync(path.join(dir, ".cursor"), { recursive: true });
+    fs.writeFileSync(path.join(dir, ".cursor/hooks.json"), "{ not json");
+    runInit(dir);
+    assert.ok(fs.existsSync(path.join(dir, ".cursor/hooks.json.bak")));
+    assert.match(
+      fs.readFileSync(path.join(dir, ".cursor/hooks.json"), "utf8"),
+      /memorylayer hook cursor/,
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});

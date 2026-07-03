@@ -1,7 +1,7 @@
 # MemoryLayer Codex + Cursor Hook Parity — Design
 
 Date: 2026-07-02
-Status: Approved (ready for implementation planning)
+Status: Shipped — merged in PR #2 (codex-cursor-hook-parity). This doc is now a historical design record; behavior of record lives in the code + tests. Live-verification TODOs (§ "Live-verification TODOs") remain open.
 Phase: 0 (extends the read hook + write-trigger Path C to two more clients)
 
 ## Problem
