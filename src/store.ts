@@ -10,13 +10,16 @@ import {
   type WriteEntry,
   type ParsedEntry,
 } from "./frontmatter.js";
+import {
+  estimateTokens,
+  DEFAULT_BUDGET_TOKENS,
+  ENTRY_OVERHEAD_TOKENS,
+} from "./token-budget.js";
 
 // Re-exported so existing importers (index.ts, context-format.ts, tests) keep a
 // single stable surface even though the entry types now live in frontmatter.ts.
 export type { EntryType, WriteEntry, ParsedEntry } from "./frontmatter.js";
 
-/** Most recent entries a read returns; caps context bloat as the store grows. */
-const DEFAULT_READ_LIMIT = 30;
 /** Length of the random id suffix appended to an entry's timestamped filename. */
 const ID_LENGTH = 8;
 /** Max length of the commit-subject summary derived from a payload's first line. */
@@ -125,10 +128,12 @@ export class ContextStore {
   }
 
   /**
-   * Pull latest, gather a project's entries in write order, and return the most
-   * recent `limit` of them plus the total count. Capping keeps a read from
-   * flooding the agent's context as the store grows (which would make agents
-   * skip reads and break the "already there, unpasted" loop).
+   * Pull latest, gather a project's entries in write order, and return as
+   * many of the most recent ones as fit `budgetTokens` plus the total count.
+   * Packing to a token budget (rather than a fixed entry count) keeps a read
+   * from flooding the agent's context as the store grows — long entries cost
+   * more of the budget than short ones — which would otherwise make agents
+   * skip reads and break the "already there, unpasted" loop.
    *
    * Also self-heals: pushes any decision committed locally but not yet shared
    * (e.g. a prior write whose push failed while offline), so a stranded entry
@@ -136,14 +141,14 @@ export class ContextStore {
    */
   read(
     project: string,
-    limit = DEFAULT_READ_LIMIT,
+    budgetTokens = DEFAULT_BUDGET_TOKENS,
   ): Promise<{ entries: ParsedEntry[]; total: number }> {
-    return this.serialize(() => this.readImpl(project, limit));
+    return this.serialize(() => this.readImpl(project, budgetTokens));
   }
 
   private async readImpl(
     project: string,
-    limit: number,
+    budgetTokens: number,
   ): Promise<{ entries: ParsedEntry[]; total: number }> {
     await this.repo.pull();
     await this.repo.selfHealPush();
@@ -165,10 +170,10 @@ export class ContextStore {
         : a.timestamp.localeCompare(b.timestamp),
     );
 
-    const total = entries.length;
-    const capped =
-      limit > 0 && total > limit ? entries.slice(total - limit) : entries;
-    return { entries: capped, total };
+    return {
+      entries: packToBudget(entries, budgetTokens),
+      total: entries.length,
+    };
   }
 
   /**
@@ -204,6 +209,29 @@ export class ContextStore {
 
 function firstLine(s: string): string {
   return s.trim().split("\n")[0].slice(0, COMMIT_SUBJECT_MAX);
+}
+
+/**
+ * Select the most recent entries that fit `budgetTokens`, walking newest to
+ * oldest. Always keeps at least the single most recent entry — an oversized
+ * entry beats an empty read. `budgetTokens <= 0` means unlimited (returns
+ * every entry), preserving the old count-cap's `limit <= 0` escape hatch.
+ */
+function packToBudget(
+  entries: ParsedEntry[],
+  budgetTokens: number,
+): ParsedEntry[] {
+  if (budgetTokens <= 0 || entries.length === 0) return entries;
+
+  const selected: ParsedEntry[] = [];
+  let used = 0;
+  for (let i = entries.length - 1; i >= 0; i--) {
+    const cost = estimateTokens(entries[i].payload) + ENTRY_OVERHEAD_TOKENS;
+    if (selected.length > 0 && used + cost > budgetTokens) break;
+    selected.push(entries[i]);
+    used += cost;
+  }
+  return selected.reverse();
 }
 
 async function collectMarkdown(dir: string): Promise<string[]> {
