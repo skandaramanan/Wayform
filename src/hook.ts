@@ -60,7 +60,7 @@ export async function runHook(): Promise<void> {
     const cfg = loadConfig();
     const store = new ContextStore(cfg);
     await store.ensure();
-    const { entries, total } = await store.read(project);
+    const { entries, total } = await store.read(project, cfg.readBudgetTokens);
 
     // Record the read before branching so an empty-store read still counts toward
     // read-rate. recordMetric is internally fail-open (never throws), so it cannot
