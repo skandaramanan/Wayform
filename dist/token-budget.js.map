@@ -1,0 +1,1 @@
+{"version":3,"file":"token-budget.js","sourceRoot":"","sources":["../src/token-budget.ts"],"names":[],"mappings":"AAAA;;;;;;GAMG;AACH,MAAM,UAAU,cAAc,CAAC,IAAY;IACzC,OAAO,IAAI,CAAC,IAAI,CAAC,IAAI,CAAC,MAAM,GAAG,CAAC,CAAC,CAAC;AACpC,CAAC;AAED,2EAA2E;AAC3E,MAAM,CAAC,MAAM,qBAAqB,GAAG,IAAI,CAAC;AAE1C,gFAAgF;AAChF,MAAM,CAAC,MAAM,qBAAqB,GAAG,EAAE,CAAC"}
