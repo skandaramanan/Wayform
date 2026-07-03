@@ -118,23 +118,76 @@ test("in-process concurrent writes each get their own single-file commit (A2)", 
   }
 });
 
-test("read caps to the most recent N and reports the true total (A3)", async () => {
+test("read packs entries into a token budget, keeping the most recent (A3)", async () => {
   const { tmp, bare } = freshRemote();
   try {
     const s = makeStore(bare, path.join(tmp, "d"), "Alice", false);
     await s.ensure();
-    for (let i = 0; i < 35; i++) {
+    // Each payload is ~400 chars -> ~100 tokens + 12 overhead = ~112 tokens/entry.
+    const big = "x".repeat(400);
+    for (let i = 0; i < 10; i++) {
+      await s.write("proj", {
+        author: "Alice",
+        type: "context",
+        payload: `${big}-${i}`,
+      });
+    }
+    // Budget for ~3 entries (112 * 3 = 336, leave headroom short of 4 entries).
+    const { entries, total } = await s.read("proj", 340);
+    assert.equal(total, 10, "total counts every entry regardless of budget");
+    assert.ok(entries.length < 10, "budget excludes older entries");
+    assert.ok(entries.length >= 1, "at least one entry always returned");
+    assert.match(
+      entries[entries.length - 1].payload,
+      /-9$/,
+      "most recent entry kept",
+    );
+    assert.match(
+      entries[0].payload,
+      /-9$|-8$|-7$/,
+      "kept entries are the most recent, in order",
+    );
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("read keeps the single most recent entry even if it alone exceeds the budget", async () => {
+  const { tmp, bare } = freshRemote();
+  try {
+    const s = makeStore(bare, path.join(tmp, "d2"), "Alice", false);
+    await s.ensure();
+    await s.write("proj", {
+      author: "Alice",
+      type: "context",
+      payload: "x".repeat(4000),
+    });
+    const { entries, total } = await s.read("proj", 10); // budget far too small
+    assert.equal(total, 1);
+    assert.equal(
+      entries.length,
+      1,
+      "never returns zero entries when data exists",
+    );
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("budgetTokens <= 0 means unlimited (back-compat escape hatch)", async () => {
+  const { tmp, bare } = freshRemote();
+  try {
+    const s = makeStore(bare, path.join(tmp, "d3"), "Alice", false);
+    await s.ensure();
+    for (let i = 0; i < 5; i++) {
       await s.write("proj", {
         author: "Alice",
         type: "context",
         payload: `entry ${i}`,
       });
     }
-    const { entries, total } = await s.read("proj", 30);
-    assert.equal(total, 35, "total counts every entry");
-    assert.equal(entries.length, 30, "returned set is capped");
-    // The cap keeps the most RECENT entries.
-    assert.match(entries[entries.length - 1].payload, /entry 34/);
+    const { entries } = await s.read("proj", 0);
+    assert.equal(entries.length, 5);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
