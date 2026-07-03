@@ -170,6 +170,36 @@ export class ContextStore {
       limit > 0 && total > limit ? entries.slice(total - limit) : entries;
     return { entries: capped, total };
   }
+
+  /**
+   * Commit and best-effort push the caller's metrics append log (written by
+   * recordMetric). Runs inside the same per-clone git mutex as read/write so
+   * metrics git never races entry git on .git/index.lock. Called ONLY after a
+   * write — it carries every read metric appended since the last write in one
+   * commit ("append local, flush on next write"). Best-effort: swallows errors
+   * so a failed push never surfaces on the write path; unpushed lines ride the
+   * next flush (or a read's selfHealPush). No-op if nothing was recorded.
+   */
+  flushMetrics(): Promise<void> {
+    return this.serialize(() => this.flushMetricsImpl());
+  }
+
+  private async flushMetricsImpl(): Promise<void> {
+    const relFile = path.join("metrics", `${slug(this.cfg.author)}.jsonl`);
+    const absFile = path.join(this.cfg.repoPath, relFile);
+    if (!existsSync(absFile)) return; // nothing recorded yet
+    try {
+      await this.repo.commitFile(
+        relFile,
+        `metrics: sync ${slug(this.cfg.author)}`,
+        this.cfg.author,
+        this.cfg.authorEmail,
+      );
+      await this.repo.push();
+    } catch {
+      // Best-effort: unpushed metrics ride the next flush / read selfHealPush.
+    }
+  }
 }
 
 function firstLine(s: string): string {
