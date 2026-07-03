@@ -1,5 +1,7 @@
 # Codex + Cursor Hook Parity Implementation Plan
 
+> **STATUS: SHIPPED** — merged in PR #2 (codex-cursor-hook-parity). All tasks below are complete; the checkboxes are kept as a historical record of the build. Three live-verification TODOs against real Codex/Cursor installs remain open (see the design spec + README).
+
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Bring read (SessionStart) and write-trigger self-review (Stop, Path C) hook support to Codex and complete it for Cursor, so all three clients (Claude Code, Codex, Cursor) have the same guaranteed-read / nudged-write loop.
@@ -32,7 +34,7 @@ Spec: `docs/specs/2026-07-02-codex-cursor-hook-parity-design.md`
 - Consumes: nothing new.
 - Produces: `HookClient` union now includes `"codex"`. `resolveClient("codex") → "codex"`. `renderContext("codex", text)` → Claude-Code-shaped SessionStart envelope. `renderStopReview("codex", text)` → `{"decision":"block","reason":text}`. `renderStopReview("cursor", text)` → `{"followup_message":text}`. `renderEmpty("codex")`/`renderStopNoop("codex")` → `"{}"`.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 In `test/hook-clients.test.mjs`, update the `resolveClient` recognition test and REPLACE the existing cursor-Stop-no-op test, then add the new codex tests. Apply these edits:
 
@@ -81,12 +83,12 @@ test("codex empty and Stop no-ops are valid {} JSON", () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npm run build && node --test test/hook-clients.test.mjs`
 Expected: FAIL — build error (`"codex"` not assignable to `HookClient`) or assertion failures on the codex/cursor cases.
 
-- [ ] **Step 3: Implement the adapter changes**
+- [x] **Step 3: Implement the adapter changes**
 
 In `src/hook-clients.ts`:
 
@@ -133,17 +135,17 @@ In `renderStopReview`, replace the `cursor` case body and add a `codex` case:
 
 `renderEmpty` and `renderStopNoop` need NO change — their `client === "raw" ? "" : "{}"` ternary already returns `"{}"` for `codex`. Update the block comment on `renderStopReview` (lines 59–62 area) to note Cursor is now supported and Codex uses decision:block.
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npm run build && node --test test/hook-clients.test.mjs`
 Expected: PASS (all hook-clients tests green).
 
-- [ ] **Step 5: Lint + format check**
+- [x] **Step 5: Lint + format check**
 
 Run: `npm run lint && npm run format:check`
 Expected: clean.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/hook-clients.ts test/hook-clients.test.mjs
@@ -164,7 +166,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - Consumes: `renderStopReview`/`renderStopNoop` from Task 1 (now codex-aware).
 - Produces: the Stop hook treats `stop_hook_active === true` OR `loop_count > 0` as a continuation and emits the client no-op; otherwise it injects the review. Behavior for `claude-code` is unchanged.
 
-- [ ] **Step 1: Write the failing tests**
+- [x] **Step 1: Write the failing tests**
 
 Add these tests to the end of `test/stop-hook.test.mjs`:
 
@@ -187,12 +189,12 @@ test("codex loop guard: stop_hook_active=true emits the no-op", () => {
 });
 ```
 
-- [ ] **Step 2: Run tests to verify they fail**
+- [x] **Step 2: Run tests to verify they fail**
 
 Run: `npm run build && node --test test/stop-hook.test.mjs`
 Expected: FAIL — the `loop_count` guard test fails (current code only checks `stop_hook_active`, so it injects a review instead of a no-op). The codex fresh-turn test passes only after Task 1 build; the `loop_count` test is the true failing case.
 
-- [ ] **Step 3: Implement the generalized guard**
+- [x] **Step 3: Implement the generalized guard**
 
 In `src/stop-hook.ts`, change the payload type and guard (currently lines 49–55):
 
@@ -213,17 +215,17 @@ In `src/stop-hook.ts`, change the payload type and guard (currently lines 49–5
   if (isContinuation) emitNoop();
 ```
 
-- [ ] **Step 4: Run tests to verify they pass**
+- [x] **Step 4: Run tests to verify they pass**
 
 Run: `npm run build && node --test test/stop-hook.test.mjs`
 Expected: PASS (all stop-hook tests green, including the existing claude-code and raw cases).
 
-- [ ] **Step 5: Lint + format check**
+- [x] **Step 5: Lint + format check**
 
 Run: `npm run lint && npm run format:check`
 Expected: clean.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/stop-hook.ts test/stop-hook.test.mjs
@@ -246,7 +248,7 @@ Co-Authored-By: Claude Opus 4.8 <noreply@anthropic.com>"
 - Consumes: the built `dist/hook.js` / `dist/stop-hook.js` and the existing launchers `hooks/session-start.sh <client>` / `hooks/stop-review.sh <client>`.
 - Produces: Codex fires both hooks via `.codex/hooks.json`; Cursor now fires the Stop hook via `.cursor/hooks.json`.
 
-- [ ] **Step 1: Write the test**
+- [x] **Step 1: Write the test**
 
 `test/hook.test.mjs` already defines a `runHook(client)` helper (spawns `dist/hook.js` with `MEMORYLAYER_HOOK_CLIENT=client` and no config, so `loadConfig` throws and the hook must fail-open). Reuse it — add this test at the end of the file, alongside the existing `fail-open:` tests:
 
@@ -258,12 +260,12 @@ test("fail-open: codex client emits the {} no-op and exits 0", () => {
 
 No new imports or helpers are needed.
 
-- [ ] **Step 2: Run test to verify it passes after build**
+- [x] **Step 2: Run test to verify it passes after build**
 
 Run: `npm run build && node --test test/hook.test.mjs`
 Expected: PASS — codex resolves and fail-opens to `{}`. (Guard/confirmation test; passes once Task 1's `codex` case is built. If Task 1 is not yet built into `dist/`, run `npm run build` first — the `codex` case must exist for `runHook("codex")` to resolve rather than default to cursor, though both emit `{}` here.)
 
-- [ ] **Step 3: Create `.codex/hooks.json`**
+- [x] **Step 3: Create `.codex/hooks.json`**
 
 ```json
 {
@@ -293,7 +295,7 @@ Expected: PASS — codex resolves and fail-opens to `{}`. (Guard/confirmation te
 }
 ```
 
-- [ ] **Step 4: Add the Cursor Stop hook to `.cursor/hooks.json`**
+- [x] **Step 4: Add the Cursor Stop hook to `.cursor/hooks.json`**
 
 Replace the file contents with (adds the `stop` entry with a `loop_limit` backstop; keeps the existing `sessionStart`):
 
@@ -316,12 +318,12 @@ Replace the file contents with (adds the `stop` entry with a `loop_limit` backst
 }
 ```
 
-- [ ] **Step 5: Verify both config files are valid JSON**
+- [x] **Step 5: Verify both config files are valid JSON**
 
 Run: `node -e "JSON.parse(require('fs').readFileSync('.codex/hooks.json','utf8')); JSON.parse(require('fs').readFileSync('.cursor/hooks.json','utf8')); console.log('valid')"`
 Expected: prints `valid`.
 
-- [ ] **Step 6: Update README section 4 (client matrix)**
+- [x] **Step 6: Update README section 4 (client matrix)**
 
 Two concrete edits in `README.md` section 4.
 
@@ -348,12 +350,12 @@ sessions (cf. openai/codex#17532, which was `config.toml`-only); (3) Cursor `ses
 
 Also update the header sentence of that section if it says the self-review is Claude-Code-only.
 
-- [ ] **Step 7: Full green bar**
+- [x] **Step 7: Full green bar**
 
 Run: `npm test && npm run lint && npm run format:check`
 Expected: all tests pass, lint clean, prettier clean. (If prettier flags the new JSON, run `npm run format` and re-check.)
 
-- [ ] **Step 8: Commit**
+- [x] **Step 8: Commit**
 
 ```bash
 git add .codex/hooks.json .cursor/hooks.json README.md test/hook.test.mjs
