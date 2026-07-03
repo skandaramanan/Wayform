@@ -28,10 +28,21 @@ export async function runServer(): Promise<void> {
         project: z
           .string()
           .describe("The shared project/space name, e.g. 'business-one'."),
+        budget_tokens: z
+          .number()
+          .int()
+          .positive()
+          .optional()
+          .describe(
+            "Override the default read token budget for this call (larger = more history, smaller = tighter context).",
+          ),
       },
     },
-    async ({ project }) => {
-      const { entries, total } = await store.read(project);
+    async ({ project, budget_tokens }) => {
+      const { entries, total } = await store.read(
+        project,
+        budget_tokens ?? cfg.readBudgetTokens,
+      );
       await recordMetric(cfg, { source: "mcp", event: "read", project, total });
       return {
         content: [

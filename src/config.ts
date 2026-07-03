@@ -1,6 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
+import { DEFAULT_BUDGET_TOKENS } from "./token-budget.js";
 
 /**
  * MemoryLayer v1 configuration, read from the environment.
@@ -20,6 +21,8 @@ export interface Config {
   authorEmail: string;
   /** Push after each write. Off is useful for local smoke tests without a remote. */
   autoPush: boolean;
+  /** Token budget for read_context / the session hook (see token-budget.ts). */
+  readBudgetTokens: number;
 }
 
 function required(name: string): string {
@@ -49,6 +52,7 @@ const HOOK_ENV_ALLOWLIST = new Set([
   "MEMORYLAYER_PROJECT",
   "MEMORYLAYER_AUTO_PUSH",
   "MEMORYLAYER_HOOK_CLIENT",
+  "MEMORYLAYER_READ_BUDGET_TOKENS",
 ]);
 
 /**
@@ -88,6 +92,12 @@ export function loadConfig(): Config {
     process.env.CONTEXT_REPO_PATH?.trim() ||
     path.join(os.homedir(), ".memorylayer", "context-store");
 
+  const rawBudget = Number(process.env.MEMORYLAYER_READ_BUDGET_TOKENS);
+  const readBudgetTokens =
+    Number.isFinite(rawBudget) && rawBudget > 0
+      ? rawBudget
+      : DEFAULT_BUDGET_TOKENS;
+
   return {
     repoUrl: required("CONTEXT_REPO_URL"),
     repoPath,
@@ -96,5 +106,6 @@ export function loadConfig(): Config {
       process.env.MEMORYLAYER_AUTHOR_EMAIL?.trim() ||
       `${author.replace(/\s+/g, ".").toLowerCase()}@memorylayer.local`,
     autoPush: (process.env.MEMORYLAYER_AUTO_PUSH?.trim() || "true") !== "false",
+    readBudgetTokens,
   };
 }

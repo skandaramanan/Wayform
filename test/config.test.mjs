@@ -11,6 +11,7 @@ const MEMORYLAYER_VARS = [
   "MEMORYLAYER_AUTHOR",
   "MEMORYLAYER_AUTHOR_EMAIL",
   "MEMORYLAYER_AUTO_PUSH",
+  "MEMORYLAYER_READ_BUDGET_TOKENS",
 ];
 
 /** Run `fn` with a clean, fully-controlled MemoryLayer env, then restore. */
@@ -175,6 +176,65 @@ test("loadHookEnv ignores keys outside the allowlist (no env injection / RCE)", 
     assert.equal(process.env.PATH, beforePath);
     assert.equal(process.env.GIT_SSH_COMMAND, saved.GIT_SSH_COMMAND);
     assert.equal(process.env.LD_PRELOAD, saved.LD_PRELOAD);
+  } finally {
+    process.env = saved;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("readBudgetTokens defaults to DEFAULT_BUDGET_TOKENS", () => {
+  withEnv({ MEMORYLAYER_AUTHOR: "S", CONTEXT_REPO_URL: "u" }, () => {
+    assert.equal(loadConfig().readBudgetTokens, 4000);
+  });
+});
+
+test("readBudgetTokens honors MEMORYLAYER_READ_BUDGET_TOKENS", () => {
+  withEnv(
+    {
+      MEMORYLAYER_AUTHOR: "S",
+      CONTEXT_REPO_URL: "u",
+      MEMORYLAYER_READ_BUDGET_TOKENS: "800",
+    },
+    () => {
+      assert.equal(loadConfig().readBudgetTokens, 800);
+    },
+  );
+});
+
+test("readBudgetTokens falls back to the default on a non-numeric or non-positive value", () => {
+  withEnv(
+    {
+      MEMORYLAYER_AUTHOR: "S",
+      CONTEXT_REPO_URL: "u",
+      MEMORYLAYER_READ_BUDGET_TOKENS: "not-a-number",
+    },
+    () => {
+      assert.equal(loadConfig().readBudgetTokens, 4000);
+    },
+  );
+  withEnv(
+    {
+      MEMORYLAYER_AUTHOR: "S",
+      CONTEXT_REPO_URL: "u",
+      MEMORYLAYER_READ_BUDGET_TOKENS: "-5",
+    },
+    () => {
+      assert.equal(loadConfig().readBudgetTokens, 4000);
+    },
+  );
+});
+
+test("loadHookEnv allowlists MEMORYLAYER_READ_BUDGET_TOKENS", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ml-env-"));
+  fs.writeFileSync(
+    path.join(dir, ".memorylayer-hook.env"),
+    "MEMORYLAYER_READ_BUDGET_TOKENS=1200\n",
+  );
+  const saved = { ...process.env };
+  delete process.env.MEMORYLAYER_READ_BUDGET_TOKENS;
+  try {
+    loadHookEnv(dir);
+    assert.equal(process.env.MEMORYLAYER_READ_BUDGET_TOKENS, "1200");
   } finally {
     process.env = saved;
     fs.rmSync(dir, { recursive: true, force: true });
