@@ -17,7 +17,7 @@
  * empty store) must NEVER break the user's session. On any failure we emit the
  * client's empty no-op and exit 0, so the session starts as if no hook existed.
  */
-import { loadConfig } from "./config.js";
+import { loadConfig, defaultProject } from "./config.js";
 import { ContextStore } from "./store.js";
 import { projectContext } from "./context-format.js";
 import { recordMetric } from "./metrics.js";
@@ -55,7 +55,7 @@ export async function runHook(): Promise<void> {
   try {
     await drainStdin();
 
-    const project = process.env.MEMORYLAYER_PROJECT?.trim() || "memorylayer";
+    const project = process.env.MEMORYLAYER_PROJECT?.trim() || defaultProject();
 
     const cfg = loadConfig();
     const store = new ContextStore(cfg);

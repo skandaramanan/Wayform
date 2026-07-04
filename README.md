@@ -70,8 +70,8 @@ crafted file cannot inject other env into the hooks' subprocesses):
 | `CONTEXT_REPO_URL` | yes | URL of the shared context git repo (may embed a token). |
 | `MEMORYLAYER_AUTHOR` | yes | Your name — becomes the commit author / attribution. |
 | `MEMORYLAYER_AUTHOR_EMAIL` | no | Commit email. Defaults from author name. |
-| `MEMORYLAYER_PROJECT` | no | Project/space to read+write. Default `memorylayer`. |
-| `CONTEXT_REPO_PATH` | no | Local clone path. Default `~/.memorylayer/context-store`. |
+| `MEMORYLAYER_PROJECT` | no | Project/space to read+write. Default: the repo directory name. |
+| `CONTEXT_REPO_PATH` | no | Local clone path. Default: a per-repo keyed clone under the XDG data dir (`$XDG_DATA_HOME/memorylayer/clones/<repo-slug>-<hash>`, else `~/.local/share/memorylayer/...`). |
 | `MEMORYLAYER_AUTO_PUSH` | no | `false` to skip pushing (local smoke tests). Default pushes. |
 
 ### How the read hook works (under the hood)
