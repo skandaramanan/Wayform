@@ -65,6 +65,7 @@ export class ContextStore {
     }
     async writeImpl(project, entry) {
         await this.repo.pull();
+        await this.reconcileOrphanedEntries();
         const timestamp = new Date().toISOString();
         const id = randomUUID().slice(0, ID_LENGTH);
         const authorEmail = this.emailFor(entry.author);
@@ -102,6 +103,7 @@ export class ContextStore {
     }
     async readImpl(project, budgetTokens) {
         await this.repo.pull();
+        await this.reconcileOrphanedEntries();
         await this.repo.selfHealPush();
         const absDir = path.join(this.cfg.repoPath, this.projectDir(project));
         if (!existsSync(absDir))
@@ -114,13 +116,24 @@ export class ContextStore {
             if (parsed)
                 entries.push(parsed);
         }
-        entries.sort((a, b) => a.timestamp === b.timestamp
-            ? a.file.localeCompare(b.file)
-            : a.timestamp.localeCompare(b.timestamp));
+        const commitDates = await this.repo.firstCommitDates(this.projectDir(project));
+        entries.sort((a, b) => compareEntries(a, b, commitDates));
         return {
             entries: packToBudget(entries, budgetTokens),
             total: entries.length,
         };
+    }
+    async reconcileOrphanedEntries() {
+        const files = (await this.repo.untrackedFiles("context")).filter((file) => file.endsWith(".md"));
+        for (const relFile of files) {
+            const absFile = path.join(this.cfg.repoPath, relFile);
+            const raw = await fs.readFile(absFile, "utf8");
+            const parsed = parseEntry(raw, relFile);
+            if (!parsed)
+                continue;
+            const project = relFile.split("/")[1] || "unknown";
+            await this.repo.commitFile(relFile, `${parsed.type}(${project}): ${firstLine(parsed.payload)}`, parsed.author, this.emailFor(parsed.author));
+        }
     }
     /**
      * Commit and best-effort push the caller's metrics append log (written by
@@ -150,6 +163,13 @@ export class ContextStore {
 }
 function firstLine(s) {
     return s.trim().split("\n")[0].slice(0, COMMIT_SUBJECT_MAX);
+}
+function compareEntries(a, b, commitDates) {
+    const aOrder = commitDates.get(a.file) || a.timestamp;
+    const bOrder = commitDates.get(b.file) || b.timestamp;
+    return aOrder === bOrder
+        ? a.file.localeCompare(b.file)
+        : aOrder.localeCompare(bOrder);
 }
 /**
  * Select the most recent entries that fit `budgetTokens`, walking newest to

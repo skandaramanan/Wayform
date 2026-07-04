@@ -74,6 +74,19 @@ crafted file cannot inject other env into the hooks' subprocesses):
 | `CONTEXT_REPO_PATH` | no | Local clone path. Default: a per-repo keyed clone under the XDG data dir (`$XDG_DATA_HOME/memorylayer/clones/<repo-slug>-<hash>`, else `~/.local/share/memorylayer/...`). |
 | `MEMORYLAYER_AUTO_PUSH` | no | `false` to skip pushing (local smoke tests). Default pushes. |
 
+### Diagnostics
+
+MemoryLayer's runtime hooks fail open so they never break an agent session. If a
+read or write looks silent, run:
+
+```bash
+memorylayer doctor
+```
+
+`doctor` is read-only. It checks the local env file, resolved config, clone origin,
+remote connectivity, unpushed commits, and the default project name. Any token embedded
+in `CONTEXT_REPO_URL` is redacted before printing.
+
 ### How the read hook works (under the hood)
 
 MCP tools are pull-based: an agent only reads when told to. The session-start hook `init`

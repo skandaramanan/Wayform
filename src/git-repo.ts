@@ -4,6 +4,9 @@ import path from "node:path";
 import { simpleGit, type SimpleGit } from "simple-git";
 import type { Config } from "./config.js";
 
+const PUSH_ATTEMPTS = 3;
+const PUSH_RETRY_DELAY_MS = 25;
+
 /**
  * Thin wrapper over the git plumbing the store needs: clone-if-absent, pull,
  * single-file commit with explicit authorship, and push with a rebase-retry.
@@ -28,13 +31,23 @@ export class GitRepo {
     }
 
     this.git = simpleGit(repoPath);
+    await this.reconcileOrigin(repoUrl);
+    await this.git.addConfig("user.name", author);
+    await this.git.addConfig("user.email", authorEmail);
+  }
+
+  private async reconcileOrigin(repoUrl: string): Promise<void> {
     // Reconcile origin to the configured repoUrl every run: declared config is
     // the source of truth, so a mis-pointed clone (e.g. a shared path from an
     // older layout) or a rotated token self-corrects here instead of silently
-    // pushing to the wrong remote.
-    await this.git.remote(["set-url", "origin", repoUrl]);
-    await this.git.addConfig("user.name", author);
-    await this.git.addConfig("user.email", authorEmail);
+    // pushing to the wrong remote. A manually-created .git may not have origin
+    // yet, so add it instead of throwing during MCP startup.
+    const remotes = await this.git.getRemotes(true);
+    if (remotes.some((r) => r.name === "origin")) {
+      await this.git.remote(["set-url", "origin", repoUrl]);
+    } else {
+      await this.git.addRemote("origin", repoUrl);
+    }
   }
 
   private async currentBranch(): Promise<string> {
@@ -75,19 +88,29 @@ export class GitRepo {
   async push(): Promise<void> {
     if (!this.cfg.autoPush) return;
     const branch = await this.currentBranch();
-    try {
-      await this.git.push(["-u", "origin", branch]);
-    } catch {
+    let lastError: unknown;
+    for (let attempt = 0; attempt < PUSH_ATTEMPTS; attempt++) {
+      try {
+        if (attempt > 0) {
+          await delay(PUSH_RETRY_DELAY_MS * 2 ** (attempt - 1));
+        }
+        await this.git.push(["-u", "origin", branch]);
+        return;
+      } catch (err) {
+        lastError = err;
+      }
+
       try {
         await this.git.pull("origin", branch, ["--rebase"]);
-        await this.git.push(["-u", "origin", branch]);
       } catch (err) {
-        throw new Error(
-          `Recorded locally, NOT shared yet — push failed, will retry on the ` +
-            `next read/write: ${(err as Error).message}`,
-        );
+        lastError = err;
       }
     }
+
+    throw new Error(
+      `Recorded locally, NOT shared yet — push failed, will retry on the ` +
+        `next read/write: ${redactSecrets(String((lastError as Error).message ?? lastError))}`,
+    );
   }
 
   /**
@@ -103,4 +126,55 @@ export class GitRepo {
       // Still offline / unauthorized: entry remains local, retried next read.
     }
   }
+
+  /** Untracked files under a pathspec, relative to repo root. */
+  async untrackedFiles(pathspec: string): Promise<string[]> {
+    const raw = await this.git.raw([
+      "ls-files",
+      "--others",
+      "--exclude-standard",
+      "--",
+      pathspec,
+    ]);
+    return raw
+      .split(/\r?\n/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+
+  /**
+   * Return the committer date of the commit that first introduced each file.
+   * The read path uses this as git-integrated order, avoiding wall-clock skew
+   * in entry frontmatter from different machines.
+   */
+  async firstCommitDates(pathspec: string): Promise<Map<string, string>> {
+    const raw = await this.git.raw([
+      "log",
+      "--diff-filter=A",
+      "--name-only",
+      "--format=__ML_COMMIT__%cI",
+      "--",
+      pathspec,
+    ]);
+    const out = new Map<string, string>();
+    let currentDate = "";
+    for (const rawLine of raw.split(/\r?\n/)) {
+      const line = rawLine.trim();
+      if (!line) continue;
+      if (line.startsWith("__ML_COMMIT__")) {
+        currentDate = line.slice("__ML_COMMIT__".length);
+      } else if (currentDate && !out.has(line)) {
+        out.set(line, currentDate);
+      }
+    }
+    return out;
+  }
+}
+
+function delay(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function redactSecrets(message: string): string {
+  return message.replace(/(https?:\/\/)([^@\s/]+)@/g, "$1***@");
 }
