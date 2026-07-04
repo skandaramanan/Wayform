@@ -28,6 +28,11 @@ export class GitRepo {
     }
 
     this.git = simpleGit(repoPath);
+    // Reconcile origin to the configured repoUrl every run: declared config is
+    // the source of truth, so a mis-pointed clone (e.g. a shared path from an
+    // older layout) or a rotated token self-corrects here instead of silently
+    // pushing to the wrong remote.
+    await this.git.remote(["set-url", "origin", repoUrl]);
     await this.git.addConfig("user.name", author);
     await this.git.addConfig("user.email", authorEmail);
   }
