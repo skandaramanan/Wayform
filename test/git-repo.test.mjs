@@ -17,7 +17,16 @@ function bareRepo(tmp, name) {
   git(tmp, "clone", bare, seed);
   fs.writeFileSync(path.join(seed, "README.md"), name);
   git(seed, "add", ".");
-  git(seed, "-c", "user.email=s@x", "-c", "user.name=seed", "commit", "-m", "init");
+  git(
+    seed,
+    "-c",
+    "user.email=s@x",
+    "-c",
+    "user.name=seed",
+    "commit",
+    "-m",
+    "init",
+  );
   git(seed, "push", "origin", "main");
   return bare;
 }

@@ -295,7 +295,10 @@ test("normalizeRepoUrl strips credentials, .git, and case", () => {
     normalizeRepoUrl("https://github.com/skandaramanan/testmem/"),
     bare,
   );
-  assert.equal(normalizeRepoUrl("git@github.com:skandaramanan/testmem.git"), bare);
+  assert.equal(
+    normalizeRepoUrl("git@github.com:skandaramanan/testmem.git"),
+    bare,
+  );
 });
 
 test("cloneKey is deterministic, slug+hash shaped, and token-free", () => {
