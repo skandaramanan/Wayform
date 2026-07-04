@@ -55,12 +55,27 @@ When `CONTEXT_REPO_PATH` is not explicitly set, derive a per-repo path instead
 of the shared default:
 
 ```
-~/.memorylayer/clones/<key>/
+<base>/clones/<key>/
 ```
 
 where `<key> = <repo-name-slug>-<hash8>`, e.g. `testmem-a1b2c3d4e5`. The
-readable prefix aids humans inspecting `~/.memorylayer/clones/`; the hash
-guarantees uniqueness and filesystem-safety.
+readable prefix aids humans inspecting the clones dir; the hash guarantees
+uniqueness and filesystem-safety.
+
+**Base directory — XDG-compliant, no `~/.memorylayer` fallback.** Resolution
+order:
+
+1. `MEMORYLAYER_HOME` (explicit override), else
+2. `$XDG_DATA_HOME/memorylayer`, else
+3. `~/.local/share/memorylayer` (the XDG default when `$XDG_DATA_HOME` is unset).
+
+The clones live under the **data** bucket (`$XDG_DATA_HOME`), not cache, on
+purpose: a clone can transiently hold **unpushed commits** (the offline /
+`selfHealPush` path), so it is not safe in a `~/.cache` location that a cleaner
+may wipe. The legacy `~/.memorylayer` path is **dropped, not kept as a
+fallback** — this machine is migrated to XDG in the one-time cleanup below, and
+because clones are keyed by URL they re-clone fresh regardless of base dir, so
+no in-place move is needed and a fallback would only preserve the stale layout.
 
 Two different `CONTEXT_REPO_URL`s therefore get two different directories and can
 never share — or freeze — a folder. Explicit `CONTEXT_REPO_PATH` still wins
@@ -112,20 +127,24 @@ lost:
 2. **Purge the leak.** `git rm -r context/lyrebird-takehome/` in
    MemoryLayer-Memory, commit, push. (User's call: discard, not migrate —
    Lyrebird starts fresh in testmem.)
-3. **Remove the stale shared clone** `~/.memorylayer/context-store`.
-4. **Verify re-homing.** On the next session in each repo, the keyed-clone code
-   clones fresh: memorylayer → its keyed dir from MemoryLayer-Memory; Lyrebird →
-   its keyed dir from testmem (fresh/empty). Confirm each keyed clone's `origin`
-   matches its configured `CONTEXT_REPO_URL`.
+3. **Migrate to XDG — remove the entire legacy dir** `~/.memorylayer/` (its only
+   content is the stale shared clone from step 1–2; nothing else lives there).
+4. **Verify re-homing under XDG.** On the next session in each repo, the
+   keyed-clone code clones fresh into `~/.local/share/memorylayer/clones/`:
+   memorylayer → its keyed dir from MemoryLayer-Memory; Lyrebird → its keyed dir
+   from testmem (fresh/empty). Confirm each keyed clone's `origin` matches its
+   configured `CONTEXT_REPO_URL`.
 
 No general-purpose migration command is built (scope discipline — the venture
-guardrail). The old shared path is simply abandoned by the new default.
+guardrail). The old shared `~/.memorylayer` path is abandoned; everything new
+lives under XDG.
 
 ## Files touched
 
-- `src/config.ts` — add `normalizeRepoUrl` + `cloneKey`; change the `repoPath`
-  fallback to `~/.memorylayer/clones/<key>` derived from `repoUrl`. Import
-  `node:crypto`.
+- `src/config.ts` — add `normalizeRepoUrl`, `cloneKey`, and an XDG base-dir
+  resolver (`MEMORYLAYER_HOME` → `$XDG_DATA_HOME/memorylayer` →
+  `~/.local/share/memorylayer`); change the `repoPath` fallback to
+  `<base>/clones/<key>` derived from `repoUrl`. Import `node:crypto`.
 - `src/git-repo.ts` — in `ensure()`, add the `remote set-url origin` reconcile
   after the clone-if-absent block.
 
@@ -143,6 +162,9 @@ New/changed unit + integration tests; all 87 existing tests stay green.
   token-embedded vs bare, trailing `.git` vs not, SSH vs HTTPS host+path.
 - Userinfo/token never appears in the derived path.
 - Explicit `CONTEXT_REPO_PATH` overrides the derivation.
+- Base dir honors resolution order: `MEMORYLAYER_HOME` wins; else
+  `$XDG_DATA_HOME/memorylayer`; else `~/.local/share/memorylayer`. No
+  `~/.memorylayer` is ever produced.
 
 **`git-repo.ts` (integration, against local bare repos):**
 - Fresh clone into a keyed path → `origin` == `repoUrl`.
