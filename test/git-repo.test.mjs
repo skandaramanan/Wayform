@@ -72,3 +72,19 @@ test("ensure() re-points a mis-targeted existing clone to the configured repoUrl
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test("ensure() adds origin when an existing git repo has no remotes", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ml-gr-"));
+  try {
+    const a = bareRepo(tmp, "a.git");
+    const clone = path.join(tmp, "clone");
+    fs.mkdirSync(clone);
+    git(clone, "init", "--initial-branch=main");
+
+    await new GitRepo(cfg(a, clone)).ensure();
+
+    assert.equal(originUrl(clone), a);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});

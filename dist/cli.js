@@ -7,6 +7,7 @@
  *   memorylayer hook <client>         -> read hook
  *   memorylayer stop-review <client>  -> Stop/write-review hook
  *   memorylayer init [flags]          -> installer
+ *   memorylayer doctor                -> local diagnostics
  *
  * `hook`/`stop-review` set MEMORYLAYER_HOOK_CLIENT from the positional arg, then
  * delegate to the neutral run functions (which self-load .memorylayer-hook.env).
@@ -16,6 +17,7 @@ import { runServer } from "./index.js";
 import { runHook } from "./hook.js";
 import { runStopHook } from "./stop-hook.js";
 import { runInit } from "./init.js";
+import { runDoctor } from "./doctor.js";
 async function main() {
     // Self-load .memorylayer-hook.env from the project cwd for every subcommand,
     // so the command is self-contained (no bash launcher). loadConfig stays pure.
@@ -35,11 +37,14 @@ async function main() {
         case "init":
             await runInit(rest);
             return;
+        case "doctor":
+            await runDoctor();
+            return;
         case undefined:
             await runServer();
             return;
         default:
-            console.error(`Unknown command "${sub}". Use: memorylayer [hook|stop-review|init] …`);
+            console.error(`Unknown command "${sub}". Use: memorylayer [hook|stop-review|init|doctor] …`);
             process.exit(1);
     }
 }

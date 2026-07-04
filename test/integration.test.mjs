@@ -6,6 +6,7 @@ import os from "node:os";
 import path from "node:path";
 import { ContextStore } from "../dist/store.js";
 import { recordMetric } from "../dist/metrics.js";
+import { serializeEntry } from "../dist/frontmatter.js";
 
 const git = (cwd, ...args) =>
   execFileSync("git", args, { cwd, stdio: "pipe" }).toString();
@@ -212,6 +213,121 @@ test("entries come back in write (timestamp) order", async () => {
   }
 });
 
+test("read recovers untracked entry orphans from an interrupted prior write", async () => {
+  const { tmp, bare } = freshRemote();
+  try {
+    const s = makeStore(bare, path.join(tmp, "orphan"), "Alice", true);
+    await s.ensure();
+    const relFile = path.join(
+      "context",
+      "proj",
+      "alice",
+      "2026-01-01T00-00-00-000Z-orphan.md",
+    );
+    const absFile = path.join(tmp, "orphan", relFile);
+    fs.mkdirSync(path.dirname(absFile), { recursive: true });
+    fs.writeFileSync(
+      absFile,
+      serializeEntry(
+        {
+          author: "Alice",
+          type: "decision",
+          timestamp: "2026-01-01T00:00:00.000Z",
+          id: "orphan",
+          project: "proj",
+        },
+        "Recover the orphaned decision.",
+      ),
+    );
+
+    const { entries, total } = await s.read("proj");
+
+    assert.equal(total, 1);
+    assert.equal(entries[0].payload, "Recover the orphaned decision.");
+    const verify = path.join(tmp, "verify-orphan");
+    git(tmp, "clone", bare, verify);
+    assert.ok(
+      fs.existsSync(path.join(verify, relFile)),
+      "recovered orphan reached the remote",
+    );
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("read order follows git commit order when entry timestamps are clock-skewed", async () => {
+  const { tmp, bare } = freshRemote();
+  try {
+    const s = makeStore(bare, path.join(tmp, "skew"), "Alice", false);
+    await s.ensure();
+    const clone = path.join(tmp, "skew");
+    const entries = [
+      {
+        relFile: path.join(
+          "context",
+          "proj",
+          "alice",
+          "2099-01-01T00-00-00-000Z-first.md",
+        ),
+        timestamp: "2099-01-01T00:00:00.000Z",
+        payload: "committed first with a future wall clock",
+      },
+      {
+        relFile: path.join(
+          "context",
+          "proj",
+          "alice",
+          "2000-01-01T00-00-00-000Z-second.md",
+        ),
+        timestamp: "2000-01-01T00:00:00.000Z",
+        payload: "committed second with a past wall clock",
+      },
+    ];
+
+    for (const entry of entries) {
+      const absFile = path.join(clone, entry.relFile);
+      fs.mkdirSync(path.dirname(absFile), { recursive: true });
+      fs.writeFileSync(
+        absFile,
+        serializeEntry(
+          {
+            author: "Alice",
+            type: "context",
+            timestamp: entry.timestamp,
+            id: path.basename(entry.relFile, ".md"),
+            project: "proj",
+          },
+          entry.payload,
+        ),
+      );
+      git(clone, "add", entry.relFile);
+      git(
+        clone,
+        "-c",
+        "user.email=alice@memorylayer.local",
+        "-c",
+        "user.name=Alice",
+        "commit",
+        "-m",
+        `context(proj): ${entry.payload}`,
+      );
+      await sleep(1100);
+    }
+
+    const { entries: readEntries } = await s.read("proj");
+
+    assert.deepEqual(
+      readEntries.map((entry) => entry.payload),
+      [
+        "committed first with a future wall clock",
+        "committed second with a past wall clock",
+      ],
+    );
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("push failure surfaces an honest 'recorded locally' error (A4)", async () => {
   const { tmp, bare } = freshRemote();
   try {
@@ -231,6 +347,41 @@ test("push failure surfaces an honest 'recorded locally' error (A4)", async () =
     // The decision is still recorded in the local clone (not lost).
     const { total } = await s.read("proj");
     assert.equal(total, 1);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("independent clones can race writes and both reach the shared remote", async () => {
+  const { tmp, bare } = freshRemote();
+  try {
+    const a = makeStore(bare, path.join(tmp, "race-a"), "Alice");
+    const b = makeStore(bare, path.join(tmp, "race-b"), "Bob");
+    await a.ensure();
+    await b.ensure();
+
+    await Promise.all([
+      a.write("proj", {
+        author: "Alice",
+        type: "decision",
+        payload: "Alice writes during the race.",
+      }),
+      b.write("proj", {
+        author: "Bob",
+        type: "decision",
+        payload: "Bob writes during the race.",
+      }),
+    ]);
+
+    const verify = makeStore(bare, path.join(tmp, "race-verify"), "Verifier");
+    await verify.ensure();
+    const { entries, total } = await verify.read("proj");
+
+    assert.equal(total, 2);
+    assert.deepEqual(entries.map((entry) => entry.payload).sort(), [
+      "Alice writes during the race.",
+      "Bob writes during the race.",
+    ]);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
