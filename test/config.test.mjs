@@ -3,7 +3,13 @@ import assert from "node:assert/strict";
 import os from "node:os";
 import fs from "node:fs";
 import path from "node:path";
-import { loadConfig, loadHookEnv } from "../dist/config.js";
+import {
+  loadConfig,
+  loadHookEnv,
+  normalizeRepoUrl,
+  cloneKey,
+  defaultProject,
+} from "../dist/config.js";
 
 const MEMORYLAYER_VARS = [
   "CONTEXT_REPO_URL",
@@ -12,6 +18,8 @@ const MEMORYLAYER_VARS = [
   "MEMORYLAYER_AUTHOR_EMAIL",
   "MEMORYLAYER_AUTO_PUSH",
   "MEMORYLAYER_READ_BUDGET_TOKENS",
+  "MEMORYLAYER_HOME",
+  "XDG_DATA_HOME",
 ];
 
 /** Run `fn` with a clean, fully-controlled MemoryLayer env, then restore. */
@@ -90,13 +98,26 @@ test("autoPush defaults to true and only 'false' disables it", () => {
   );
 });
 
-test("repoPath defaults under ~/.memorylayer and honors CONTEXT_REPO_PATH", () => {
-  withEnv({ MEMORYLAYER_AUTHOR: "S", CONTEXT_REPO_URL: "u" }, () => {
-    assert.equal(
-      loadConfig().repoPath,
-      path.join(os.homedir(), ".memorylayer", "context-store"),
-    );
-  });
+test("repoPath is a keyed clone under the XDG data dir, honors CONTEXT_REPO_PATH", () => {
+  withEnv(
+    {
+      MEMORYLAYER_AUTHOR: "S",
+      CONTEXT_REPO_URL: "https://github.com/skandaramanan/testmem.git",
+    },
+    () => {
+      assert.equal(
+        loadConfig().repoPath,
+        path.join(
+          os.homedir(),
+          ".local",
+          "share",
+          "memorylayer",
+          "clones",
+          cloneKey("https://github.com/skandaramanan/testmem.git"),
+        ),
+      );
+    },
+  );
   withEnv(
     {
       MEMORYLAYER_AUTHOR: "S",
@@ -105,6 +126,41 @@ test("repoPath defaults under ~/.memorylayer and honors CONTEXT_REPO_PATH", () =
     },
     () => {
       assert.equal(loadConfig().repoPath, "/tmp/store");
+    },
+  );
+});
+
+test("repoPath base dir resolves MEMORYLAYER_HOME > XDG_DATA_HOME > ~/.local/share", () => {
+  const url = "https://github.com/o/r.git";
+  withEnv(
+    {
+      MEMORYLAYER_AUTHOR: "S",
+      CONTEXT_REPO_URL: url,
+      MEMORYLAYER_HOME: "/custom/ml",
+    },
+    () => {
+      assert.equal(
+        loadConfig().repoPath,
+        path.join("/custom/ml", "clones", cloneKey(url)),
+      );
+    },
+  );
+  withEnv(
+    { MEMORYLAYER_AUTHOR: "S", CONTEXT_REPO_URL: url, XDG_DATA_HOME: "/xdg" },
+    () => {
+      assert.equal(
+        loadConfig().repoPath,
+        path.join("/xdg", "memorylayer", "clones", cloneKey(url)),
+      );
+    },
+  );
+});
+
+test("repoPath never produces a legacy ~/.memorylayer path", () => {
+  withEnv(
+    { MEMORYLAYER_AUTHOR: "S", CONTEXT_REPO_URL: "https://github.com/o/r.git" },
+    () => {
+      assert.ok(!loadConfig().repoPath.includes(path.join(".memorylayer")));
     },
   );
 });
@@ -222,6 +278,52 @@ test("readBudgetTokens falls back to the default on a non-numeric or non-positiv
       assert.equal(loadConfig().readBudgetTokens, 4000);
     },
   );
+});
+
+test("normalizeRepoUrl strips credentials, .git, and case", () => {
+  const bare = "github.com/skandaramanan/testmem";
+  assert.equal(
+    normalizeRepoUrl("https://github.com/skandaramanan/testmem.git"),
+    bare,
+  );
+  assert.equal(
+    normalizeRepoUrl(
+      "https://x-access-token:SECRET@github.com/skandaramanan/testmem.git",
+    ),
+    bare,
+  );
+  assert.equal(
+    normalizeRepoUrl("https://github.com/skandaramanan/testmem/"),
+    bare,
+  );
+  assert.equal(
+    normalizeRepoUrl("git@github.com:skandaramanan/testmem.git"),
+    bare,
+  );
+});
+
+test("cloneKey is deterministic, slug+hash shaped, and token-free", () => {
+  const withToken = cloneKey(
+    "https://TOKEN@github.com/skandaramanan/testmem.git",
+  );
+  const without = cloneKey("https://github.com/skandaramanan/testmem");
+  assert.equal(withToken, without); // token/.git variance collapses to one key
+  assert.match(withToken, /^testmem-[0-9a-f]{8}$/);
+  assert.ok(!withToken.includes("TOKEN"));
+});
+
+test("cloneKey differs for different repos", () => {
+  assert.notEqual(
+    cloneKey("https://github.com/o/testmem.git"),
+    cloneKey("https://github.com/o/memorylayer-memory.git"),
+  );
+});
+
+test("defaultProject derives from the cwd basename, not the literal 'memorylayer' (F2)", () => {
+  assert.equal(defaultProject("/home/me/frontend"), "frontend");
+  assert.equal(defaultProject("/home/me/backend"), "backend");
+  // A rootless path has no basename → neutral fallback, never a real project.
+  assert.equal(defaultProject("/"), "unknown");
 });
 
 test("loadHookEnv allowlists MEMORYLAYER_READ_BUDGET_TOKENS", () => {

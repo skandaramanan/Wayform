@@ -1,6 +1,7 @@
 import os from "node:os";
 import path from "node:path";
 import fs from "node:fs";
+import crypto from "node:crypto";
 import { DEFAULT_BUDGET_TOKENS } from "./token-budget.js";
 
 /**
@@ -86,11 +87,83 @@ export function loadHookEnv(cwd: string = process.cwd()): void {
   }
 }
 
+/**
+ * Normalize a git remote URL to a stable identity: host+path only, lowercased,
+ * credentials/token dropped, no trailing `.git` or slashes. So the same repo via
+ * token-embedded HTTPS, bare HTTPS, or SSH maps to ONE identity — and a rotated
+ * token never changes it (nor leaks into a derived directory name).
+ */
+export function normalizeRepoUrl(url: string): string {
+  let s = url.trim();
+  const scp = /^[^/@]+@([^:/]+):(.+)$/.exec(s); // git@host:org/repo(.git)
+  if (scp) {
+    s = `${scp[1]}/${scp[2]}`;
+  } else {
+    try {
+      const u = new URL(s);
+      s = `${u.host}${u.pathname}`; // u.host excludes userinfo → token dropped
+    } catch {
+      // Not a parseable URL (e.g. a bare test token); fall through with s as-is.
+    }
+  }
+  return s
+    .toLowerCase()
+    .replace(/\.git$/, "")
+    .replace(/^\/+|\/+$/g, "");
+}
+
+/**
+ * Filesystem-safe, collision-proof directory key for a repo's local clone:
+ * `<repo-name-slug>-<hash8>`. The readable prefix aids humans browsing the
+ * clones dir; the hash of the normalized URL guarantees uniqueness even when two
+ * repo names slugify identically.
+ */
+export function cloneKey(repoUrl: string): string {
+  const normalized = normalizeRepoUrl(repoUrl);
+  const hash = crypto
+    .createHash("sha256")
+    .update(normalized)
+    .digest("hex")
+    .slice(0, 8);
+  const lastSeg = normalized.split("/").pop() || "repo";
+  const slug =
+    lastSeg.replace(/[^a-z0-9]+/g, "-").replace(/^-+|-+$/g, "") || "repo";
+  return `${slug}-${hash}`;
+}
+
+/**
+ * Base directory for MemoryLayer's local state, XDG-compliant. Clones live in
+ * the DATA bucket (not cache): a clone can transiently hold unpushed commits
+ * (the offline / selfHealPush path), so it must survive cache cleaners.
+ * Resolution: MEMORYLAYER_HOME > $XDG_DATA_HOME/memorylayer > ~/.local/share/memorylayer.
+ */
+function dataHome(): string {
+  const explicit = process.env.MEMORYLAYER_HOME?.trim();
+  if (explicit) return explicit;
+  const xdg = process.env.XDG_DATA_HOME?.trim();
+  if (xdg) return path.join(xdg, "memorylayer");
+  return path.join(os.homedir(), ".local", "share", "memorylayer");
+}
+
+/**
+ * Default project/space name for the hooks when MEMORYLAYER_PROJECT is unset:
+ * the current repo's directory name (the same default `init` writes). A repo
+ * that has a valid CONTEXT_REPO_URL but a missing project env therefore lands in
+ * its OWN namespace instead of silently colliding in another project's — the
+ * previous hardcoded literal "memorylayer" quietly merged such a repo's entries
+ * into the dogfood project's namespace. Slugging happens downstream in the
+ * store; this returns the raw basename, and "unknown" only for a rootless cwd.
+ */
+export function defaultProject(cwd: string = process.cwd()): string {
+  return path.basename(cwd) || "unknown";
+}
+
 export function loadConfig(): Config {
   const author = required("MEMORYLAYER_AUTHOR");
+  const repoUrl = required("CONTEXT_REPO_URL");
   const repoPath =
     process.env.CONTEXT_REPO_PATH?.trim() ||
-    path.join(os.homedir(), ".memorylayer", "context-store");
+    path.join(dataHome(), "clones", cloneKey(repoUrl));
 
   const rawBudget = Number(process.env.MEMORYLAYER_READ_BUDGET_TOKENS);
   const readBudgetTokens =
@@ -99,7 +172,7 @@ export function loadConfig(): Config {
       : DEFAULT_BUDGET_TOKENS;
 
   return {
-    repoUrl: required("CONTEXT_REPO_URL"),
+    repoUrl,
     repoPath,
     author,
     authorEmail:
