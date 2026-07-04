@@ -47,6 +47,82 @@ test("mergeCodexHooks uses the startup|resume matcher on SessionStart", () => {
   assert.match(JSON.stringify(out.hooks.Stop), /memorylayer stop-review codex/);
 });
 
+test("mergeCursorHooks does NOT duplicate when an equivalent dist-path hook exists (F1)", () => {
+  const existing = {
+    version: 1,
+    hooks: {
+      sessionStart: [{ command: "node ./dist/cli.js hook cursor" }],
+      stop: [
+        { command: "node ./dist/cli.js stop-review cursor", loop_limit: 3 },
+      ],
+    },
+  };
+  const out = mergeCursorHooks(existing);
+  assert.equal(out.hooks.sessionStart.length, 1);
+  assert.equal(out.hooks.stop.length, 1);
+  assert.match(out.hooks.sessionStart[0].command, /dist\/cli\.js hook cursor/);
+});
+
+test("mergeClaudeSettings does NOT duplicate an equivalent dist-path hook (F1)", () => {
+  const existing = {
+    hooks: {
+      SessionStart: [
+        {
+          hooks: [
+            {
+              type: "command",
+              command:
+                'node "$CLAUDE_PROJECT_DIR/dist/cli.js" hook claude-code',
+            },
+          ],
+        },
+      ],
+      Stop: [
+        {
+          hooks: [
+            {
+              type: "command",
+              command:
+                'node "$CLAUDE_PROJECT_DIR/dist/cli.js" stop-review claude-code',
+            },
+          ],
+        },
+      ],
+    },
+  };
+  const out = mergeClaudeSettings(existing);
+  assert.equal(out.hooks.SessionStart.length, 1);
+  assert.equal(out.hooks.Stop.length, 1);
+});
+
+test("mergeCodexHooks does NOT duplicate an equivalent dist-path hook (F1)", () => {
+  const existing = {
+    hooks: {
+      SessionStart: [
+        {
+          matcher: "startup|resume",
+          hooks: [
+            { type: "command", command: "node ./dist/cli.js hook codex" },
+          ],
+        },
+      ],
+      Stop: [
+        {
+          hooks: [
+            {
+              type: "command",
+              command: "node ./dist/cli.js stop-review codex",
+            },
+          ],
+        },
+      ],
+    },
+  };
+  const out = mergeCodexHooks(existing);
+  assert.equal(out.hooks.SessionStart.length, 1);
+  assert.equal(out.hooks.Stop.length, 1);
+});
+
 test("mergeMcpJson adds a secret-free memorylayer server, preserving others", () => {
   const out = mergeMcpJson({ mcpServers: { other: { command: "x" } } });
   assert.equal(out.mcpServers.other.command, "x");

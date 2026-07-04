@@ -1,9 +1,23 @@
 {
   "version": 1,
   "hooks": {
-    "sessionStart": [{ "command": "node ./dist/cli.js hook cursor" }],
+    "sessionStart": [
+      {
+        "command": "node ./dist/cli.js hook cursor"
+      },
+      {
+        "command": "memorylayer hook cursor"
+      }
+    ],
     "stop": [
-      { "command": "node ./dist/cli.js stop-review cursor", "loop_limit": 3 }
+      {
+        "command": "node ./dist/cli.js stop-review cursor",
+        "loop_limit": 3
+      },
+      {
+        "command": "memorylayer stop-review cursor",
+        "loop_limit": 3
+      }
     ]
   }
 }

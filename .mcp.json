@@ -1,0 +1,9 @@
+{
+  "mcpServers": {
+    "memorylayer": {
+      "command": "memorylayer",
+      "args": [],
+      "env": {}
+    }
+  }
+}
