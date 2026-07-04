@@ -122,6 +122,18 @@ function dataHome() {
         return path.join(xdg, "memorylayer");
     return path.join(os.homedir(), ".local", "share", "memorylayer");
 }
+/**
+ * Default project/space name for the hooks when MEMORYLAYER_PROJECT is unset:
+ * the current repo's directory name (the same default `init` writes). A repo
+ * that has a valid CONTEXT_REPO_URL but a missing project env therefore lands in
+ * its OWN namespace instead of silently colliding in another project's — the
+ * previous hardcoded literal "memorylayer" quietly merged such a repo's entries
+ * into the dogfood project's namespace. Slugging happens downstream in the
+ * store; this returns the raw basename, and "unknown" only for a rootless cwd.
+ */
+export function defaultProject(cwd = process.cwd()) {
+    return path.basename(cwd) || "unknown";
+}
 export function loadConfig() {
     const author = required("MEMORYLAYER_AUTHOR");
     const repoUrl = required("CONTEXT_REPO_URL");

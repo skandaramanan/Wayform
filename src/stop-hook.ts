@@ -15,6 +15,7 @@
  * exit 0. A hook that traps a turn would itself cause the "can't rely on this" failure
  * this feature exists to prevent.
  */
+import { defaultProject } from "./config.js";
 import { reviewInstruction } from "./review-prompt.js";
 import {
   resolveClient,
@@ -62,7 +63,7 @@ export async function runStopHook(): Promise<void> {
     (typeof payload.loop_count === "number" && payload.loop_count > 0);
   if (isContinuation) emitNoop();
 
-  const project = process.env.MEMORYLAYER_PROJECT?.trim() || "memorylayer";
+  const project = process.env.MEMORYLAYER_PROJECT?.trim() || defaultProject();
   process.stdout.write(renderStopReview(client, reviewInstruction(project)));
   process.exit(0);
 }

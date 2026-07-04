@@ -8,6 +8,7 @@ import {
   loadHookEnv,
   normalizeRepoUrl,
   cloneKey,
+  defaultProject,
 } from "../dist/config.js";
 
 const MEMORYLAYER_VARS = [
@@ -316,6 +317,13 @@ test("cloneKey differs for different repos", () => {
     cloneKey("https://github.com/o/testmem.git"),
     cloneKey("https://github.com/o/memorylayer-memory.git"),
   );
+});
+
+test("defaultProject derives from the cwd basename, not the literal 'memorylayer' (F2)", () => {
+  assert.equal(defaultProject("/home/me/frontend"), "frontend");
+  assert.equal(defaultProject("/home/me/backend"), "backend");
+  // A rootless path has no basename → neutral fallback, never a real project.
+  assert.equal(defaultProject("/"), "unknown");
 });
 
 test("loadHookEnv allowlists MEMORYLAYER_READ_BUDGET_TOKENS", () => {
