@@ -221,6 +221,37 @@ test("storage failure surfaces as an MCP tool error, not a crash", async () => {
   assert.match(body.result.content[0].text, /write failed: 500/);
 });
 
+test("KV delete failure after a successful write still reports success (best-effort invalidation)", async () => {
+  const { env, tokens } = await setup([
+    ...TOKEN_ROUTES,
+    ["/contents/", () => Response.json({ ok: true }, { status: 201 })],
+  ]);
+  // Wrap the KV so delete throws AFTER the GitHub write has committed.
+  const realDelete = env.ROUTING.delete.bind(env.ROUTING);
+  env.ROUTING.delete = async (key) => {
+    if (key.startsWith("hookread:")) throw new Error("KV unavailable");
+    return realDelete(key);
+  };
+  const res = await handleRequest(
+    rpc(tokens["team-a"], {
+      jsonrpc: "2.0",
+      id: 10,
+      method: "tools/call",
+      params: {
+        name: "write_context",
+        arguments: { project: "roadmap", type: "decision", payload: "durable" },
+      },
+    }),
+    env,
+  );
+  const body = await res.json();
+  assert.equal(body.result.isError, undefined);
+  assert.match(
+    body.result.content[0].text,
+    /^Recorded decision in 'roadmap' as Ada at /,
+  );
+});
+
 test("unknown method -> -32601; parse error -> -32700; batch -> -32600", async () => {
   const { env, tokens } = await setup(TOKEN_ROUTES);
   const unknown = await handleRequest(
