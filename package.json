@@ -17,7 +17,8 @@
     "lint": "eslint src",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
-    "test": "npm run build && node --test test/*.test.mjs"
+    "test": "npm run build && node --test test/*.test.mjs",
+    "test:gateway": "cd gateway && npm test"
   },
   "engines": {
     "node": ">=18"
