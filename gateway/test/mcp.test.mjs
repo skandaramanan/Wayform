@@ -252,6 +252,47 @@ test("KV delete failure after a successful write still reports success (best-eff
   );
 });
 
+test("read_context budget_tokens: 0 does not mean unlimited — still budget-limited", async () => {
+  const bigPayload = "x".repeat(20000); // ~5000 estimated tokens, > DEFAULT_BUDGET_TOKENS
+  const md1 = `---\nauthor: Ada\ntype: decision\ntimestamp: 2026-07-01T00:00:00.000Z\nid: x1\nproject: roadmap\n---\n\n${bigPayload}`;
+  const md2 = `---\nauthor: Ada\ntype: decision\ntimestamp: 2026-07-02T00:00:00.000Z\nid: x2\nproject: roadmap\n---\n\n${bigPayload}`;
+  const { env, tokens } = await setup([
+    ...TOKEN_ROUTES,
+    [
+      "/git/trees/",
+      () =>
+        Response.json({
+          tree: [
+            {
+              path: "context/roadmap/ada/2026-07-01T00-00-00-000Z-x1.md",
+              type: "blob",
+            },
+            {
+              path: "context/roadmap/ada/2026-07-02T00-00-00-000Z-x2.md",
+              type: "blob",
+            },
+          ],
+        }),
+    ],
+    ["x1.md", () => new Response(md1)],
+    ["x2.md", () => new Response(md2)],
+  ]);
+  const res = await handleRequest(
+    rpc(tokens["team-a"], {
+      jsonrpc: "2.0",
+      id: 11,
+      method: "tools/call",
+      params: {
+        name: "read_context",
+        arguments: { project: "roadmap", budget_tokens: 0 },
+      },
+    }),
+    env,
+  );
+  const text = (await res.json()).result.content[0].text;
+  assert.match(text, /Showing the 1 most recent of 2/);
+});
+
 test("unknown method -> -32601; parse error -> -32700; batch -> -32600", async () => {
   const { env, tokens } = await setup(TOKEN_ROUTES);
   const unknown = await handleRequest(

@@ -102,6 +102,39 @@ test("a write_context invalidates the cache so the next read is fresh", async ()
   assert.ok(calls.length > before, "post-write read must hit GitHub again");
 });
 
+test("negative budget does not mean unlimited — still budget-limited", async () => {
+  const bigPayload = "x".repeat(20000); // ~5000 estimated tokens, > DEFAULT_BUDGET_TOKENS
+  const md1 = `---\nauthor: Ada\ntype: decision\ntimestamp: 2026-07-01T00:00:00.000Z\nid: x1\nproject: roadmap\n---\n\n${bigPayload}`;
+  const md2 = `---\nauthor: Ada\ntype: decision\ntimestamp: 2026-07-02T00:00:00.000Z\nid: x2\nproject: roadmap\n---\n\n${bigPayload}`;
+  const { env, token } = await setup([
+    [
+      "/app/installations/777/access_tokens",
+      () => Response.json({ token: "ghs_a" }, { status: 201 }),
+    ],
+    [
+      "/git/trees/",
+      () =>
+        Response.json({
+          tree: [
+            {
+              path: "context/roadmap/ada/2026-07-01T00-00-00-000Z-x1.md",
+              type: "blob",
+            },
+            {
+              path: "context/roadmap/ada/2026-07-02T00-00-00-000Z-x2.md",
+              type: "blob",
+            },
+          ],
+        }),
+    ],
+    ["x1.md", () => new Response(md1)],
+    ["x2.md", () => new Response(md2)],
+  ]);
+  const res = await handleRequest(get(token, "project=roadmap&budget=-5"), env);
+  const text = await res.text();
+  assert.match(text, /Showing the 1 most recent of 2/);
+});
+
 test("empty project -> 400; no entries -> empty 200 body; no auth -> 401", async () => {
   const { env, token } = await setup([
     [

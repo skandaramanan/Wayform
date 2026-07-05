@@ -84,6 +84,12 @@ export async function installationToken(
     throw new Error(`installation token exchange failed: ${res.status}`);
   }
   const body = (await res.json()) as { token: string };
-  await env.ROUTING.put(cacheKey, body.token, { expirationTtl: 45 * 60 });
+  try {
+    // Caching is best-effort: a KV failure here must not throw away an
+    // already-minted GitHub token — the next call just re-mints instead.
+    await env.ROUTING.put(cacheKey, body.token, { expirationTtl: 45 * 60 });
+  } catch {
+    // swallow: caller still gets the freshly minted token
+  }
   return body.token;
 }

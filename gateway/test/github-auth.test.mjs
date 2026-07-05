@@ -65,3 +65,21 @@ test("installationToken throws on non-2xx", async () => {
     /401/,
   );
 });
+
+test("installationToken still returns the minted token when the KV cache write fails", async () => {
+  const fetchImpl = ghFetch(
+    [],
+    [
+      [
+        "/app/installations/999/access_tokens",
+        () => Response.json({ token: "ghs_uncached" }, { status: 201 }),
+      ],
+    ],
+  );
+  const env = makeEnv(fetchImpl);
+  env.ROUTING.put = async () => {
+    throw new Error("KV unavailable");
+  };
+  const token = await installationToken(env, 999, fetchImpl);
+  assert.equal(token, "ghs_uncached");
+});

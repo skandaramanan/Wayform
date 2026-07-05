@@ -38,7 +38,7 @@ export async function handleHookRead(
 
   const budgetParam = Number(url.searchParams.get("budget"));
   const budget =
-    Number.isFinite(budgetParam) && budgetParam !== 0
+    Number.isFinite(budgetParam) && budgetParam > 0
       ? budgetParam
       : DEFAULT_BUDGET_TOKENS;
   const { entries, total } = await readEntries(
