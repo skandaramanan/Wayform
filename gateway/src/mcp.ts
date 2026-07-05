@@ -199,7 +199,15 @@ async function toolsCall(
           { type, payload },
           fetchImpl,
         );
-        await env.ROUTING.delete(hookCacheKey(member.space, project));
+        // Best-effort cache invalidation: the write is already durably
+        // committed, so never let a KV failure misreport it as an error
+        // (the cache key has a 60s TTL, so a missed delete self-heals
+        // within a minute).
+        try {
+          await env.ROUTING.delete(hookCacheKey(member.space, project));
+        } catch {
+          // swallow: stale cache expires via TTL
+        }
         return rpcResult(
           msg.id,
           toolText(
