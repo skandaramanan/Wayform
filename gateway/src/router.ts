@@ -1,6 +1,7 @@
 import type { Env } from "./env.js";
 import { handleAdminAddMember } from "./tenancy.js";
 import { handleMcp } from "./mcp.js";
+import { handleHookRead } from "./hook-read.js";
 
 /** Path routing only — each route's logic lives in its own module. */
 export async function handleRequest(req: Request, env: Env): Promise<Response> {
@@ -19,6 +20,10 @@ export async function handleRequest(req: Request, env: Env): Promise<Response> {
     return new Response("stateless server: POST one JSON-RPC message", {
       status: 405,
     });
+  }
+
+  if (url.pathname === "/hook/read" && req.method === "GET") {
+    return handleHookRead(req, env);
   }
 
   return new Response("not found", { status: 404 });
