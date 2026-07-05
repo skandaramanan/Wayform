@@ -168,7 +168,7 @@ async function toolsCall(
     switch (msg.params?.name) {
       case "read_context": {
         const budget =
-          typeof args.budget_tokens === "number"
+          typeof args.budget_tokens === "number" && args.budget_tokens > 0
             ? args.budget_tokens
             : DEFAULT_BUDGET_TOKENS;
         const { entries, total } = await readEntries(
