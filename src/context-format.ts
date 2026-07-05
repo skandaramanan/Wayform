@@ -1,4 +1,4 @@
-import type { ParsedEntry } from "./store.js";
+import type { ParsedEntry } from "./frontmatter.js";
 
 /**
  * Render a project's entries into the markdown block that read_context returns
