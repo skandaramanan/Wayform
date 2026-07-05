@@ -10,11 +10,10 @@ import {
   type WriteEntry,
   type ParsedEntry,
 } from "./frontmatter.js";
-import {
-  estimateTokens,
-  DEFAULT_BUDGET_TOKENS,
-  ENTRY_OVERHEAD_TOKENS,
-} from "./token-budget.js";
+import { DEFAULT_BUDGET_TOKENS, packToBudget } from "./token-budget.js";
+import { slug, fsSafeTimestamp } from "./slug.js";
+// Re-exported so existing importers (init, metrics, tests) keep working.
+export { slug } from "./slug.js";
 
 // Re-exported so existing importers (index.ts, context-format.ts, tests) keep a
 // single stable surface even though the entry types now live in frontmatter.ts.
@@ -24,24 +23,6 @@ export type { EntryType, WriteEntry, ParsedEntry } from "./frontmatter.js";
 const ID_LENGTH = 8;
 /** Max length of the commit-subject summary derived from a payload's first line. */
 const COMMIT_SUBJECT_MAX = 72;
-
-/**
- * Collapse arbitrary text to a filesystem-safe slug. Also the path-traversal
- * guard: stripping every non-alphanumeric run means "../../etc" -> "etc", so a
- * hostile project/author name can never escape the context/ directory.
- */
-export function slug(s: string): string {
-  return (
-    s
-      .toLowerCase()
-      .replace(/[^a-z0-9]+/g, "-")
-      .replace(/^-+|-+$/g, "") || "unknown"
-  );
-}
-
-function fsSafeTimestamp(iso: string): string {
-  return iso.replace(/[:.]/g, "-");
-}
 
 /**
  * Git-backed context store. Git is the consistency layer (append-only log,
@@ -241,29 +222,6 @@ function compareEntries(
   return aOrder === bOrder
     ? a.file.localeCompare(b.file)
     : aOrder.localeCompare(bOrder);
-}
-
-/**
- * Select the most recent entries that fit `budgetTokens`, walking newest to
- * oldest. Always keeps at least the single most recent entry — an oversized
- * entry beats an empty read. `budgetTokens <= 0` means unlimited (returns
- * every entry), preserving the old count-cap's `limit <= 0` escape hatch.
- */
-function packToBudget(
-  entries: ParsedEntry[],
-  budgetTokens: number,
-): ParsedEntry[] {
-  if (budgetTokens <= 0 || entries.length === 0) return entries;
-
-  const selected: ParsedEntry[] = [];
-  let used = 0;
-  for (let i = entries.length - 1; i >= 0; i--) {
-    const cost = estimateTokens(entries[i].payload) + ENTRY_OVERHEAD_TOKENS;
-    if (selected.length > 0 && used + cost > budgetTokens) break;
-    selected.push(entries[i]);
-    used += cost;
-  }
-  return selected.reverse();
 }
 
 async function collectMarkdown(dir: string): Promise<string[]> {
