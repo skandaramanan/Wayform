@@ -5,4 +5,4 @@ compatibility_date = "2026-06-01"
 # Created in Step 3; paste the id wrangler prints.
 [[kv_namespaces]]
 binding = "ROUTING"
-id = "REPLACE_WITH_KV_NAMESPACE_ID"
+id = "799c559402d6472993dc63ed26b0fd5e"
