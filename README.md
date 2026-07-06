@@ -1,208 +1,262 @@
 # MemoryLayer
 
-A **vendor-neutral, multiplayer planning memory**: a shared context space that 2–3
-people *and their AIs* read and write together across Claude, Cursor, and Codex — so
-a decision written from one person's session is already present in a collaborator's
-session, with nobody pasting anything.
+**Shared planning memory for teams that build with AI.** A decision made in one
+person's Claude session is already loaded in their teammate's Cursor session —
+automatically, at session start, with nobody pasting anything.
 
-The wedge is not "multiplayer." It's **multiplayer that belongs to no vendor**. Git
-is the consistency layer (append-only log, immutable commits, per-write attribution
-via commit authorship). We rent it; we don't rebuild it.
-
-## How it works
-
-An MCP server (stdio) exposing two tools over a **git-backed** context store:
-
-- `read_context(project)` → pulls latest, returns the current projected context.
-- `write_context(project, entry)` → appends a decision as its own file and commits
-  it. Commit = the event. Author = attribution.
-
-Each write is its own file under `context/<project>/<author>/`, so concurrent
-writers never touch the same file and never produce a merge conflict.
-
-## Setup
-
-MemoryLayer installs into **your project repo** — no clone, no hand-wiring.
-
-### 1. Create the shared context repo (once, by one person)
-
-Create a **private** git repo all collaborators can push to. This is the shared
-memory; it starts empty. Grant each collaborator access. The "shared key" for v1 is
-simply git access to this repo (an HTTPS URL with a token, or SSH) — no accounts, no
-separate auth layer.
-
-### 2. Install the command (once per machine)
-
-```bash
-npm install -g github:skandaramanan/MemoryLayer
+```
+you (Claude Code)                     teammate (Cursor)
+      │                                     │
+      │  "we decided X because Y"           │  new session opens
+      ▼                                     ▼
+ write_context ──► shared git repo ──► session-start hook
+                   (your repo,           injects every decision
+                    your history)        as already-known context
 ```
 
-A private GitHub install — nothing is published to npm. Collaborators need read
-access to this code repo (the same kind of invite as the memory repo).
+## Why this exists
+
+AI pair-programming has a memory problem, and it's worse in teams. Every session
+starts cold. Every collaborator re-explains the same settled decisions to their
+own agent, every day. The context that matters — *what we decided and why* —
+lives in Slack scrollback and people's heads.
+
+MemoryLayer fixes the loop with three properties nothing else combines:
+
+- **Multiplayer.** One shared store per team. Your agent reads what your
+  teammate's agent wrote. Attribution is git commit authorship — you always know
+  who decided what, when.
+- **Vendor-neutral.** Works identically across **Claude Code, Cursor, and
+  Codex** (plus any MCP client). The store, the tool contract, and the injected
+  context are byte-identical across tools — a decision written from Cursor lands
+  in a Claude session and vice versa. Switching AI tools never loses your
+  team's memory.
+- **You own the data.** The store is a **private git repo in your account** —
+  append-only log, immutable commits, full history, `git log` as the audit
+  trail. We rent git's consistency model; we don't rebuild it. No vendor
+  database holds your team's decisions.
+
+**The write model is deliberately curated:** a write is *"we decided X because
+Y"* — settled decisions and durable context, not a firehose of reasoning
+tokens. That's what keeps the store worth injecting into every session instead
+of degrading into a junk drawer.
+
+---
+
+## Quickstart (local mode)
+
+Three steps: install the CLI, create the shared repo, wire your project.
+
+### 1. Install the CLI (once per machine)
+
+```bash
+git clone https://github.com/skandaramanan/MemoryLayer /tmp/memorylayer \
+  && npm install -g /tmp/memorylayer
+```
+
+Requires Node ≥ 18. `dist/` is pre-built and committed, so no build step runs
+on install.
+
+> **Why not `npm install -g github:...`?** npm 10 has a git-global-install bug
+> (the package is symlinked to an ephemeral cache dir that never gets checked
+> out) that makes the one-liner fail with `command not found` or `ENOTDIR`.
+> The clone-then-install path above uses npm's copy path and works everywhere.
+> See [Troubleshooting](#troubleshooting).
+
+### 2. Create the shared context repo (once per team)
+
+One person creates a **private** git repo (e.g. `yourteam-memory`) and grants
+each collaborator push access. This is the team's memory; it starts empty. The
+v1 "shared key" is simply git access to this repo — an HTTPS URL with a token,
+or SSH. No accounts, no separate auth.
 
 ### 3. Wire it into your project
 
-From your shared project repo:
+From your project repo:
 
 ```bash
 memorylayer init
 ```
 
-`init` writes the read + write hooks and MCP registration for Claude Code, Cursor, and
-Codex, and prompts for your identity + the context repo URL (stored in the gitignored
-`.memorylayer-hook.env`). One person commits the project configs; teammates each run
-`memorylayer init` to set their own identity.
+`init` writes, idempotently and without clobbering existing config:
 
-Codex users: `init` prints an `[mcp_servers.memorylayer]` block to paste into
-`~/.codex/config.toml` (Codex registers MCP globally).
+- **Session-start read hooks + MCP registration** for Claude Code
+  (`.claude/settings.json`, `.mcp.json`), Cursor (`.cursor/hooks.json`,
+  `.cursor/mcp.json`), and Codex (`.codex/hooks.json`; MCP is a printed block
+  to paste into `~/.codex/config.toml`, since Codex registers MCP globally)
+- **End-of-turn write-review hooks** (the Stop hook — see
+  [The loop](#the-loop-how-reads-and-writes-actually-happen))
+- Your per-user, **gitignored** `.memorylayer-hook.env` (identity + repo URL —
+  secrets never enter git)
 
-**Claude Desktop** is MCP-pull-only (no hooks): register the `memorylayer` command as a
-stdio MCP server manually; it reads context when the model chooses to, not automatically.
+One person commits the project configs; each teammate runs `memorylayer init`
+once to set their own identity. Done — the next coding session in that project
+starts with the team's context already loaded.
 
-### Configuration (`.memorylayer-hook.env`)
+**Verify the round-trip:** from a session, say *"record this decision: testing
+MemoryLayer, because we just set it up."* Then have a teammate (or a second
+machine) open a fresh session — the decision should be in their context without
+anyone pasting it. That round-trip is the product.
 
-`init` writes this per-user, gitignored file; the `memorylayer` command self-loads it
-from the project root at runtime. Only these keys are honored (an allowlist — a
-crafted file cannot inject other env into the hooks' subprocesses):
+---
+
+## Hosted gateway (beta)
+
+The local mode above needs each member to hold a git token. The **hosted
+gateway** removes even that: a stateless Cloudflare Worker exposes the same two
+tools over MCP Streamable HTTP, storing to the same kind of private GitHub repo
+via a GitHub App — so joining a team space becomes *paste a URL and a token*.
+
+- **Same store, same format.** Gateway-written entries are byte-identical to
+  local ones (both planes compile the same serialization module). A space's
+  repo can serve hosted members and local git-token members simultaneously.
+- **Tenant isolation by construction.** One private repo per space; the GitHub
+  App is installed on exactly that repo; every request resolves to a
+  per-installation token that GitHub itself scopes to that one repo. No API
+  surface accepts a repo/space parameter, so a routing bug cannot cross
+  tenants. Member tokens are stored only as SHA-256 hashes.
+- **Works with closed clients.** Anything that speaks MCP over HTTP — including
+  clients that can't run local hooks — configures:
+
+```json
+{ "url": "https://<your-gateway>/mcp",
+  "headers": { "Authorization": "Bearer mlk_..." } }
+```
+
+Endpoints, tenancy model, limits, and the deploy runbook live in
+[gateway/README.md](gateway/README.md). Client-side hook shims for the gateway
+(`init --remote`) are the next planned increment.
+
+---
+
+## The two tools
+
+Everything reads and writes through one MCP contract (identical in local stdio
+and hosted HTTP modes):
+
+| Tool | What it does |
+|---|---|
+| `read_context(project, budget_tokens?)` | Pull latest and return the projected context — every recorded decision, in write order, packed to a token budget (default 4000) so reads never flood a session as the store grows. |
+| `write_context(project, type, payload)` | Append one decision (`type: "decision"`) or durable background (`type: "context"`) as its own file, commit, push. The commit is the event; the author is the attribution. |
+
+Each write is its own file under `context/<project>/<author>/`, so concurrent
+writers never touch the same file and never merge-conflict. Many working repos
+may share one memory repo (kept separate inside it by `context/<project>/`).
+
+## The loop — how reads and writes actually happen
+
+**Reads are guaranteed, not hoped for.** MCP alone is pull-based — an agent
+reads only when it decides to. The session-start hook removes that dependency:
+it injects the project's context before the agent does anything. Hooks are
+**project-scoped on purpose** — they fire only in this project's coding
+sessions, never in unrelated chats.
+
+**Writes have three paths, softest first:**
+
+1. **Say it** (any client, incl. Claude Desktop): *"record this decision: X
+   because Y."* A direct command the model complies with near-reliably.
+2. **`/remember`** (Claude Code / Cursor): one-word gesture; ships in
+   `.claude/commands/remember.md`. `/remember we decided X because Y`, or bare
+   `/remember` to record the last settled decision.
+3. **End-of-turn self-review** (Claude Code / Cursor / Codex): a Stop hook asks
+   the model at each turn's end — *"did this turn settle a decision that isn't
+   recorded? If yes, write it; if not, do nothing."* This closes the weak half
+   of the loop (models don't spontaneously notice). Loop-guarded to fire at
+   most once per turn.
+
+**Everything runtime is fail-open.** Offline, bad config, empty store — hooks
+emit their client's no-op and exit 0. A broken memory layer can never break a
+coding session. (The flip side: failures are quiet — that's what `doctor` is
+for.)
+
+**Claude Desktop** has no hook system, so it's MCP-pull-only: register
+`memorylayer` as a stdio server (or point Desktop at the hosted gateway) and it
+reads when the model chooses to — path 1 is your write path there.
+
+## Configuration (`.memorylayer-hook.env`)
+
+Written by `init`, per-user, gitignored, self-loaded from the project root at
+runtime. Keys are an **allowlist** — a crafted file cannot inject other env
+into hook subprocesses:
 
 | Var | Required | Meaning |
 |-----|----------|---------|
-| `CONTEXT_REPO_URL` | yes | URL of the shared context git repo (may embed a token). |
-| `MEMORYLAYER_AUTHOR` | yes | Your name — becomes the commit author / attribution. |
+| `CONTEXT_REPO_URL` | yes | Shared context repo URL (may embed a token). |
+| `MEMORYLAYER_AUTHOR` | yes | Your name — commit author / attribution. |
 | `MEMORYLAYER_AUTHOR_EMAIL` | no | Commit email. Defaults from author name. |
-| `MEMORYLAYER_PROJECT` | no | Project/space to read+write. Default: the repo directory name. |
-| `CONTEXT_REPO_PATH` | no | Local clone path. Default: a per-repo keyed clone under the XDG data dir (`$XDG_DATA_HOME/memorylayer/clones/<repo-slug>-<hash>`, else `~/.local/share/memorylayer/...`). |
-| `MEMORYLAYER_AUTO_PUSH` | no | `false` to skip pushing (local smoke tests). Default pushes. |
+| `MEMORYLAYER_PROJECT` | no | Project/space name. Default: repo directory name. |
+| `CONTEXT_REPO_PATH` | no | Local clone path. Default: keyed per repo URL under `$XDG_DATA_HOME/memorylayer/clones/<repo-slug>-<hash>` (falls back to `~/.local/share/...`), so two spaces can never share a clone. |
+| `MEMORYLAYER_READ_BUDGET_TOKENS` | no | Read token budget. Default 4000; `<=0` = unlimited. |
+| `MEMORYLAYER_AUTO_PUSH` | no | `false` to skip pushing (local smoke tests). |
 
-### Diagnostics
-
-MemoryLayer's runtime hooks fail open so they never break an agent session. If a
-read or write looks silent, run:
+## Diagnostics
 
 ```bash
 memorylayer doctor
 ```
 
-`doctor` is read-only. It checks the local env file, resolved config, clone origin,
-remote connectivity, unpushed commits, and the default project name. Any token embedded
-in `CONTEXT_REPO_URL` is redacted before printing.
+Read-only. Checks the env file, resolved config, clone health and origin,
+remote connectivity/auth, unpushed commits, and the default project name.
+Tokens embedded in URLs are redacted before printing. Run it whenever a read or
+write "silently" does nothing — fail-open means problems hide here first.
 
-### How the read hook works (under the hood)
+## Security & data ownership
 
-MCP tools are pull-based: an agent only reads when told to. The session-start hook `init`
-wires removes that dependency — it pulls the project's context and injects it at the
-start of a session before the agent does anything.
+- **Local mode:** your data never transits anything but git between your
+  machine and your own private repo. The env allowlist blocks env injection;
+  project/author names are slugged so a hostile name can't path-traverse out of
+  `context/`; error output redacts embedded tokens.
+- **Hosted mode:** the gateway is a stateless proxy — the source of truth stays
+  a private GitHub repo in *your* account. The App holds Contents-only
+  permission on exactly one repo per space; member bearer tokens are stored
+  only as SHA-256 hashes; the Worker holds secrets in Cloudflare's secret
+  store, never in code or git.
+- **Trust boundary to know about:** everything a space member writes is
+  injected into every member's sessions. You trust the people in your space —
+  that's the model, stated plainly.
 
-> **Scope on purpose.** The hooks are **project-scoped**, not global. `init` writes them
-> into your project repo so they fire **only when you open a coding session in this
-> project** — never in unrelated Cursor/Claude Code chats, where injecting a planning doc
-> would just pollute context.
+## Troubleshooting
 
-`memorylayer hook <client>` is the **neutral core**: it reads the store, projects the
-context, and emits it. Only the *envelope* is per-vendor, isolated in `hook-clients.ts`
-and selected by the `<client>` arg:
+| Symptom | Cause & fix |
+|---|---|
+| `memorylayer: command not found` right after `npm install -g github:...` | npm 10 git-global-install bug: the global bin points at an ephemeral cache clone with no files. Fix: the clone-then-install path from the Quickstart, or `npm pack` + `npm install -g ./memorylayer-*.tgz`. |
+| `ENOTDIR` reinstalling over a previous failed install | Same bug, stale symlink. Remove the target dir shown in the error, then clone-then-install. |
+| Reads/writes silently do nothing | `memorylayer doctor`. Most common: missing `.memorylayer-hook.env`, no repo access, or unpushed local commits (self-heals on next read). |
+| Teammates still see old behavior after an upgrade | The fix lives in the **global binary** — each teammate must reinstall it (committed project configs aren't enough), and a running MCP server needs a restart to pick it up. |
+| macOS `curl` fails TLS against the hosted gateway (`workers.dev`) | LibreSSL negotiation quirk — add `--tlsv1.2`. Client-side only; SDK-based MCP clients are unaffected. |
 
-| client | Emits | For |
-|---|---|---|
-| `cursor` | `{ "additional_context": "…" }` | Cursor `sessionStart` |
-| `claude-code` | `{ "hookSpecificOutput": { "hookEventName": "SessionStart", "additionalContext": "…" } }` | Claude Code `SessionStart` |
-| `codex` | `{ "hookSpecificOutput": { "hookEventName": "SessionStart", "additionalContext": "…" } }` | Codex `SessionStart` |
-| `raw` | the markdown, verbatim on stdout | any client whose start hook injects stdout |
+## Project status
 
-Onboarding a new tool is one `case` in `hook-clients.ts`; the core never changes. That
-is the only place vendor-neutrality is spent: the store, the MCP contract, and the
-projected context are identical across tools, so a decision written from Cursor is
-injected at the start of a Claude Code session and vice versa.
+Working and in daily two-person dogfood; hosted gateway deployed and
+smoke-tested end-to-end (including live interop: a gateway-written entry read
+byte-intact by the local tool). Currently running a multi-week reliance pilot —
+the success signal is a collaborator who **stops re-explaining decisions**
+because they trust the shared space.
 
-The hook is **fail-open**: on any error (offline, bad config, empty store) it emits the
-client's empty no-op (`{}`, or nothing for `raw`) and exits 0, so it can never break a
-session.
+**Deliberately not built yet** (gated on the pilot proving pull): context
+graph/index, dashboard UI, accounts/RBAC, summarization/RAG, custom merge
+engine (git *is* the merge engine). Next increments: gateway client shims
+(`init --remote`), space-provisioning CLI.
 
-### End-of-turn self-review (write side, Claude Code / Codex / Cursor)
+## Repo layout
 
-The read hook guarantees reads; the **Stop hook** does the symmetric job for writes. At the
-end of every turn it asks the model: "did we just settle a decision that isn't recorded? If
-so, call `write_context`; if not, do nothing." This removes the reliance on the model
-*spontaneously* noticing — the weak half of the loop.
+```
+src/            local CLI + stdio MCP server (init, hooks, store, doctor)
+gateway/        hosted gateway — Cloudflare Worker (own README + runbook)
+dist/           pre-built JS, committed (installs need no toolchain)
+docs/plans/     implementation plans        docs/specs/  design specs
+docs/roadmap/   production + graph-store roadmaps
+test/           node:test suites (gateway has its own under gateway/test/)
+```
 
-Why per-turn and not on session close: Claude Code's `SessionEnd` is cleanup-only (it cannot
-re-engage the model), so review must hang off `Stop`, which fires each turn. A
-`stop_hook_active` loop guard means it fires at most once per turn, and it is **fail-open**
-(any error → allow the turn to end).
+## Development
 
-It shares the neutral pattern: `memorylayer stop-review <client>` is the core, the per-vendor
-envelope is one `case` in `hook-clients.ts`.
+```bash
+npm test                # build + full local suite, lint: npm run lint
+npm run test:gateway    # gateway suite (Node >= 20)
+memorylayer --help      # subcommands: init, hook, stop-review, doctor
+```
 
-Wired for **Claude Code** (`.claude/settings.json`), **Codex** (`.codex/hooks.json`, Stop
-re-engages via `{"decision":"block","reason":…}`), and **Cursor** (`.cursor/hooks.json`, Stop
-re-engages via `{"followup_message":…}` with a `loop_limit` backstop). The client-agnostic loop
-guard treats `stop_hook_active` (Claude Code / Codex) or `loop_count > 0` (Cursor) as a
-continuation and no-ops. **Claude Desktop** stays MCP-pull-only — no hooks.
-
-**Live-verification TODOs** (not yet exercised against real Codex/Cursor installs): (1) Codex
-`Stop` actually provides `stop_hook_active`; (2) `.codex/hooks.json` fires in interactive
-sessions (cf. openai/codex#17532, which was `config.toml`-only); (3) Cursor `sessionStart`
-`additional_context` injection lands.
-
-`memorylayer init` wires this Stop entry into `.claude/settings.json` (alongside Codex's
-`.codex/hooks.json` and Cursor's `.cursor/hooks.json`) — it invokes `memorylayer
-stop-review <client>`, the same command the read hook uses with a different subcommand.
-
-### The `/remember` command (Claude Code / Cursor)
-
-A low-friction muscle-memory write. The command ships in the repo at
-`.claude/commands/remember.md`:
-ho
-    ---
-    description: Record a settled decision to the shared MemoryLayer store
-    ---
-
-    Record a decision to the shared MemoryLayer planning store for this project.
-    If text was provided after the command, use it as the decision. Otherwise, use the
-    most recently settled decision from our conversation. Call `write_context` with
-    project "memorylayer", type "decision" (or "context"), and a compact payload that
-    includes the "because". Only settled decisions — keep the store curated.
-
-    $ARGUMENTS
-
-Then `/remember we decided X because Y` records it; bare `/remember` records the last settled
-decision. Cursor has an equivalent command mechanism pointing at the same `write_context` tool.
-
-### Claude Desktop is different — no auto-read
-
-Claude Desktop has **no hook system**; it only speaks MCP, and **MCP is pull-based**.
-That means Desktop does **not** read context automatically on a new chat. It reads
-**only** when the model decides to call `read_context` — i.e. when the convention in
-**(a)** nudges it, which is best-effort, not guaranteed. If you want Desktop to pull on
-every new chat, you must say so explicitly in its instructions (and even then it's the
-model's choice, not a hard trigger). Guaranteed auto-read on Desktop needs the hosted
-proxy (Phase 2), because the client is closed.
-
-## The write model (anti-junk-drawer)
-
-A "write" is a **decision or established context** — "we decided X, because Y." NOT a
-firehose of every reasoning token. Deliberate commits keep the store from degrading
-into a junk drawer under agent load.
-
-**Three ways a write happens (softest first):**
-
-1. **Explicit phrase (any client, incl. Desktop).** Tell the agent directly: "record this
-   decision: X because Y." Because it's a direct command, the model complies near-reliably —
-   unlike it *spontaneously* noticing. This is the universal fallback and the only write path
-   on Claude Desktop.
-2. **`/remember` slash command (Claude Code / Cursor).** A one-word gesture — see setup below.
-3. **End-of-turn self-review (Claude Code).** A `Stop` hook asks the model, at the end of each
-   turn, to record any decision just settled — see setup below.
-
-## Not in v1 (on purpose)
-
-No context graph, no UI/dashboard, no accounts/permissioning, no summarization/RAG/
-vector DB, no custom merge engine (git is the merge engine), no merge-conflict UI.
-None of it gets built until the core loop shows a pull of its own.
-
-## The test
-
-Two machines, same repo: one writes a decision from a Claude session, the other reads
-it in a fresh session without pasting. That round-trip = day-one done. Then use it for
-real with 2–3 collaborators for 4 weeks. Success signal: a collaborator **stops
-re-explaining** a decision because they trust it's already in the shared space.
+Both planes share the entry format modules (`src/frontmatter.ts`,
+`src/slug.ts`, `src/token-budget.ts`) — change the format in one place or not
+at all.
