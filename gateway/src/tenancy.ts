@@ -32,15 +32,34 @@ export function newToken(): string {
   return "mlk_" + b64url(crypto.getRandomValues(new Uint8Array(32)));
 }
 
+/**
+ * Pull the raw token off a request. Preferred form is the
+ * `Authorization: Bearer mlk_...` header; but clients that only accept a URL
+ * (e.g. ChatGPT's custom-connector UI has no header field) can carry it in the
+ * path as `/mcp/mlk_...` or in a `?key=mlk_...` query param. Header wins when
+ * present. A URL-borne token is more exposed (logs, history) than a header —
+ * mint client-specific tokens for it so a leak is revocable in isolation.
+ */
+export function extractToken(req: Request): string | null {
+  const match = (req.headers.get("authorization") ?? "").match(
+    /^Bearer (.+)$/i,
+  );
+  if (match) return match[1];
+  const url = new URL(req.url);
+  const key = url.searchParams.get("key");
+  if (key) return key;
+  const seg = url.pathname.match(/^\/mcp\/(.+)$/);
+  return seg ? decodeURIComponent(seg[1]) : null;
+}
+
 /** Bearer token -> member record, or null. KV stores only the token's hash. */
 export async function resolveMember(
   req: Request,
   env: Env,
 ): Promise<SpaceMember | null> {
-  const auth = req.headers.get("authorization") ?? "";
-  const match = auth.match(/^Bearer (.+)$/i);
-  if (!match) return null;
-  const record = await env.ROUTING.get(`member:${await sha256Hex(match[1])}`);
+  const token = extractToken(req);
+  if (!token) return null;
+  const record = await env.ROUTING.get(`member:${await sha256Hex(token)}`);
   return record ? (JSON.parse(record) as SpaceMember) : null;
 }
 

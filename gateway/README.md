@@ -176,7 +176,10 @@ space repo on GitHub: there's a new commit, authored by you, containing
 
 ## Part 3 — Member: connect your client
 
-Any MCP client that speaks Streamable HTTP:
+Any MCP client that speaks Streamable HTTP. The token can travel two ways:
+
+**Header (preferred).** For clients that let you set request headers (Claude
+Code, Cursor):
 
 ```json
 {
@@ -185,9 +188,25 @@ Any MCP client that speaks Streamable HTTP:
 }
 ```
 
-For Claude Code, that's an entry in `.mcp.json`; most other MCP clients have
-an equivalent HTTP-server config. You get `read_context` and `write_context`
-immediately.
+**Token in the URL.** For clients whose connector UI takes *only* a URL and no
+header field — **ChatGPT's custom connector** is the common case (its auth
+dropdown offers only "No Auth" or "OAuth"). Put the token in the path and pick
+**No Auth**:
+
+```
+https://<gateway>/mcp/mlk_...
+```
+
+(A `?key=mlk_...` query param works too.) The header wins if both are present.
+
+> ⚠️ A token in a URL is more exposed than a header — it lands in browser
+> history, proxy/access logs, and screenshots. Mint a **client-specific token**
+> for URL use (Part 2.3) so a leak is revocable on its own, without cutting off
+> your header-based members.
+
+For Claude Code, the header form is an entry in `.mcp.json`; most other MCP
+clients have an equivalent HTTP-server config. Either way you get
+`read_context` and `write_context` immediately.
 
 Session-start auto-injection for hosted members (the `/hook/read` endpoint
 below) has a thin client shim coming in the next increment (`init --remote`);
@@ -329,7 +348,9 @@ their source entries.
 
 ### Endpoints
 
-- `POST /mcp` — MCP Streamable HTTP (stateless JSON). `Authorization: Bearer mlk_...`
+- `POST /mcp` — MCP Streamable HTTP (stateless JSON). Token via
+  `Authorization: Bearer mlk_...`, or `POST /mcp/mlk_...` / `?key=mlk_...` for
+  header-less clients (header wins if both are sent).
 - `GET /hook/read?project=<name>[&budget=<n>]` — plain-text, ready-to-inject
   session context (60s per-space cache, invalidated on write; empty 200 body
   when the project has no entries)
@@ -366,6 +387,7 @@ authenticated token, so members cannot write as each other.
 |---|---|
 | `curl` TLS handshake failure on macOS | Add `--tlsv1.2` (LibreSSL quirk; workers.dev only). |
 | `401` on `/mcp` or `/hook/read` | Missing/typo'd `Authorization: Bearer` header, or the token was revoked. |
+| ChatGPT "Error creating connector" with No Auth on `/mcp` | No token — ChatGPT's connector has no header field, so it sends none and the `initialize` probe 401s. Use the URL-token form: `/mcp/mlk_...`. |
 | `403` on `/admin/members` | Wrong `x-admin-secret`. |
 | Write fails with `404`/`installation token exchange failed` | App not installed on that repo, wrong `installationId`, or owner/repo typo in the member record. Re-check 2.2's number. |
 | Write fails with `409`/branch error | Space repo has no commits, or member record's `branch` doesn't exist. Initialize the repo with a README. |
