@@ -30,7 +30,9 @@ export async function handleRequest(
     return handleWebhook(req, env, ctx);
   }
 
-  if (url.pathname === "/mcp") {
+  // `/mcp` (token in header/query) or `/mcp/<token>` (token in path, for
+  // header-less clients like ChatGPT's connector).
+  if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) {
     if (req.method === "POST") return handleMcp(req, env, ctx);
     return new Response("stateless server: POST one JSON-RPC message", {
       status: 405,

@@ -86,6 +86,57 @@ test("minting a member registers its repo in the spaces registry", async () => {
   });
 });
 
+test("resolveMember: token can arrive via /mcp/<token> path or ?key= query", async () => {
+  const env = makeEnv();
+  const { token } = await (await addMember(env)).json();
+  const viaPath = await resolveMember(
+    new Request(`https://gw.test/mcp/${token}`),
+    env,
+  );
+  const viaQuery = await resolveMember(
+    new Request(`https://gw.test/mcp?key=${token}`),
+    env,
+  );
+  assert.equal(viaPath.space, "team-a");
+  assert.equal(viaQuery.space, "team-a");
+});
+
+test("resolveMember: header wins over a URL-borne token", async () => {
+  const env = makeEnv();
+  const a = await (await addMember(env)).json();
+  const b = await (
+    await addMember(env, { ...MEMBER, space: "team-b", repo: "team-b-memory" })
+  ).json();
+  // header = a, path = b → header should win
+  const resolved = await resolveMember(
+    new Request(`https://gw.test/mcp/${b.token}`, {
+      headers: { authorization: `Bearer ${a.token}` },
+    }),
+    env,
+  );
+  assert.equal(resolved.repo, "team-a-memory");
+});
+
+test("router: POST /mcp/<token> reaches the mcp handler (not 404)", async () => {
+  const env = makeEnv();
+  const { token } = await (await addMember(env)).json();
+  const res = await handleRequest(
+    new Request(`https://gw.test/mcp/${token}`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        jsonrpc: "2.0",
+        id: 1,
+        method: "tools/list",
+        params: {},
+      }),
+    }),
+    env,
+  );
+  assert.notEqual(res.status, 404);
+  assert.notEqual(res.status, 401);
+});
+
 test("two members in different spaces resolve to their own records", async () => {
   const env = makeEnv();
   const a = await (await addMember(env)).json();
