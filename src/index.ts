@@ -2,8 +2,9 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
 import { z } from "zod";
-import { loadConfig } from "./config.js";
+import { loadConfig, defaultProject } from "./config.js";
 import { ContextStore } from "./store.js";
+import { remoteApiRead } from "./remote-read.js";
 import { projectContext } from "./context-format.js";
 import { recordMetric } from "./metrics.js";
 import { isMain } from "./is-main.js";
@@ -36,17 +37,45 @@ export async function runServer(): Promise<void> {
           .describe(
             "Override the default read token budget for this call (larger = more history, smaller = tighter context).",
           ),
+        query: z
+          .string()
+          .optional()
+          .describe(
+            "Optional query: relevance-ranked search over the WHOLE history " +
+              "(keyword + semantic) instead of the most recent entries. " +
+              "Requires the hosted gateway; ignored offline.",
+          ),
       },
     },
-    async ({ project, budget_tokens }) => {
-      const { entries, total } = await store.read(
+    async ({ project, query, budget_tokens }) => {
+      const budget = budget_tokens ?? cfg.readBudgetTokens;
+      // Remote-first (§2.2): gateway index read, local clone as fallback.
+      const remote = await remoteApiRead(cfg, {
         project,
-        budget_tokens ?? cfg.readBudgetTokens,
-      );
+        query: query?.trim() || undefined,
+        budgetTokens: budget,
+        trigger: "mcp_read",
+      });
+      if (remote !== null) {
+        await recordMetric(cfg, {
+          source: "mcp",
+          event: "read",
+          project,
+          total: remote.total,
+        });
+        return { content: [{ type: "text", text: remote.text }] };
+      }
+      const { entries, total } = await store.read(project, budget);
       await recordMetric(cfg, { source: "mcp", event: "read", project, total });
+      const note = query?.trim()
+        ? "(offline fallback: relevance search unavailable — showing the most recent entries)\n\n"
+        : "";
       return {
         content: [
-          { type: "text", text: projectContext(project, entries, total) },
+          {
+            type: "text",
+            text: note + projectContext(project, entries, total),
+          },
         ],
       };
     },
@@ -106,6 +135,67 @@ export async function runServer(): Promise<void> {
           isError: true,
         };
       }
+    },
+  );
+
+  server.registerTool(
+    "search_memory",
+    {
+      title: "Search the shared memory",
+      description:
+        "Relevance-ranked search over ALL recorded decisions and context " +
+        "(keyword + semantic, whole history — not just recent entries). Use it " +
+        "BEFORE contradicting or re-deciding anything that may already be " +
+        "settled, and when the user references prior work or decisions.",
+      inputSchema: {
+        query: z
+          .string()
+          .describe("What to look for, e.g. 'cursor mcp config scoping'."),
+        project: z
+          .string()
+          .optional()
+          .describe(
+            "Restrict to one project/space name. Omit to search every project.",
+          ),
+        kinds: z
+          .array(z.enum(["decision", "context"]))
+          .optional()
+          .describe("Restrict to entry kinds."),
+      },
+    },
+    async ({ query, project, kinds }) => {
+      // /api/read requires a project for its recency fallback; the gateway
+      // searches the whole space when the query is present, so the default
+      // project only scopes the offline fallback.
+      const scopeProject = project?.trim() || defaultProject();
+      const remote = await remoteApiRead(cfg, {
+        project: scopeProject,
+        query,
+        kinds,
+        budgetTokens: cfg.readBudgetTokens,
+        trigger: "search_memory",
+      });
+      if (remote === null) {
+        return {
+          content: [
+            {
+              type: "text",
+              text:
+                "search_memory needs the hosted gateway and it was not reachable " +
+                "(set MEMORYLAYER_GATEWAY_URL and MEMORYLAYER_GATEWAY_TOKEN, or retry online). " +
+                "Use read_context for the local recency view.",
+            },
+          ],
+          isError: true,
+        };
+      }
+      await recordMetric(cfg, {
+        source: "mcp",
+        event: "read",
+        project: scopeProject,
+        total: remote.total,
+      });
+      return { content: [{ type: "text", text: remote.text }] };
     },
   );
 
