@@ -39,9 +39,13 @@ test("the Cursor regression: old exact-topic decision beats 45 newer unrelated e
       { sourceTs: "2026-06-01T00:00:00Z" },
     ),
     ...Array.from({ length: 45 }, (_, i) =>
-      doc(`f${i}`, `gateway auth hardening step ${i} for hosted member tokens`, {
-        sourceTs: "2026-07-07T00:00:00Z",
-      }),
+      doc(
+        `f${i}`,
+        `gateway auth hardening step ${i} for hosted member tokens`,
+        {
+          sourceTs: "2026-07-07T00:00:00Z",
+        },
+      ),
     ),
   ]);
   const { results, total } = await retrieve(

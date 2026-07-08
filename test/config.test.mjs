@@ -20,6 +20,8 @@ const MEMORYLAYER_VARS = [
   "MEMORYLAYER_READ_BUDGET_TOKENS",
   "MEMORYLAYER_HOME",
   "XDG_DATA_HOME",
+  "MEMORYLAYER_GATEWAY_URL",
+  "MEMORYLAYER_GATEWAY_TOKEN",
 ];
 
 /** Run `fn` with a clean, fully-controlled MemoryLayer env, then restore. */
@@ -324,6 +326,49 @@ test("defaultProject derives from the cwd basename, not the literal 'memorylayer
   assert.equal(defaultProject("/home/me/backend"), "backend");
   // A rootless path has no basename → neutral fallback, never a real project.
   assert.equal(defaultProject("/"), "unknown");
+});
+
+test("loadConfig reads gateway url/token; url is trailing-slash-normalized", () => {
+  withEnv(
+    {
+      MEMORYLAYER_AUTHOR: "A",
+      CONTEXT_REPO_URL: "https://x/y.git",
+      MEMORYLAYER_GATEWAY_URL: "https://gw.example.com/",
+      MEMORYLAYER_GATEWAY_TOKEN: "mlk_abc",
+    },
+    () => {
+      const cfg = loadConfig();
+      assert.equal(cfg.gatewayUrl, "https://gw.example.com");
+      assert.equal(cfg.gatewayToken, "mlk_abc");
+    },
+  );
+});
+
+test("loadConfig leaves gateway fields undefined when unset", () => {
+  withEnv({ MEMORYLAYER_AUTHOR: "A", CONTEXT_REPO_URL: "u" }, () => {
+    const cfg = loadConfig();
+    assert.equal(cfg.gatewayUrl, undefined);
+    assert.equal(cfg.gatewayToken, undefined);
+  });
+});
+
+test("loadHookEnv honors the gateway keys", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ml-env-"));
+  fs.writeFileSync(
+    path.join(dir, ".memorylayer-hook.env"),
+    "MEMORYLAYER_GATEWAY_URL=https://gw.example.com\nMEMORYLAYER_GATEWAY_TOKEN=mlk_fromfile\n",
+  );
+  const saved = { ...process.env };
+  delete process.env.MEMORYLAYER_GATEWAY_URL;
+  delete process.env.MEMORYLAYER_GATEWAY_TOKEN;
+  try {
+    loadHookEnv(dir);
+    assert.equal(process.env.MEMORYLAYER_GATEWAY_URL, "https://gw.example.com");
+    assert.equal(process.env.MEMORYLAYER_GATEWAY_TOKEN, "mlk_fromfile");
+  } finally {
+    process.env = saved;
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
 });
 
 test("loadHookEnv allowlists MEMORYLAYER_READ_BUDGET_TOKENS", () => {

@@ -31,7 +31,10 @@ function envWith(indexDb) {
             tree: [{ path: "context/memorylayer/skanda/a.md", type: "blob" }],
           }),
       ],
-      ["/contents/context/memorylayer/skanda/a.md", () => new Response(entryMd)],
+      [
+        "/contents/context/memorylayer/skanda/a.md",
+        () => new Response(entryMd),
+      ],
     ]),
     { indexDb, embedder: fakeEmbed },
   );

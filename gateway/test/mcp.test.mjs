@@ -226,7 +226,10 @@ test("search_memory searches the space, honors kinds, and requires query", async
       jsonrpc: "2.0",
       id: 23,
       method: "tools/call",
-      params: { name: "search_memory", arguments: { query: "cursor mcp config" } },
+      params: {
+        name: "search_memory",
+        arguments: { query: "cursor mcp config" },
+      },
     }),
     env,
   );
@@ -249,7 +252,10 @@ test("search_memory searches the space, honors kinds, and requires query", async
 test("write_context ingests the new entry inline so it is immediately searchable", async () => {
   const indexDb = new MemoryIndexDb();
   const { env, tokens } = await setup(
-    [...TOKEN_ROUTES, ["/contents/", () => Response.json({ ok: true }, { status: 201 })]],
+    [
+      ...TOKEN_ROUTES,
+      ["/contents/", () => Response.json({ ok: true }, { status: 201 })],
+    ],
     { indexDb, embedder: fakeEmbed },
   );
   await handleRequest(

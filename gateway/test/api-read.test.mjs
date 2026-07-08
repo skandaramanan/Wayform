@@ -66,7 +66,10 @@ test("no query falls back to the recency read", async () => {
     [
       "/app/installations/",
       () =>
-        Response.json({ token: "ghs_test", expires_at: "2099-01-01T00:00:00Z" }),
+        Response.json({
+          token: "ghs_test",
+          expires_at: "2099-01-01T00:00:00Z",
+        }),
     ],
     ["/git/trees/main", () => Response.json({ tree: [] })],
   ]);

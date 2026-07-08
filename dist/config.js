@@ -28,6 +28,8 @@ const HOOK_ENV_ALLOWLIST = new Set([
     "MEMORYLAYER_AUTO_PUSH",
     "MEMORYLAYER_HOOK_CLIENT",
     "MEMORYLAYER_READ_BUDGET_TOKENS",
+    "MEMORYLAYER_GATEWAY_URL",
+    "MEMORYLAYER_GATEWAY_TOKEN",
 ]);
 /**
  * Load `.memorylayer-hook.env` (KEY=VALUE lines) from `cwd` into process.env,
@@ -151,6 +153,9 @@ export function loadConfig() {
             `${author.replace(/\s+/g, ".").toLowerCase()}@memorylayer.local`,
         autoPush: (process.env.MEMORYLAYER_AUTO_PUSH?.trim() || "true") !== "false",
         readBudgetTokens,
+        gatewayUrl: process.env.MEMORYLAYER_GATEWAY_URL?.trim().replace(/\/+$/, "") ||
+            undefined,
+        gatewayToken: process.env.MEMORYLAYER_GATEWAY_TOKEN?.trim() || undefined,
     };
 }
 //# sourceMappingURL=config.js.map
