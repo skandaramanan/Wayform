@@ -99,7 +99,7 @@ export async function handleWebhook(
     env,
     deps.db,
     deps.embed,
-    null, // gen wired to deps.gen in Task 5
+    deps.gen,
     sr,
     paths,
     after,

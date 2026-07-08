@@ -47,7 +47,7 @@ export async function handleAdminReindex(
       env,
       deps.db,
       deps.embed,
-      null, // gen wired to deps.gen in Task 5
+      deps.gen,
       sr,
       env.githubFetch ?? fetch,
       {
@@ -103,7 +103,7 @@ export async function reconcileAll(env: Env): Promise<void> {
       if (!head) continue;
       const indexed = await deps.db.getLastIndexedSha(sr.space);
       if (indexed === head) continue;
-      await reindexSpace(env, deps.db, deps.embed, null, sr, fetchImpl);
+      await reindexSpace(env, deps.db, deps.embed, deps.gen, sr, fetchImpl);
     } catch {
       // fail-open per space; next cron tick retries
     }

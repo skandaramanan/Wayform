@@ -153,7 +153,11 @@ function toolText(text: string, isError = false): unknown {
     : { content: [{ type: "text", text }] };
 }
 
-export async function handleMcp(req: Request, env: Env): Promise<Response> {
+export async function handleMcp(
+  req: Request,
+  env: Env,
+  ctx?: { waitUntil(p: Promise<unknown>): void },
+): Promise<Response> {
   const member = await resolveMember(req, env);
   if (!member) return new Response("unauthorized", { status: 401 });
 
@@ -180,7 +184,7 @@ export async function handleMcp(req: Request, env: Env): Promise<Response> {
     case "tools/list":
       return rpcResult(msg.id, { tools: TOOLS });
     case "tools/call":
-      return toolsCall(msg, member, env);
+      return toolsCall(msg, member, env, ctx);
     default:
       return rpcError(
         msg.id,
@@ -194,6 +198,7 @@ async function toolsCall(
   msg: RpcMessage,
   member: SpaceMember,
   env: Env,
+  ctx?: { waitUntil(p: Promise<unknown>): void },
 ): Promise<Response> {
   const fetchImpl = env.githubFetch ?? fetch;
   const args = msg.params?.arguments ?? {};
@@ -299,19 +304,31 @@ async function toolsCall(
         } catch {
           // swallow: stale cache expires via TTL
         }
-        // Inline index ingest: read-your-own-writes on the hosted plane
-        // (§2.3). Fail-open — the ledger write already succeeded, and the
-        // webhook/cron paths will index the entry if this misses.
-        try {
-          const deps = indexDeps(env);
-          if (deps) {
-            await ingestEntries(deps.db, deps.embed, null, member.space, project, [
-              entry,
-            ]);
+        // Index ingest runs async (ctx.waitUntil): LLM fact extraction would
+        // add ~1-3s to the write, and the ledger entry is already committed and
+        // served by the recency read, so read-your-own-writes on the extracted
+        // view is worth a few seconds' eventual consistency (design §0.2).
+        // Fail-open — the webhook/cron paths re-derive from the ledger if this
+        // misses. Without a ctx (tests / no-ctx runtime) run inline.
+        const runIngest = async () => {
+          try {
+            const deps = indexDeps(env);
+            if (deps) {
+              await ingestEntries(
+                deps.db,
+                deps.embed,
+                deps.gen,
+                member.space,
+                project,
+                [entry],
+              );
+            }
+          } catch {
+            // swallow: reconcile cron re-derives the doc from the ledger
           }
-        } catch {
-          // swallow: reconcile cron re-derives the doc from the ledger
-        }
+        };
+        if (ctx) ctx.waitUntil(runIngest());
+        else await runIngest();
         return rpcResult(
           msg.id,
           toolText(
