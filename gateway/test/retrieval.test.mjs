@@ -1,0 +1,175 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { MemoryIndexDb } from "../dist/gateway/src/index-db.js";
+import {
+  retrieve,
+  renderSearchResults,
+} from "../dist/gateway/src/retrieval.js";
+import { fakeEmbed } from "./helpers.mjs";
+
+function doc(id, body, overrides = {}) {
+  return {
+    id,
+    space: "s1",
+    project: "memorylayer",
+    kind: "decision",
+    tier: "normal",
+    body,
+    sourceFile: `context/memorylayer/skanda/${id}.md`,
+    sourceAuthor: "Skanda",
+    sourceTs: "2026-07-04T11:00:00Z",
+    embedding: [],
+    supersededBy: null,
+    createdAt: "2026-07-08T00:00:00Z",
+    ...overrides,
+  };
+}
+
+async function seed(db, docs) {
+  const vecs = await fakeEmbed(docs.map((d) => d.body));
+  await db.upsertDocs(docs.map((d, i) => ({ ...d, embedding: vecs[i] })));
+}
+
+test("the Cursor regression: old exact-topic decision beats 45 newer unrelated entries", async () => {
+  const db = new MemoryIndexDb();
+  await seed(db, [
+    doc(
+      "cursor-fact",
+      "Cursor MCP config is project-scoped, not global — verified 2026-07-04.",
+      { sourceTs: "2026-06-01T00:00:00Z" },
+    ),
+    ...Array.from({ length: 45 }, (_, i) =>
+      doc(`f${i}`, `gateway auth hardening step ${i} for hosted member tokens`, {
+        sourceTs: "2026-07-07T00:00:00Z",
+      }),
+    ),
+  ]);
+  const { results, total } = await retrieve(
+    { db, embed: fakeEmbed },
+    {
+      space: "s1",
+      project: "memorylayer",
+      query: "how is cursor mcp config scoped",
+      budgetTokens: 4000,
+      trigger: "test",
+    },
+  );
+  assert.equal(total, 46);
+  assert.equal(results[0].doc.id, "cursor-fact");
+});
+
+test("kinds filter restricts candidates; empty index returns empty", async () => {
+  const db = new MemoryIndexDb();
+  await seed(db, [
+    doc("d1", "we chose D1 for the index plane"),
+    doc("c1", "background: pilot has two spaces", { kind: "context" }),
+  ]);
+  const { results } = await retrieve(
+    { db, embed: fakeEmbed },
+    {
+      space: "s1",
+      project: "memorylayer",
+      query: "index plane pilot spaces",
+      budgetTokens: 4000,
+      kinds: ["context"],
+      trigger: "test",
+    },
+  );
+  assert.deepEqual(
+    results.map((r) => r.doc.id),
+    ["c1"],
+  );
+
+  const empty = await retrieve(
+    { db, embed: fakeEmbed },
+    { space: "nope", query: "anything", budgetTokens: 4000, trigger: "test" },
+  );
+  assert.deepEqual(empty, { results: [], total: 0 });
+});
+
+test("irrelevant queries fall below tau — silence is a first-class outcome", async () => {
+  const db = new MemoryIndexDb();
+  await seed(db, [doc("d1", "we chose D1 for the index plane")]);
+  const { results } = await retrieve(
+    { db, embed: null }, // BM25 only: zero term overlap => no candidates
+    {
+      space: "s1",
+      project: "memorylayer",
+      query: "zzqx unrelated nonsense",
+      budgetTokens: 4000,
+      trigger: "test",
+    },
+  );
+  assert.deepEqual(results, []);
+});
+
+test("embedder failure fails open to BM25-only", async () => {
+  const db = new MemoryIndexDb();
+  await seed(db, [doc("cursor-fact", "Cursor MCP config is project-scoped.")]);
+  const boom = async () => {
+    throw new Error("model down");
+  };
+  const { results } = await retrieve(
+    { db, embed: boom },
+    {
+      space: "s1",
+      project: "memorylayer",
+      query: "cursor mcp config",
+      budgetTokens: 4000,
+      trigger: "test",
+    },
+  );
+  assert.equal(results[0].doc.id, "cursor-fact");
+});
+
+test("budget packing keeps highest-scored results within budget (never zero)", async () => {
+  const db = new MemoryIndexDb();
+  const big = "cursor ".repeat(400); // ~700 tokens each
+  await seed(db, [doc("a", big), doc("b", big), doc("c", big)]);
+  const { results } = await retrieve(
+    { db, embed: fakeEmbed },
+    {
+      space: "s1",
+      project: "memorylayer",
+      query: "cursor",
+      budgetTokens: 800,
+      trigger: "test",
+    },
+  );
+  assert.equal(results.length, 1);
+});
+
+test("every retrieval is logged with trigger, query, scores, injected flag", async () => {
+  const db = new MemoryIndexDb();
+  await seed(db, [doc("cursor-fact", "Cursor MCP config is project-scoped.")]);
+  await retrieve(
+    { db, embed: fakeEmbed },
+    {
+      space: "s1",
+      project: "memorylayer",
+      query: "cursor config",
+      budgetTokens: 4000,
+      trigger: "search_memory",
+    },
+  );
+  assert.equal(db.logged.length, 1);
+  assert.equal(db.logged[0].trigger, "search_memory");
+  assert.equal(db.logged[0].query, "cursor config");
+  assert.equal(db.logged[0].injected, true);
+  assert.equal(db.logged[0].returned[0].id, "cursor-fact");
+  assert.ok(db.logged[0].returned[0].score > 0);
+});
+
+test("renderSearchResults groups by kind and carries provenance", () => {
+  const results = [
+    { doc: doc("d1", "we chose D1"), score: 0.03 },
+    { doc: doc("c1", "pilot background", { kind: "context" }), score: 0.02 },
+  ];
+  const text = renderSearchResults("memorylayer", "index", results, 10);
+  assert.match(text, /# Memory search: "index"/);
+  assert.match(text, /2 of 10 indexed entries cleared the relevance bar/);
+  assert.match(text, /## decision — Skanda — 2026-07-04/);
+  assert.match(text, /source: context\/memorylayer\/skanda\/d1\.md/);
+  const none = renderSearchResults("memorylayer", "xyz", [], 10);
+  assert.match(none, /no stored entries cleared the relevance bar/);
+});
