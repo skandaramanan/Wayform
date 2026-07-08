@@ -305,7 +305,7 @@ async function toolsCall(
         try {
           const deps = indexDeps(env);
           if (deps) {
-            await ingestEntries(deps.db, deps.embed, member.space, project, [
+            await ingestEntries(deps.db, deps.embed, null, member.space, project, [
               entry,
             ]);
           }
