@@ -67,6 +67,18 @@ export async function fakeEmbed(texts) {
   });
 }
 
+/** Deterministic text-gen seam: returns a JSON fact array driven by the entry
+ *  body so extraction tests need no model. Recognizes marker substrings; else
+ *  returns a sentinel the parser rejects → the extractor's fail-open floor. */
+export function fakeGenText(script = {}) {
+  return async (prompt) => {
+    for (const [marker, json] of Object.entries(script)) {
+      if (prompt.includes(marker)) return json;
+    }
+    return "__PASSTHROUGH__"; // caller's parser will reject → fail-open floor
+  };
+}
+
 /** Mock fetch: records calls, answers by first matching URL substring. */
 export function ghFetch(calls, routes) {
   return async (url, init = {}) => {
