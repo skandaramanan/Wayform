@@ -19,6 +19,7 @@
  */
 import { loadConfig, defaultProject } from "./config.js";
 import { ContextStore } from "./store.js";
+import { remoteHookRead } from "./remote-read.js";
 import { projectContext } from "./context-format.js";
 import { recordMetric } from "./metrics.js";
 import {
@@ -58,6 +59,18 @@ export async function runHook(): Promise<void> {
     const project = process.env.MEMORYLAYER_PROJECT?.trim() || defaultProject();
 
     const cfg = loadConfig();
+
+    // Remote-first (§2.2): the gateway's index serves the read; the local
+    // clone is the offline fallback. remoteHookRead returns ready-to-inject
+    // text ("" = empty store) or null meaning "gateway unusable — fall back".
+    const remote = await remoteHookRead(cfg, project, cfg.readBudgetTokens);
+    if (remote !== null) {
+      await recordMetric(cfg, { source: "hook", event: "read", project });
+      if (remote === "") emitEmpty();
+      process.stdout.write(renderContext(client, remote));
+      process.exit(0);
+    }
+
     const store = new ContextStore(cfg);
     await store.ensure();
     const { entries, total } = await store.read(project, cfg.readBudgetTokens);

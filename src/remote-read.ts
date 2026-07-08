@@ -1,0 +1,82 @@
+/**
+ * Remote-first read client (§2.2): the local plane calls the gateway's
+ * retrieval service and falls back to the local clone when offline or
+ * unconfigured. Every failure returns null — callers treat null as "use the
+ * local path", never as an error. Bounded by a timeout so a slow gateway
+ * cannot stall a session hook.
+ */
+import type { Config } from "./config.js";
+
+export interface RemoteReadResult {
+  text: string;
+  total: number;
+  matched: number;
+}
+
+const REMOTE_TIMEOUT_MS = 4000;
+
+type GatewayCfg = Pick<Config, "gatewayUrl" | "gatewayToken">;
+
+function configured(cfg: GatewayCfg): cfg is Required<GatewayCfg> {
+  return Boolean(cfg.gatewayUrl && cfg.gatewayToken);
+}
+
+export async function remoteApiRead(
+  cfg: GatewayCfg,
+  opts: {
+    project: string;
+    query?: string;
+    budgetTokens?: number;
+    kinds?: string[];
+    trigger?: string;
+  },
+  fetchImpl: typeof fetch = fetch,
+): Promise<RemoteReadResult | null> {
+  if (!configured(cfg)) return null;
+  try {
+    const url = new URL(`${cfg.gatewayUrl}/api/read`);
+    url.searchParams.set("project", opts.project);
+    if (opts.query) url.searchParams.set("query", opts.query);
+    if (opts.budgetTokens)
+      url.searchParams.set("budget", String(opts.budgetTokens));
+    if (opts.kinds?.length) url.searchParams.set("kinds", opts.kinds.join(","));
+    if (opts.trigger) url.searchParams.set("trigger", opts.trigger);
+    const res = await fetchImpl(url.toString(), {
+      headers: { authorization: `Bearer ${cfg.gatewayToken}` },
+      signal: AbortSignal.timeout(REMOTE_TIMEOUT_MS),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as Partial<RemoteReadResult>;
+    if (typeof body.text !== "string" || typeof body.total !== "number")
+      return null;
+    return {
+      text: body.text,
+      total: body.total,
+      matched: typeof body.matched === "number" ? body.matched : 0,
+    };
+  } catch {
+    return null;
+  }
+}
+
+export async function remoteHookRead(
+  cfg: GatewayCfg,
+  project: string,
+  budgetTokens: number,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string | null> {
+  if (!configured(cfg)) return null;
+  try {
+    const url = new URL(`${cfg.gatewayUrl}/hook/read`);
+    url.searchParams.set("project", project);
+    url.searchParams.set("budget", String(budgetTokens));
+    const res = await fetchImpl(url.toString(), {
+      headers: { authorization: `Bearer ${cfg.gatewayToken}` },
+      signal: AbortSignal.timeout(REMOTE_TIMEOUT_MS),
+    });
+    if (!res.ok) return null;
+    return await res.text();
+  } catch {
+    return null;
+  }
+}
