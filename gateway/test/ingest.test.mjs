@@ -154,9 +154,52 @@ test("reindexSpace wipes the space and rebuilds from the full tree", async () =>
       createdAt: "2026-01-01T00:00:00Z",
     },
   ]);
-  const n = await reindexSpace(env, db, fakeEmbed, SR, env.githubFetch);
-  assert.equal(n, 2);
+  const result = await reindexSpace(env, db, fakeEmbed, SR, env.githubFetch);
+  assert.equal(result.count, 2);
+  assert.equal(result.total, 2);
+  assert.equal(result.nextOffset, null);
   const ids = (await db.listDocs("s1")).map((d) => d.id);
   assert.ok(!ids.includes("stale"));
   assert.equal(await db.getLastIndexedSha("s1"), "headsha");
+});
+
+test("reindexSpace project filter scopes to one project's paths only", async () => {
+  const calls = [];
+  const env = makeEnv(ghRoutes(calls));
+  const db = new MemoryIndexDb();
+  const result = await reindexSpace(env, db, fakeEmbed, SR, env.githubFetch, {
+    project: "memorylayer",
+  });
+  assert.equal(result.count, 1);
+  assert.equal(result.total, 1);
+  assert.equal((await db.listDocs("s1", "memorylayer")).length, 1);
+  assert.equal((await db.listDocs("s1", "other-proj")).length, 0);
+});
+
+test("reindexSpace pagination: subrequest-budget-safe backfill across multiple calls", async () => {
+  const calls = [];
+  const env = makeEnv(ghRoutes(calls));
+  const db = new MemoryIndexDb();
+
+  // Page 1: wipes the space (offset 0), indexes only the first path, does
+  // NOT advance last_indexed_sha yet (more pages remain).
+  const page1 = await reindexSpace(env, db, fakeEmbed, SR, env.githubFetch, {
+    limit: 1,
+  });
+  assert.equal(page1.count, 1);
+  assert.equal(page1.total, 2);
+  assert.equal(page1.nextOffset, 1);
+  assert.equal(await db.getLastIndexedSha("s1"), null);
+  assert.equal((await db.listDocs("s1")).length, 1);
+
+  // Page 2: does NOT re-wipe (offset > 0), indexes the remaining path, THEN
+  // advances last_indexed_sha since this is the final page.
+  const page2 = await reindexSpace(env, db, fakeEmbed, SR, env.githubFetch, {
+    offset: page1.nextOffset,
+    limit: 1,
+  });
+  assert.equal(page2.count, 1);
+  assert.equal(page2.nextOffset, null);
+  assert.equal(await db.getLastIndexedSha("s1"), "headsha");
+  assert.equal((await db.listDocs("s1")).length, 2);
 });

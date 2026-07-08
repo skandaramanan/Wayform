@@ -23,9 +23,14 @@ export async function handleAdminReindex(
   const deps = indexDeps(env);
   if (!deps) return Response.json({ error: "index disabled" }, { status: 503 });
 
-  let body: { repo?: string };
+  let body: {
+    repo?: string;
+    project?: string;
+    offset?: number;
+    limit?: number;
+  };
   try {
-    body = (await req.json()) as { repo?: string };
+    body = (await req.json()) as typeof body;
   } catch {
     body = {};
   }
@@ -33,16 +38,33 @@ export async function handleAdminReindex(
     (sr) => !body.repo || `${sr.owner}/${sr.repo}` === body.repo,
   );
   const reindexed: Record<string, number> = {};
+  // Pagination info is only surfaced when the caller opts in via `limit`, so
+  // the response shape for an ordinary (unpaginated) call is unchanged.
+  let pagination:
+    Record<string, { total: number; nextOffset: number | null }> | undefined;
   for (const sr of repos) {
-    reindexed[sr.space] = await reindexSpace(
+    const result = await reindexSpace(
       env,
       deps.db,
       deps.embed,
       sr,
       env.githubFetch ?? fetch,
+      {
+        project: body.project,
+        offset: body.offset,
+        limit: body.limit,
+      },
     );
+    reindexed[sr.space] = result.count;
+    if (body.limit != null) {
+      pagination = pagination ?? {};
+      pagination[sr.space] = {
+        total: result.total,
+        nextOffset: result.nextOffset,
+      };
+    }
   }
-  return Response.json({ reindexed });
+  return Response.json(pagination ? { reindexed, pagination } : { reindexed });
 }
 
 async function headSha(
