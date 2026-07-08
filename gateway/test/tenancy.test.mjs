@@ -1,7 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { handleRequest } from "../dist/gateway/src/router.js";
-import { resolveMember, newToken } from "../dist/gateway/src/tenancy.js";
+import {
+  resolveMember,
+  newToken,
+  getSpaceRepo,
+} from "../dist/gateway/src/tenancy.js";
 import { makeEnv } from "./helpers.mjs";
 
 const MEMBER = {
@@ -66,6 +70,20 @@ test("resolveMember: absent/garbage/unknown bearer all resolve to null", async (
     await resolveMember(mk({ authorization: `Bearer ${newToken()}` }), env),
     null,
   );
+});
+
+test("minting a member registers its repo in the spaces registry", async () => {
+  const env = makeEnv();
+  const res = await addMember(env);
+  assert.equal(res.status, 200);
+  const sr = await getSpaceRepo(env, "acme/team-a-memory");
+  assert.deepEqual(sr, {
+    space: "team-a",
+    installationId: 777,
+    owner: "acme",
+    repo: "team-a-memory",
+    branch: "main",
+  });
 });
 
 test("two members in different spaces resolve to their own records", async () => {
