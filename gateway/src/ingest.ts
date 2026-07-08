@@ -2,8 +2,10 @@
  * Index ingest (§2): the ledger is the source of truth; these functions
  * derive index docs from it. Three callers: inline gateway writes (mcp.ts),
  * the push webhook (webhook.ts), and reindex/reconcile (reindex.ts).
- * Phase A is naive per-entry indexing — one ledger entry = one doc; Phase B
- * swaps LLM fact extraction into ingestEntries without touching callers.
+ * Phase B1: ingestEntries extracts N atomic facts per ledger entry (LLM, §3)
+ * and writes them with delete-then-insert idempotency (replaceBySource). The
+ * three callers pass a `gen` text-gen seam; when it is null (or extraction
+ * fails) each entry degrades to a single whole-entry fact — Phase A behavior.
  */
 import { parseEntry, type ParsedEntry } from "../../src/frontmatter.js";
 import { slug } from "../../src/slug.js";
@@ -11,6 +13,7 @@ import { installationToken } from "./github-auth.js";
 import type { Env } from "./env.js";
 import type { IndexDb, IndexedDoc } from "./index-db.js";
 import type { Embedder } from "./retrieval.js";
+import { extractFacts, type GenText, type ExtractedFact } from "./extract.js";
 
 const GH = "https://api.github.com";
 
@@ -37,48 +40,60 @@ export function projectFromPath(path: string): string | null {
   return m ? m[1] : null;
 }
 
-export function entryToDoc(
+export function factToDoc(
   space: string,
   project: string,
   entry: ParsedEntry,
+  fact: ExtractedFact,
+  idx: number,
   embedding: number[],
 ): IndexedDoc {
+  const sourceId = entry.id || entry.file;
   return {
-    id: entry.id || entry.file,
+    id: `${sourceId}#${idx}`,
     space,
     project: slug(project),
-    kind: entry.type,
-    tier: "normal",
-    body: entry.payload,
+    kind: fact.kind,
+    tier: fact.tier,
+    body: fact.body,
     sourceFile: entry.file,
     sourceAuthor: entry.author,
     sourceTs: entry.timestamp,
     embedding,
     supersededBy: null,
     createdAt: new Date().toISOString(),
+    sourceId,
+    entities: fact.entities,
   };
 }
 
 export async function ingestEntries(
   db: IndexDb,
   embed: Embedder | null,
+  gen: GenText | null,
   space: string,
   project: string,
   entries: ParsedEntry[],
 ): Promise<number> {
   if (entries.length === 0) return 0;
-  let vecs: number[][] = entries.map(() => []);
-  if (embed) {
-    try {
-      vecs = await embed(entries.map((e) => e.payload));
-    } catch {
-      // fail-open: index without vectors — BM25 still serves recall
+  let count = 0;
+  for (const entry of entries) {
+    const facts = await extractFacts(gen, entry);
+    let vecs: number[][] = facts.map(() => []);
+    if (embed) {
+      try {
+        vecs = await embed(facts.map((f) => f.body));
+      } catch {
+        // fail-open: index facts without vectors — BM25 still serves recall
+      }
     }
+    const docs = facts.map((f, i) =>
+      factToDoc(space, project, entry, f, i, vecs[i] ?? []),
+    );
+    await db.replaceBySource(space, entry.id || entry.file, docs);
+    count += docs.length;
   }
-  await db.upsertDocs(
-    entries.map((e, i) => entryToDoc(space, project, e, vecs[i] ?? [])),
-  );
-  return entries.length;
+  return count;
 }
 
 /**
@@ -90,6 +105,7 @@ export async function ingestFiles(
   env: Env,
   db: IndexDb,
   embed: Embedder | null,
+  gen: GenText | null,
   sr: SpaceRepo,
   paths: string[],
   headSha: string,
@@ -120,7 +136,7 @@ export async function ingestFiles(
       byProject.set(project, list);
     }
     for (const [project, entries] of byProject) {
-      count += await ingestEntries(db, embed, sr.space, project, entries);
+      count += await ingestEntries(db, embed, gen, sr.space, project, entries);
     }
   }
   if (opts.setSha ?? true) {
@@ -158,6 +174,7 @@ export async function reindexSpace(
   env: Env,
   db: IndexDb,
   embed: Embedder | null,
+  gen: GenText | null,
   sr: SpaceRepo,
   fetchImpl: typeof fetch,
   opts: { project?: string; offset?: number; limit?: number } = {},
@@ -199,8 +216,18 @@ export async function reindexSpace(
   if (offset === 0) {
     await db.deleteSpace(sr.space);
   }
-  const count = await ingestFiles(env, db, embed, sr, slice, sha, fetchImpl, {
-    setSha: nextOffset === null,
-  });
+  const count = await ingestFiles(
+    env,
+    db,
+    embed,
+    gen,
+    sr,
+    slice,
+    sha,
+    fetchImpl,
+    {
+      setSha: nextOffset === null,
+    },
+  );
   return { count, total, nextOffset };
 }

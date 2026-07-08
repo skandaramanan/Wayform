@@ -99,6 +99,7 @@ export async function handleWebhook(
     env,
     deps.db,
     deps.embed,
+    deps.gen,
     sr,
     paths,
     after,

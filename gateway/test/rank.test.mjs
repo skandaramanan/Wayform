@@ -6,6 +6,8 @@ import {
   cosineTopK,
   rrfFuse,
   adjustScores,
+  entityRank,
+  CANON_BOOST,
   TAU,
 } from "../dist/gateway/src/rank.js";
 
@@ -69,10 +71,22 @@ test("rrfFuse: doc present in both lists beats single-list docs", () => {
 test("adjustScores: decisions get a boost; status decays with age", () => {
   const now = new Date("2026-07-08T00:00:00Z");
   const docsById = new Map([
-    ["d", { kind: "decision", sourceTs: "2026-01-01T00:00:00Z" }],
-    ["c", { kind: "context", sourceTs: "2026-01-01T00:00:00Z" }],
-    ["s-old", { kind: "status", sourceTs: "2026-06-10T00:00:00Z" }], // 28d = 2 half-lives
-    ["s-new", { kind: "status", sourceTs: "2026-07-08T00:00:00Z" }],
+    [
+      "d",
+      { kind: "decision", tier: "normal", sourceTs: "2026-01-01T00:00:00Z" },
+    ],
+    [
+      "c",
+      { kind: "context", tier: "normal", sourceTs: "2026-01-01T00:00:00Z" },
+    ],
+    [
+      "s-old",
+      { kind: "status", tier: "normal", sourceTs: "2026-06-10T00:00:00Z" },
+    ], // 28d = 2 half-lives
+    [
+      "s-new",
+      { kind: "status", tier: "normal", sourceTs: "2026-07-08T00:00:00Z" },
+    ],
   ]);
   const fused = new Map([
     ["d", 0.02],
@@ -89,4 +103,47 @@ test("adjustScores: decisions get a boost; status decays with age", () => {
 
 test("TAU is a small positive floor below a single-list top-1 RRF score", () => {
   assert.ok(TAU > 0 && TAU < 1 / 61);
+});
+
+test("adjustScores: a canon fact outranks a same-similarity normal decision", () => {
+  const now = new Date("2026-07-08T00:00:00Z");
+  const docsById = new Map([
+    [
+      "canon",
+      { kind: "constraint", tier: "canon", sourceTs: "2026-01-01T00:00:00Z" },
+    ],
+    [
+      "norm",
+      { kind: "decision", tier: "normal", sourceTs: "2026-07-08T00:00:00Z" },
+    ],
+  ]);
+  const fused = new Map([
+    ["canon", 0.02],
+    ["norm", 0.02],
+  ]);
+  const out = adjustScores(fused, docsById, now);
+  assert.equal(out[0].id, "canon");
+});
+
+test("CANON_BOOST exceeds the strongest kind prior (1.2) so canon wins its slot", () => {
+  assert.ok(CANON_BOOST > 1.2);
+});
+
+test("entityRank: docs whose entity tags overlap the query rank; others absent", () => {
+  const docs = [
+    { id: "hit", entities: ["cursor", "mcp-config"] },
+    { id: "miss", entities: ["gateway-auth"] },
+  ];
+  const ranked = entityRank(docs, "how is cursor scoped");
+  assert.deepEqual(
+    ranked.map((r) => r.id),
+    ["hit"],
+  );
+});
+
+test("entityRank returns [] when the query names no known entity", () => {
+  assert.deepEqual(
+    entityRank([{ id: "a", entities: ["cursor"] }], "unrelated nonsense"),
+    [],
+  );
 });
