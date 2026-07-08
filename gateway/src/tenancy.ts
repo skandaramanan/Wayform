@@ -1,5 +1,6 @@
 import type { Env } from "./env.js";
 import { b64url } from "./github-auth.js";
+import type { SpaceRepo } from "./ingest.js";
 
 /**
  * One KV record per member token. `owner`/`repo`/`installationId` bind the
@@ -43,6 +44,37 @@ export async function resolveMember(
   return record ? (JSON.parse(record) as SpaceMember) : null;
 }
 
+/** Single-key registry mapping "owner/repo" -> SpaceRepo, maintained on
+ *  member mint. Powers webhook repo->space lookup and cron reconciliation.
+ *  One JSON blob is fine at pilot scale (a handful of spaces). */
+const REGISTRY_KEY = "spaces:registry";
+
+export async function registerSpaceRepo(
+  env: Env,
+  sr: SpaceRepo,
+): Promise<void> {
+  const raw = await env.ROUTING.get(REGISTRY_KEY);
+  const reg = raw ? (JSON.parse(raw) as Record<string, SpaceRepo>) : {};
+  reg[`${sr.owner}/${sr.repo}`] = sr;
+  await env.ROUTING.put(REGISTRY_KEY, JSON.stringify(reg));
+}
+
+export async function getSpaceRepo(
+  env: Env,
+  fullName: string,
+): Promise<SpaceRepo | null> {
+  const raw = await env.ROUTING.get(REGISTRY_KEY);
+  if (!raw) return null;
+  return (JSON.parse(raw) as Record<string, SpaceRepo>)[fullName] ?? null;
+}
+
+export async function listSpaceRepos(env: Env): Promise<SpaceRepo[]> {
+  const raw = await env.ROUTING.get(REGISTRY_KEY);
+  return raw
+    ? Object.values(JSON.parse(raw) as Record<string, SpaceRepo>)
+    : [];
+}
+
 const REQUIRED: (keyof SpaceMember)[] = [
   "space",
   "installationId",
@@ -81,5 +113,12 @@ export async function handleAdminAddMember(
     `member:${await sha256Hex(token)}`,
     JSON.stringify(member),
   );
+  await registerSpaceRepo(env, {
+    space: member.space,
+    installationId: member.installationId,
+    owner: member.owner,
+    repo: member.repo,
+    branch: member.branch,
+  });
   return Response.json({ token, member });
 }
