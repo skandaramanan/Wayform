@@ -1,0 +1,92 @@
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import {
+  tokenize,
+  bm25Rank,
+  cosineTopK,
+  rrfFuse,
+  adjustScores,
+  TAU,
+} from "../dist/gateway/src/rank.js";
+
+test("tokenize lowercases, splits on non-alphanumerics, drops 1-char tokens", () => {
+  assert.deepEqual(tokenize("Cursor's MCP-config, v2!"), [
+    "cursor",
+    "mcp",
+    "config",
+    "v2",
+  ]);
+});
+
+test("bm25Rank: exact-term doc outranks unrelated docs (the Cursor miss)", () => {
+  const docs = [
+    {
+      id: "old-cursor",
+      body: "Cursor MCP config is project-scoped, not global — verified.",
+    },
+    ...Array.from({ length: 40 }, (_, i) => ({
+      id: `filler-${i}`,
+      body: `gateway auth token rotation step ${i} for the hosted plane`,
+    })),
+  ];
+  const ranked = bm25Rank(docs, "how does cursor mcp config work");
+  assert.equal(ranked[0].id, "old-cursor");
+});
+
+test("bm25Rank returns [] for empty query or empty corpus", () => {
+  assert.deepEqual(bm25Rank([], "cursor"), []);
+  assert.deepEqual(bm25Rank([{ id: "a", body: "x y z" }], "!!"), []);
+});
+
+test("cosineTopK ranks by cosine similarity, skips dimension mismatches", () => {
+  const docs = [
+    { id: "close", embedding: [1, 0, 0] },
+    { id: "far", embedding: [0, 1, 0] },
+    { id: "bad", embedding: [1, 0] },
+  ];
+  const ranked = cosineTopK(docs, [0.9, 0.1, 0]);
+  assert.deepEqual(
+    ranked.map((r) => r.id),
+    ["close", "far"],
+  );
+});
+
+test("rrfFuse: doc present in both lists beats single-list docs", () => {
+  const fused = rrfFuse([
+    [
+      { id: "both", score: 9 },
+      { id: "onlyA", score: 8 },
+    ],
+    [
+      { id: "both", score: 0.9 },
+      { id: "onlyB", score: 0.8 },
+    ],
+  ]);
+  assert.ok(fused.get("both") > fused.get("onlyA"));
+  assert.ok(fused.get("both") > fused.get("onlyB"));
+});
+
+test("adjustScores: decisions get a boost; status decays with age", () => {
+  const now = new Date("2026-07-08T00:00:00Z");
+  const docsById = new Map([
+    ["d", { kind: "decision", sourceTs: "2026-01-01T00:00:00Z" }],
+    ["c", { kind: "context", sourceTs: "2026-01-01T00:00:00Z" }],
+    ["s-old", { kind: "status", sourceTs: "2026-06-10T00:00:00Z" }], // 28d = 2 half-lives
+    ["s-new", { kind: "status", sourceTs: "2026-07-08T00:00:00Z" }],
+  ]);
+  const fused = new Map([
+    ["d", 0.02],
+    ["c", 0.02],
+    ["s-old", 0.02],
+    ["s-new", 0.02],
+  ]);
+  const out = adjustScores(fused, docsById, now);
+  const score = (id) => out.find((s) => s.id === id).score;
+  assert.ok(score("d") > score("c")); // kind prior — an old decision does NOT decay
+  assert.ok(Math.abs(score("s-old") - score("s-new") * 0.25) < 1e-9); // 2 half-lives
+  assert.deepEqual(out.map((s) => s.id).slice(0, 1), ["d"]); // sorted desc
+});
+
+test("TAU is a small positive floor below a single-list top-1 RRF score", () => {
+  assert.ok(TAU > 0 && TAU < 1 / 61);
+});

@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { handleRequest } from "../dist/gateway/src/router.js";
-import { makeEnv, ghFetch } from "./helpers.mjs";
+import { MemoryIndexDb } from "../dist/gateway/src/index-db.js";
+import { makeEnv, ghFetch, fakeEmbed } from "./helpers.mjs";
 
 const MEMBER_A = {
   space: "team-a",
@@ -20,9 +21,9 @@ const MEMBER_B = {
   authorEmail: "bo@acme.io",
 };
 
-async function setup(routes) {
+async function setup(routes, extra = {}) {
   const calls = [];
-  const env = makeEnv(ghFetch(calls, routes));
+  const env = makeEnv(ghFetch(calls, routes), extra);
   const tokens = {};
   for (const m of [MEMBER_A, MEMBER_B]) {
     const res = await handleRequest(
@@ -91,7 +92,190 @@ test("initialize and tools/list expose the stdio-identical contract", async () =
     env,
   );
   const names = (await list.json()).result.tools.map((t) => t.name).sort();
-  assert.deepEqual(names, ["read_context", "write_context"]);
+  assert.deepEqual(names, ["read_context", "search_memory", "write_context"]);
+});
+
+function docFor(space, project, id, body, embedding) {
+  return {
+    id,
+    space,
+    project,
+    kind: "decision",
+    tier: "normal",
+    body,
+    sourceFile: `context/${project}/ada/${id}.md`,
+    sourceAuthor: "Ada",
+    sourceTs: "2026-06-01T00:00:00Z",
+    embedding,
+    supersededBy: null,
+    createdAt: "2026-07-08T00:00:00Z",
+  };
+}
+
+test("read_context.query is advertised in the schema", async () => {
+  const { env, tokens } = await setup(TOKEN_ROUTES);
+  const list = await handleRequest(
+    rpc(tokens["team-a"], { jsonrpc: "2.0", id: 20, method: "tools/list" }),
+    env,
+  );
+  const tools = (await list.json()).result.tools;
+  const rc = tools.find((t) => t.name === "read_context");
+  assert.ok(rc.inputSchema.properties.query);
+  const sm = tools.find((t) => t.name === "search_memory");
+  assert.deepEqual(sm.inputSchema.required, ["query"]);
+});
+
+test("read_context with query returns ranked matches from the index", async () => {
+  const indexDb = new MemoryIndexDb();
+  const [vec] = await fakeEmbed([
+    "Cursor MCP config is project-scoped, not global.",
+  ]);
+  await indexDb.upsertDocs([
+    docFor(
+      "team-a",
+      "memorylayer",
+      "cursor-fact",
+      "Cursor MCP config is project-scoped, not global.",
+      vec,
+    ),
+  ]);
+  const { env, tokens } = await setup(TOKEN_ROUTES, {
+    indexDb,
+    embedder: fakeEmbed,
+  });
+  const res = await handleRequest(
+    rpc(tokens["team-a"], {
+      jsonrpc: "2.0",
+      id: 21,
+      method: "tools/call",
+      params: {
+        name: "read_context",
+        arguments: { project: "memorylayer", query: "cursor mcp config" },
+      },
+    }),
+    env,
+  );
+  const text = (await res.json()).result.content[0].text;
+  assert.match(text, /Memory search: "cursor mcp config"/);
+  assert.match(text, /project-scoped/);
+  assert.equal(indexDb.logged[0].trigger, "mcp_read");
+});
+
+test("read_context with query but no index falls back to the recency read", async () => {
+  const md =
+    "---\nauthor: Ada\ntype: decision\ntimestamp: 2026-07-01T00:00:00.000Z\nid: x1\nproject: memorylayer\n---\n\nships";
+  const { env, tokens } = await setup([
+    ...TOKEN_ROUTES,
+    [
+      "/git/trees/",
+      () =>
+        Response.json({
+          tree: [
+            {
+              path: "context/memorylayer/ada/2026-07-01T00-00-00-000Z-x1.md",
+              type: "blob",
+            },
+          ],
+        }),
+    ],
+    ["x1.md", () => new Response(md)],
+  ]);
+  const res = await handleRequest(
+    rpc(tokens["team-a"], {
+      jsonrpc: "2.0",
+      id: 22,
+      method: "tools/call",
+      params: {
+        name: "read_context",
+        arguments: { project: "memorylayer", query: "cursor" },
+      },
+    }),
+    env,
+  );
+  assert.match(
+    (await res.json()).result.content[0].text,
+    /# Shared context: memorylayer/,
+  );
+});
+
+test("search_memory searches the space, honors kinds, and requires query", async () => {
+  const indexDb = new MemoryIndexDb();
+  const [v1, v2] = await fakeEmbed([
+    "Cursor MCP config is project-scoped, not global.",
+    "background: the pilot has two spaces",
+  ]);
+  await indexDb.upsertDocs([
+    docFor(
+      "team-a",
+      "memorylayer",
+      "cursor-fact",
+      "Cursor MCP config is project-scoped, not global.",
+      v1,
+    ),
+    {
+      ...docFor("team-a", "other", "ctx1", "background pilot spaces", v2),
+      kind: "context",
+    },
+  ]);
+  const { env, tokens } = await setup(TOKEN_ROUTES, {
+    indexDb,
+    embedder: fakeEmbed,
+  });
+  const res = await handleRequest(
+    rpc(tokens["team-a"], {
+      jsonrpc: "2.0",
+      id: 23,
+      method: "tools/call",
+      params: {
+        name: "search_memory",
+        arguments: { query: "cursor mcp config" },
+      },
+    }),
+    env,
+  );
+  assert.match((await res.json()).result.content[0].text, /project-scoped/);
+
+  const missing = await handleRequest(
+    rpc(tokens["team-a"], {
+      jsonrpc: "2.0",
+      id: 24,
+      method: "tools/call",
+      params: { name: "search_memory", arguments: {} },
+    }),
+    env,
+  );
+  const missingBody = (await missing.json()).result;
+  assert.equal(missingBody.isError, true);
+  assert.match(missingBody.content[0].text, /missing required argument: query/);
+});
+
+test("write_context ingests the new entry inline so it is immediately searchable", async () => {
+  const indexDb = new MemoryIndexDb();
+  const { env, tokens } = await setup(
+    [
+      ...TOKEN_ROUTES,
+      ["/contents/", () => Response.json({ ok: true }, { status: 201 })],
+    ],
+    { indexDb, embedder: fakeEmbed },
+  );
+  await handleRequest(
+    rpc(tokens["team-a"], {
+      jsonrpc: "2.0",
+      id: 25,
+      method: "tools/call",
+      params: {
+        name: "write_context",
+        arguments: {
+          project: "memorylayer",
+          payload: "We moved retrieval server-side.",
+        },
+      },
+    }),
+    env,
+  );
+  const docs = await indexDb.listDocs("team-a", "memorylayer");
+  assert.equal(docs.length, 1);
+  assert.equal(docs[0].body, "We moved retrieval server-side.");
 });
 
 test("tools/call write_context writes to the member repo and reports like stdio", async () => {

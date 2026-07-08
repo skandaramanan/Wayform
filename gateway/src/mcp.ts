@@ -5,6 +5,9 @@ import { projectContext } from "../../src/context-format.js";
 import { slug } from "../../src/slug.js";
 import { DEFAULT_BUDGET_TOKENS } from "../../src/token-budget.js";
 import type { EntryType } from "../../src/frontmatter.js";
+import { indexDeps } from "./deps.js";
+import { retrieve, renderSearchResults } from "./retrieval.js";
+import { ingestEntries } from "./ingest.js";
 
 /**
  * Stateless MCP over Streamable HTTP: every request is one JSON-RPC message
@@ -47,6 +50,14 @@ const TOOLS = [
           description:
             "Override the default read token budget for this call (larger = more history, smaller = tighter context).",
         },
+        query: {
+          type: "string",
+          description:
+            "Optional natural-language or keyword query. When given, returns " +
+            "relevance-ranked matches from the WHOLE indexed history " +
+            "(keyword + semantic search) instead of only the most recent entries. " +
+            "Use it when looking for a specific past decision or topic.",
+        },
       },
       required: ["project"],
     },
@@ -82,6 +93,35 @@ const TOOLS = [
         },
       },
       required: ["project", "payload"],
+    },
+  },
+  {
+    name: "search_memory",
+    title: "Search the shared memory",
+    description:
+      "Relevance-ranked search over ALL recorded decisions and context in this " +
+      "space (keyword + semantic, whole history — not just recent entries). " +
+      "Use it BEFORE contradicting or re-deciding anything that may already be " +
+      "settled, and when the user references prior work or decisions.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        query: {
+          type: "string",
+          description: "What to look for, e.g. 'cursor mcp config scoping'.",
+        },
+        project: {
+          type: "string",
+          description:
+            "Restrict to one project/space name. Omit to search every project.",
+        },
+        kinds: {
+          type: "array",
+          items: { type: "string", enum: ["decision", "context"] },
+          description: "Restrict to entry kinds.",
+        },
+      },
+      required: ["query"],
     },
   },
 ];
@@ -158,19 +198,39 @@ async function toolsCall(
   const fetchImpl = env.githubFetch ?? fetch;
   const args = msg.params?.arguments ?? {};
   const project = typeof args.project === "string" ? args.project : "";
-  if (!project)
+  const toolName = msg.params?.name;
+  if ((toolName === "read_context" || toolName === "write_context") && !project)
     return rpcResult(
       msg.id,
       toolText("missing required argument: project", true),
     );
 
   try {
-    switch (msg.params?.name) {
+    switch (toolName) {
       case "read_context": {
         const budget =
           typeof args.budget_tokens === "number" && args.budget_tokens > 0
             ? args.budget_tokens
             : DEFAULT_BUDGET_TOKENS;
+        const query = typeof args.query === "string" ? args.query.trim() : "";
+        const deps = indexDeps(env);
+        if (query && deps) {
+          try {
+            const { results, total } = await retrieve(deps, {
+              space: member.space,
+              project: slug(project),
+              query,
+              budgetTokens: budget,
+              trigger: "mcp_read",
+            });
+            return rpcResult(
+              msg.id,
+              toolText(renderSearchResults(project, query, results, total)),
+            );
+          } catch {
+            // fail-open to the recency read below
+          }
+        }
         const { entries, total } = await readEntries(
           env,
           member,
@@ -181,6 +241,37 @@ async function toolsCall(
         return rpcResult(
           msg.id,
           toolText(projectContext(project, entries, total)),
+        );
+      }
+      case "search_memory": {
+        const query = typeof args.query === "string" ? args.query.trim() : "";
+        if (!query)
+          return rpcResult(
+            msg.id,
+            toolText("missing required argument: query", true),
+          );
+        const deps = indexDeps(env);
+        if (!deps)
+          return rpcResult(
+            msg.id,
+            toolText("memory search is not enabled on this gateway", true),
+          );
+        const kinds = Array.isArray(args.kinds)
+          ? args.kinds.filter((k): k is string => typeof k === "string")
+          : undefined;
+        const { results, total } = await retrieve(deps, {
+          space: member.space,
+          project: project ? slug(project) : undefined,
+          query,
+          budgetTokens: DEFAULT_BUDGET_TOKENS,
+          kinds,
+          trigger: "search_memory",
+        });
+        return rpcResult(
+          msg.id,
+          toolText(
+            renderSearchResults(project || undefined, query, results, total),
+          ),
         );
       }
       case "write_context": {
@@ -207,6 +298,19 @@ async function toolsCall(
           await env.ROUTING.delete(hookCacheKey(member.space, project));
         } catch {
           // swallow: stale cache expires via TTL
+        }
+        // Inline index ingest: read-your-own-writes on the hosted plane
+        // (§2.3). Fail-open — the ledger write already succeeded, and the
+        // webhook/cron paths will index the entry if this misses.
+        try {
+          const deps = indexDeps(env);
+          if (deps) {
+            await ingestEntries(deps.db, deps.embed, member.space, project, [
+              entry,
+            ]);
+          }
+        } catch {
+          // swallow: reconcile cron re-derives the doc from the ledger
         }
         return rpcResult(
           msg.id,

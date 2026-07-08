@@ -1,0 +1,88 @@
+/**
+ * Reindex + reconciliation: POST /admin/reindex rebuilds spaces from the
+ * ledger on demand (disposability, §2.3); reconcileAll runs on the cron
+ * trigger and catches dropped webhooks by comparing each space's HEAD commit
+ * to last_indexed_sha (§2.1 — no Queues, cron bounds divergence). At pilot
+ * corpus size a blunt full reindex on drift is cheaper than diffing.
+ */
+import type { Env } from "./env.js";
+import { listSpaceRepos } from "./tenancy.js";
+import { indexDeps } from "./deps.js";
+import { reindexSpace, type SpaceRepo } from "./ingest.js";
+import { installationToken } from "./github-auth.js";
+
+const GH = "https://api.github.com";
+
+export async function handleAdminReindex(
+  req: Request,
+  env: Env,
+): Promise<Response> {
+  if (req.headers.get("x-admin-secret") !== env.ADMIN_SECRET) {
+    return new Response("forbidden", { status: 403 });
+  }
+  const deps = indexDeps(env);
+  if (!deps) return Response.json({ error: "index disabled" }, { status: 503 });
+
+  let body: { repo?: string };
+  try {
+    body = (await req.json()) as { repo?: string };
+  } catch {
+    body = {};
+  }
+  const repos = (await listSpaceRepos(env)).filter(
+    (sr) => !body.repo || `${sr.owner}/${sr.repo}` === body.repo,
+  );
+  const reindexed: Record<string, number> = {};
+  for (const sr of repos) {
+    reindexed[sr.space] = await reindexSpace(
+      env,
+      deps.db,
+      deps.embed,
+      sr,
+      env.githubFetch ?? fetch,
+    );
+  }
+  return Response.json({ reindexed });
+}
+
+async function headSha(
+  env: Env,
+  sr: SpaceRepo,
+  fetchImpl: typeof fetch,
+): Promise<string | null> {
+  try {
+    const token = await installationToken(env, sr.installationId, fetchImpl);
+    const res = await fetchImpl(
+      `${GH}/repos/${sr.owner}/${sr.repo}/commits/${sr.branch}`,
+      {
+        headers: {
+          authorization: `Bearer ${token}`,
+          accept: "application/vnd.github+json",
+          "user-agent": "memorylayer-gateway",
+          "x-github-api-version": "2022-11-28",
+        },
+      },
+    );
+    if (!res.ok) return null;
+    return ((await res.json()) as { sha: string }).sha;
+  } catch {
+    return null;
+  }
+}
+
+export async function reconcileAll(env: Env): Promise<void> {
+  const deps = indexDeps(env);
+  if (!deps) return;
+  const fetchImpl = env.githubFetch ?? fetch;
+  for (const sr of await listSpaceRepos(env)) {
+    try {
+      const head = await headSha(env, sr, fetchImpl);
+      if (!head) continue;
+      const indexed = await deps.db.getLastIndexedSha(sr.space);
+      if (indexed === head) continue;
+      await reindexSpace(env, deps.db, deps.embed, sr, fetchImpl);
+    } catch {
+      // fail-open per space; next cron tick retries
+    }
+  }
+}
