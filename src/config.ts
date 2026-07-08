@@ -24,6 +24,10 @@ export interface Config {
   autoPush: boolean;
   /** Token budget for read_context / the session hook (see token-budget.ts). */
   readBudgetTokens: number;
+  /** Hosted gateway base URL for remote-first reads (unset = local-only). */
+  gatewayUrl?: string;
+  /** Member token for the hosted gateway. */
+  gatewayToken?: string;
 }
 
 function required(name: string): string {
@@ -54,6 +58,8 @@ const HOOK_ENV_ALLOWLIST = new Set([
   "MEMORYLAYER_AUTO_PUSH",
   "MEMORYLAYER_HOOK_CLIENT",
   "MEMORYLAYER_READ_BUDGET_TOKENS",
+  "MEMORYLAYER_GATEWAY_URL",
+  "MEMORYLAYER_GATEWAY_TOKEN",
 ]);
 
 /**
@@ -180,5 +186,9 @@ export function loadConfig(): Config {
       `${author.replace(/\s+/g, ".").toLowerCase()}@memorylayer.local`,
     autoPush: (process.env.MEMORYLAYER_AUTO_PUSH?.trim() || "true") !== "false",
     readBudgetTokens,
+    gatewayUrl:
+      process.env.MEMORYLAYER_GATEWAY_URL?.trim().replace(/\/+$/, "") ||
+      undefined,
+    gatewayToken: process.env.MEMORYLAYER_GATEWAY_TOKEN?.trim() || undefined,
   };
 }

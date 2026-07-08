@@ -38,15 +38,33 @@ async function genKeypair() {
 
 export const TEST_KEYPAIR = await genKeypair();
 
-/** Env with a FakeKV and the test keypair; pass a mock fetch for GitHub calls. */
-export function makeEnv(githubFetch) {
+/** Env with a FakeKV and the test keypair; pass a mock fetch for GitHub calls.
+ *  extra: { indexDb, embedder, WEBHOOK_SECRET, ... } merged onto the env. */
+export function makeEnv(githubFetch, extra = {}) {
   return {
     ROUTING: new FakeKV(),
     GITHUB_APP_ID: "12345",
     GITHUB_APP_PRIVATE_KEY: TEST_KEYPAIR.pem,
     ADMIN_SECRET: "test-admin-secret",
     githubFetch,
+    ...extra,
   };
+}
+
+/** Deterministic 16-dim embedding: token-hash bag, so shared vocabulary =>
+ *  higher cosine. Good enough to exercise the vector path without a model. */
+export async function fakeEmbed(texts) {
+  return texts.map((text) => {
+    const v = new Array(16).fill(0);
+    for (const tok of text.toLowerCase().split(/[^a-z0-9]+/)) {
+      if (tok.length < 2) continue;
+      let h = 0;
+      for (const c of tok) h = (h * 31 + c.charCodeAt(0)) >>> 0;
+      v[h % 16] += 1;
+    }
+    const norm = Math.sqrt(v.reduce((s, x) => s + x * x, 0)) || 1;
+    return v.map((x) => x / norm);
+  });
 }
 
 /** Mock fetch: records calls, answers by first matching URL substring. */

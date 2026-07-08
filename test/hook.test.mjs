@@ -116,3 +116,44 @@ test('end-to-end: the read hook appends a source:"hook" metric line', async () =
     fs.rmSync(tmp, { recursive: true, force: true });
   }
 });
+
+test("remote-first: an unreachable gateway falls back to the local clone read", async () => {
+  const { tmp, bare } = freshRemote();
+  try {
+    const clone = path.join(tmp, "clone");
+    const cfg = {
+      repoUrl: bare,
+      repoPath: clone,
+      author: "Alice",
+      authorEmail: "alice@memorylayer.local",
+      autoPush: true,
+    };
+    const store = new ContextStore(cfg);
+    await store.ensure();
+    await store.write("memorylayer", {
+      author: "Alice",
+      type: "decision",
+      payload: "Local fallback decision.",
+    });
+
+    // Gateway configured but unreachable (connection refused → remote read
+    // returns null → local clone serves the read). Proves fail-open wiring.
+    const out = execFileSync(process.execPath, [hookPath], {
+      input: "",
+      encoding: "utf8",
+      env: {
+        PATH: process.env.PATH ?? "",
+        MEMORYLAYER_HOOK_CLIENT: "raw",
+        MEMORYLAYER_AUTHOR: "Alice",
+        MEMORYLAYER_PROJECT: "memorylayer",
+        CONTEXT_REPO_URL: bare,
+        CONTEXT_REPO_PATH: clone,
+        MEMORYLAYER_GATEWAY_URL: "http://127.0.0.1:1",
+        MEMORYLAYER_GATEWAY_TOKEN: "mlk_unreachable",
+      },
+    });
+    assert.match(out, /Local fallback decision\./);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});

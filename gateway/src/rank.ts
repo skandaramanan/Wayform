@@ -1,0 +1,146 @@
+/**
+ * Pure scoring for the retrieval pipeline (§5 of the 2026-07-07 roadmap).
+ * BM25 and cosine both run as exact scans in the Worker: a space holds
+ * hundreds to low-thousands of docs, so exact scoring is single-digit ms and
+ * needs no FTS5/ANN infrastructure (same rationale as §2.1's brute-force
+ * cosine). Everything here is deterministic and dependency-free.
+ */
+
+export interface Scored {
+  id: string;
+  score: number;
+}
+
+export function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .split(/[^a-z0-9]+/)
+    .filter((t) => t.length >= 2);
+}
+
+const BM25_K1 = 1.2;
+const BM25_B = 0.75;
+const DEFAULT_TOP_K = 50;
+
+export function bm25Rank(
+  docs: { id: string; body: string }[],
+  query: string,
+  topK: number = DEFAULT_TOP_K,
+): Scored[] {
+  const qTerms = [...new Set(tokenize(query))];
+  if (qTerms.length === 0 || docs.length === 0) return [];
+
+  const docTokens = docs.map((d) => tokenize(d.body));
+  const avgLen =
+    docTokens.reduce((sum, t) => sum + t.length, 0) / docs.length || 1;
+
+  const df = new Map<string, number>();
+  for (const tokens of docTokens) {
+    const seen = new Set(tokens);
+    for (const q of qTerms) if (seen.has(q)) df.set(q, (df.get(q) ?? 0) + 1);
+  }
+
+  const scored: Scored[] = [];
+  docs.forEach((d, i) => {
+    const tokens = docTokens[i];
+    const tf = new Map<string, number>();
+    for (const t of tokens) {
+      if (qTerms.includes(t)) tf.set(t, (tf.get(t) ?? 0) + 1);
+    }
+    let score = 0;
+    for (const q of qTerms) {
+      const f = tf.get(q) ?? 0;
+      if (f === 0) continue;
+      const n = df.get(q) ?? 0;
+      const idf = Math.log(1 + (docs.length - n + 0.5) / (n + 0.5));
+      score +=
+        (idf * f * (BM25_K1 + 1)) /
+        (f + BM25_K1 * (1 - BM25_B + (BM25_B * tokens.length) / avgLen));
+    }
+    if (score > 0) scored.push({ id: d.id, score });
+  });
+  return scored.sort((a, b) => b.score - a.score).slice(0, topK);
+}
+
+export function cosineTopK(
+  docs: { id: string; embedding: number[] }[],
+  queryVec: number[],
+  topK: number = DEFAULT_TOP_K,
+): Scored[] {
+  const out: Scored[] = [];
+  for (const d of docs) {
+    if (queryVec.length === 0 || d.embedding.length !== queryVec.length)
+      continue;
+    let dot = 0;
+    let a = 0;
+    let b = 0;
+    for (let i = 0; i < queryVec.length; i++) {
+      dot += d.embedding[i] * queryVec[i];
+      a += d.embedding[i] * d.embedding[i];
+      b += queryVec[i] * queryVec[i];
+    }
+    if (a === 0 || b === 0) continue;
+    out.push({ id: d.id, score: dot / Math.sqrt(a * b) });
+  }
+  return out.sort((x, y) => y.score - x.score).slice(0, topK);
+}
+
+const RRF_K = 60;
+
+/** Reciprocal rank fusion: parameter-free, robust with zero training data (§5.2). */
+export function rrfFuse(lists: Scored[][]): Map<string, number> {
+  const fused = new Map<string, number>();
+  for (const list of lists) {
+    list.forEach((s, rank) => {
+      fused.set(s.id, (fused.get(s.id) ?? 0) + 1 / (RRF_K + rank + 1));
+    });
+  }
+  return fused;
+}
+
+/**
+ * Relevance floor on the adjusted score: candidates below τ are dropped even
+ * when budget remains — returning nothing is a first-class outcome (§5.4).
+ * Set below a single-generator top-1 RRF score (1/61 ≈ 0.0164) so an exact
+ * keyword hit always survives; the single most important calibration target
+ * once retrieval_log accumulates data (§7).
+ */
+export const TAU = 0.01;
+
+const STATUS_HALF_LIFE_DAYS = 14;
+
+/**
+ * Kind priors (§5.3). Decisions/constraints do not decay by clock — only by
+ * supersession (§4); status/question rot with a ~14-day half-life.
+ */
+const KIND_PRIOR: Record<string, number> = {
+  decision: 1.2,
+  constraint: 1.2,
+  preference: 1.0,
+  reference: 1.0,
+  context: 1.0,
+  status: 0.9,
+  question: 0.9,
+};
+
+export function adjustScores(
+  fused: Map<string, number>,
+  docsById: Map<string, { kind: string; sourceTs: string }>,
+  now: Date,
+): Scored[] {
+  const out: Scored[] = [];
+  for (const [id, score] of fused) {
+    const doc = docsById.get(id);
+    if (!doc) continue;
+    let s = score * (KIND_PRIOR[doc.kind] ?? 1.0);
+    if (doc.kind === "status" || doc.kind === "question") {
+      const ageMs = now.getTime() - Date.parse(doc.sourceTs);
+      const ageDays = Number.isFinite(ageMs)
+        ? Math.max(0, ageMs / 86_400_000)
+        : 0;
+      s *= Math.pow(0.5, ageDays / STATUS_HALF_LIFE_DAYS);
+    }
+    out.push({ id, score: s });
+  }
+  return out.sort((a, b) => b.score - a.score);
+}

@@ -195,6 +195,89 @@ until then, hosted members read via the MCP tool.
 
 ---
 
+## Relevance index (Phase A)
+
+The gateway can serve **query-conditioned, relevance-ranked** retrieval over a
+space's whole history — not just the most recent entries — via a disposable
+index in D1 (roadmap `docs/roadmap/2026-07-07-remote-relevance-engine.md`,
+Phase A). It is entirely derived from the git ledger and rebuildable from
+scratch, so there is no new source of truth and no data to migrate. It is
+**optional**: with no `DB` binding the gateway falls back to the recency reads
+described above, unchanged.
+
+### One-time provisioning (operator)
+
+```bash
+cd gateway
+npx wrangler d1 create memorylayer-index          # prints database_id
+# paste database_id into wrangler.toml ([[d1_databases]] → database_id)
+npx wrangler d1 migrations apply memorylayer-index --remote
+openssl rand -hex 32
+npx wrangler secret put WEBHOOK_SECRET            # paste it; used for webhook HMAC
+npm run deploy
+```
+
+The `[ai]` binding (Workers AI, model `@cf/baai/bge-base-en-v1.5`) and the
+`[triggers]` cron are already declared in `wrangler.toml`. With no `AI`
+binding the pipeline still runs keyword (BM25) ranking; embeddings just make
+paraphrase matches work too.
+
+### GitHub App webhook (indexes local-plane `git push` writes)
+
+In the App settings → **Webhook**: set **Active**, **Payload URL**
+`https://<gateway>/webhook/github`, **Content type** `application/json`,
+**Secret** = the same `WEBHOOK_SECRET`, and subscribe to **Pushes only**. A
+member's `git push` is then indexed within seconds; a missed webhook is caught
+by the cron reconciler within 15 minutes (it compares each space's indexed sha
+to the ledger HEAD).
+
+### Backfill existing entries
+
+The spaces registry is populated as members are minted. For spaces minted
+before this release, re-run the mint (2.3) once per space (or re-POST the same
+member body) so the repo registers, then rebuild every registered space from
+the ledger:
+
+```bash
+curl --tlsv1.2 -s -X POST https://<gateway>/admin/reindex \
+  -H "x-admin-secret: $ADMIN_SECRET" -d '{}'
+# → {"reindexed":{"<space>":<entry-count>, ...}}
+# scope to one repo with -d '{"repo":"owner/name"}'
+```
+
+### New retrieval surface
+
+- `read_context` gains an optional `query` — when set, returns relevance-ranked
+  matches from the whole indexed history instead of the recency window.
+- `search_memory(query, project?, kinds?)` — a dedicated whole-space search tool
+  (both planes; the local CLI proxies to `GET /api/read`).
+- `GET /api/read` — JSON read endpoint the local CLI uses for remote-first reads.
+- Every query-conditioned retrieval is logged to the `retrieval_log` table in
+  D1 (trigger, query, returned ids+scores, injected flag) — the calibration
+  data Phases B/C build on.
+
+### Local client: turn on remote-first reads
+
+Set these in a project's `.memorylayer-hook.env` (or the environment):
+
+```
+MEMORYLAYER_GATEWAY_URL=https://<gateway>
+MEMORYLAYER_GATEWAY_TOKEN=mlk_...
+```
+
+The session hook and `read_context`/`search_memory` then read from the gateway
+index, falling back to the local clone when the gateway is unreachable. Without
+these vars (or offline), the CLI behaves exactly as before.
+
+### Degradation (every layer fails open)
+
+| Condition | Behavior |
+|---|---|
+| No `DB` binding | Recency reads only; `search_memory` reports "not enabled". |
+| No `AI` binding | BM25 (keyword) ranking only — no semantic matches. |
+| Webhook dropped | Cron reconciler reindexes within 15 min via sha drift. |
+| Gateway unreachable from CLI | Local clone serves the read (offline fallback). |
+
 ## Reference
 
 ### Endpoints
@@ -203,6 +286,12 @@ until then, hosted members read via the MCP tool.
 - `GET /hook/read?project=<name>[&budget=<n>]` — plain-text, ready-to-inject
   session context (60s per-space cache, invalidated on write; empty 200 body
   when the project has no entries)
+- `GET /api/read?project=<name>[&query=<q>][&budget=<n>][&kinds=a,b][&trigger=<t>]`
+  — JSON read (`{text,total,matched}`); `query` runs the relevance pipeline,
+  absent = recency read. `Authorization: Bearer mlk_...`
+- `POST /webhook/github` — GitHub push webhook (HMAC-signed, `WEBHOOK_SECRET`)
+- `POST /admin/reindex` — rebuild spaces from the ledger (`x-admin-secret`);
+  optional body `{"repo":"owner/name"}` to scope to one space
 - `POST /admin/members` — mint a member token (`x-admin-secret` header)
 - `GET /health`
 
