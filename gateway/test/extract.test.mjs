@@ -59,6 +59,15 @@ test("extractFacts tolerates code-fenced JSON", async () => {
   assert.equal(facts[0].body, "We picked D1.");
 });
 
+test("extractFacts recovers JSON wrapped in prose (8B models ignore 'JSON only')", async () => {
+  const gen = async () =>
+    'Sure! Here are the atomic facts:\n[{"kind":"decision","tier":"normal","body":"We picked D1.","entities":["d1"]}]\nHope that helps!';
+  const facts = await extractFacts(gen, entry("chose D1"));
+  assert.equal(facts.length, 1);
+  assert.equal(facts[0].body, "We picked D1.");
+  assert.deepEqual(facts[0].entities, ["d1"]);
+});
+
 test("fail-open floor: null gen → one normal fact = whole entry body", async () => {
   const facts = await extractFacts(null, entry("some prose", "context"));
   assert.deepEqual(facts, [
