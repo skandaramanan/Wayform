@@ -1,6 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { handleRequest } from "../dist/gateway/src/router.js";
+import { MemoryIndexDb } from "../dist/gateway/src/index-db.js";
 import { makeEnv, ghFetch } from "./helpers.mjs";
 
 const MEMBER = {
@@ -14,9 +15,9 @@ const MEMBER = {
 const MD =
   "---\nauthor: Ada\ntype: decision\ntimestamp: 2026-07-01T00:00:00.000Z\nid: x1\nproject: roadmap\n---\n\nships";
 
-async function setup(routes) {
+async function setup(routes, extra = {}) {
   const calls = [];
-  const env = makeEnv(ghFetch(calls, routes));
+  const env = makeEnv(ghFetch(calls, routes), extra);
   const res = await handleRequest(
     new Request("https://gw.test/admin/members", {
       method: "POST",
@@ -133,6 +134,43 @@ test("negative budget does not mean unlimited — still budget-limited", async (
   const res = await handleRequest(get(token, "project=roadmap&budget=-5"), env);
   const text = await res.text();
   assert.match(text, /Showing the 1 most recent of 2/);
+});
+
+test("/hook/read serves the index briefing when facts exist", async () => {
+  const indexDb = new MemoryIndexDb();
+  await indexDb.replaceBySource("team-a", "c", [
+    {
+      id: "c#0",
+      space: "team-a",
+      project: "roadmap",
+      kind: "constraint",
+      tier: "canon",
+      body: "Infra cost must stay $0.",
+      sourceFile: "f",
+      sourceAuthor: "Ada",
+      sourceTs: "2026-02-01T00:00:00Z",
+      embedding: [],
+      supersededBy: null,
+      createdAt: "2026-07-08T00:00:00Z",
+      sourceId: "c",
+      entities: ["infra-cost"],
+    },
+  ]);
+  const { env, token } = await setup(ROUTES, { indexDb });
+  const res = await handleRequest(get(token), env);
+  const text = await res.text();
+  assert.match(text, /loaded automatically at session start/); // preamble kept
+  assert.match(text, /Infra cost must stay \$0/);
+  assert.match(text, /memory covers:/);
+});
+
+test("/hook/read falls back to the recency dump when the index is unconfigured", async () => {
+  // No indexDb → deps null → recency path (Phase A behavior), no manifest.
+  const { env, token } = await setup(ROUTES);
+  const res = await handleRequest(get(token), env);
+  const text = await res.text();
+  assert.match(text, /loaded automatically at session start/);
+  assert.doesNotMatch(text, /memory covers:/);
 });
 
 test("empty project -> 400; no entries -> empty 200 body; no auth -> 401", async () => {

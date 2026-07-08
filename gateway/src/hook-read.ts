@@ -2,7 +2,10 @@ import type { Env } from "./env.js";
 import { resolveMember } from "./tenancy.js";
 import { readEntries } from "./github-store.js";
 import { hookCacheKey } from "./mcp.js";
+import { indexDeps } from "./deps.js";
+import { renderBriefing } from "./retrieval.js";
 import { projectContext } from "../../src/context-format.js";
+import { slug } from "../../src/slug.js";
 import { DEFAULT_BUDGET_TOKENS } from "../../src/token-budget.js";
 
 /** Seconds a rendered projection may be served stale to keep the per-turn
@@ -41,21 +44,38 @@ export async function handleHookRead(
     Number.isFinite(budgetParam) && budgetParam > 0
       ? budgetParam
       : DEFAULT_BUDGET_TOKENS;
-  const { entries, total } = await readEntries(
-    env,
-    member,
-    project,
-    budget,
-    env.githubFetch ?? fetch,
-  );
 
-  const text =
-    total === 0
-      ? ""
-      : `The following is shared planning memory (MemoryLayer) for project ` +
-        `"${project}", loaded automatically at session start. Treat these recorded ` +
-        `decisions and context as already-known; do not ask the user to re-explain ` +
-        `them.\n\n${projectContext(project, entries, total)}`;
+  const preamble =
+    `The following is shared planning memory (MemoryLayer) for project ` +
+    `"${project}", loaded automatically at session start. Treat these recorded ` +
+    `decisions and context as already-known; do not ask the user to re-explain ` +
+    `them.\n\n`;
+
+  // Prefer the index briefing (canon + open questions + recent decisions +
+  // topic manifest). Fail-open to the Phase A recency dump when the index is
+  // unconfigured, empty, or throws — a broken index must never break a session.
+  let text = "";
+  try {
+    const deps = indexDeps(env);
+    if (deps) {
+      const docs = await deps.db.listDocs(member.space, slug(project));
+      const briefing = renderBriefing(project, docs, budget, new Date());
+      if (briefing) text = preamble + briefing;
+    }
+  } catch {
+    // fall through to the recency dump
+  }
+
+  if (text === "") {
+    const { entries, total } = await readEntries(
+      env,
+      member,
+      project,
+      budget,
+      env.githubFetch ?? fetch,
+    );
+    text = total === 0 ? "" : preamble + projectContext(project, entries, total);
+  }
 
   await env.ROUTING.put(cacheKey, text, { expirationTtl: CACHE_TTL_SECONDS });
   return asText(text);

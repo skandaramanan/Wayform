@@ -128,7 +128,7 @@ export function entityRank(
   const out: Scored[] = [];
   for (const d of docs) {
     let overlap = 0;
-    for (const e of d.entities) {
+    for (const e of d.entities ?? []) {
       if (tokenize(e).some((t) => qTerms.has(t))) overlap += 1;
     }
     if (overlap > 0) out.push({ id: d.id, score: overlap });
