@@ -13,7 +13,7 @@ id = "799c559402d6472993dc63ed26b0fd5e"
 [[d1_databases]]
 binding = "DB"
 database_name = "memorylayer-index"
-database_id = "PASTE-DATABASE-ID-HERE"
+database_id = "652dbc7f-b71e-4f88-804a-d33b6da2b07c"
 migrations_dir = "migrations"
 
 # Workers AI: embeddings (@cf/baai/bge-base-en-v1.5), free-tier allocation.
