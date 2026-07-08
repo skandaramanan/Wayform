@@ -9,6 +9,7 @@ import type { IndexDb, IndexedDoc } from "./index-db.js";
 import {
   bm25Rank,
   cosineTopK,
+  entityRank,
   rrfFuse,
   adjustScores,
   TAU,
@@ -60,6 +61,9 @@ export async function retrieve(
       // fail-open: BM25 alone still rescues exact-term matches (§5.1)
     }
   }
+  // Third candidate generator (§5.1): entity-tag overlap rescues canonical
+  // topics that paraphrase-embeddings blur and multi-word tags BM25 splits.
+  lists.push(entityRank(docs, opts.query));
 
   const byId = new Map(docs.map((d) => [d.id, d]));
   const scored = adjustScores(
@@ -129,4 +133,65 @@ export function renderSearchResults(
     return blocks.join("\n\n");
   });
   return `${header}\n\n${sections.join("\n\n")}`;
+}
+
+const BRIEFING_RECENT_DECISION_DAYS = 7;
+
+/**
+ * The session-start briefing (§6): selective, not a dump. Canon facts (always,
+ * budget-permitting) + open questions + decisions from the last 7 days + a
+ * one-line topic manifest so an agent can see what the store knows and pull
+ * mid-session. Returns "" on an empty corpus so the caller can fail-open to
+ * the recency read.
+ */
+export function renderBriefing(
+  project: string,
+  docs: IndexedDoc[],
+  budgetTokens: number,
+  now: Date,
+): string {
+  if (docs.length === 0) return "";
+
+  const canon = docs.filter((d) => d.tier === "canon");
+  const questions = docs.filter((d) => d.kind === "question");
+  const cutoff = now.getTime() - BRIEFING_RECENT_DECISION_DAYS * 86_400_000;
+  const recentDecisions = docs.filter(
+    (d) => d.kind === "decision" && Date.parse(d.sourceTs) >= cutoff,
+  );
+
+  const manifest = new Map<string, number>();
+  for (const d of docs)
+    for (const e of d.entities) manifest.set(e, (manifest.get(e) ?? 0) + 1);
+  const manifestLine =
+    manifest.size > 0
+      ? "memory covers: " +
+        [...manifest.entries()]
+          .sort((a, b) => b[1] - a[1])
+          .map(([e, n]) => `${e} (${n})`)
+          .join(", ")
+      : "";
+
+  const section = (title: string, items: IndexedDoc[]): string[] => {
+    if (items.length === 0) return [];
+    const lines: string[] = [`## ${title}`];
+    let used = 0;
+    for (const d of items) {
+      const cost = estimateTokens(d.body) + ENTRY_OVERHEAD_TOKENS;
+      if (lines.length > 1 && used + cost > budgetTokens) break;
+      lines.push(
+        `- ${d.body} _(${d.sourceAuthor}, ${d.sourceTs.slice(0, 10)})_`,
+      );
+      used += cost;
+    }
+    return lines;
+  };
+
+  const parts = [
+    `# Memory briefing: ${project}`,
+    ...(manifestLine ? [manifestLine] : []),
+    ...section("Standing rules (canon)", canon),
+    ...section("Open questions", questions),
+    ...section("Recent decisions (last 7 days)", recentDecisions),
+  ];
+  return parts.join("\n\n");
 }

@@ -31,7 +31,7 @@ export async function handleRequest(
   }
 
   if (url.pathname === "/mcp") {
-    if (req.method === "POST") return handleMcp(req, env);
+    if (req.method === "POST") return handleMcp(req, env, ctx);
     return new Response("stateless server: POST one JSON-RPC message", {
       status: 405,
     });

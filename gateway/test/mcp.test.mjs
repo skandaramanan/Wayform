@@ -278,6 +278,45 @@ test("write_context ingests the new entry inline so it is immediately searchable
   assert.equal(docs[0].body, "We moved retrieval server-side.");
 });
 
+test("write_context defers index ingest to ctx.waitUntil and still returns success", async () => {
+  const indexDb = new MemoryIndexDb();
+  const { env, tokens } = await setup(
+    [
+      ...TOKEN_ROUTES,
+      ["/contents/", () => Response.json({ ok: true }, { status: 201 })],
+    ],
+    {
+      indexDb,
+      embedder: fakeEmbed,
+      genText: async () =>
+        JSON.stringify([
+          { kind: "decision", tier: "normal", body: "f", entities: [] },
+        ]),
+    },
+  );
+  const deferred = [];
+  const ctx = { waitUntil: (p) => deferred.push(p) };
+  const res = await handleRequest(
+    rpc(tokens["team-a"], {
+      jsonrpc: "2.0",
+      id: 26,
+      method: "tools/call",
+      params: {
+        name: "write_context",
+        arguments: { project: "memorylayer", payload: "we decided X" },
+      },
+    }),
+    env,
+    ctx,
+  );
+  const body = await res.json();
+  assert.match(body.result.content[0].text, /Recorded decision/);
+  // ingest was handed to ctx.waitUntil (deferred), not awaited inline
+  assert.equal(deferred.length, 1);
+  await Promise.all(deferred); // drain the background task
+  assert.equal((await indexDb.listDocs("team-a", "memorylayer")).length, 1);
+});
+
 test("tools/call write_context writes to the member repo and reports like stdio", async () => {
   const { env, tokens, calls } = await setup([
     ...TOKEN_ROUTES,
