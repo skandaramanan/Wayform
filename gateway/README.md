@@ -278,6 +278,53 @@ these vars (or offline), the CLI behaves exactly as before.
 | Webhook dropped | Cron reconciler reindexes within 15 min via sha drift. |
 | Gateway unreachable from CLI | Local clone serves the read (offline fallback). |
 
+## Relevance index (Phase B1) — facts & briefing
+
+Phase B1 replaces Phase A's one-doc-per-entry indexing with **LLM-extracted
+atomic facts**, entity tags, a **canon** tier, and a selective session-start
+**briefing + topic manifest**. All of it lives in the gateway; the local plane
+inherits it via the remote-first reads above (no local changes).
+
+### What changed
+
+- **Ingest extracts facts.** Each ledger entry is condensed by Workers AI text-gen
+  (`@cf/meta/llama-3.1-8b-instruct`, $0 free-tier) into 1–5 atomic facts, each
+  embedded with `bge-base-en-v1.5`. A fact is a `docs` row with a synthetic id
+  `<entry-id>#<n>` and a `source_id` grouping its set. **Fail-open:** if the model
+  is absent, errors, or returns invalid JSON, the entry is indexed whole as one
+  `normal` fact — exactly Phase A behavior, so recall never regresses.
+- **Idempotent re-ingest.** Re-indexing an entry (webhook re-fire, cron, reindex)
+  runs delete-then-insert by `source_id`, so non-deterministic extraction never
+  leaves duplicate or orphan facts.
+- **Canon tier + entity tags** feed retrieval: canon facts get a ranking boost,
+  and an entity-tag candidate generator joins BM25 + cosine (three recall paths).
+- **Session-start briefing.** `/hook/read` now returns canon facts + open
+  questions + decisions from the last 7 days + a one-line topic manifest
+  (`memory covers: <entity> (<n>), …`) instead of a raw recency dump. If the index
+  is empty or unavailable it falls back to the verbatim Phase A recency dump.
+- **Gateway write path is async.** `write_context` returns immediately and ingests
+  via `ctx.waitUntil` (extraction would otherwise add ~1–3 s per write); the entry
+  is already committed and served by the recency read, so this costs only seconds
+  of eventual consistency on the extracted view.
+
+### Apply the migration + backfill (once, after deploy)
+
+```bash
+wrangler deploy
+wrangler d1 migrations apply memorylayer-index            # local
+wrangler d1 migrations apply memorylayer-index --remote   # production
+
+# Rebuild every fact from the ledger for each space (extraction + embeddings):
+curl -sX POST https://<gateway>/admin/reindex \
+  -H "x-admin-secret: $ADMIN_SECRET"
+# large/old spaces: paginate with -d '{"limit":40}' and repeat until nextOffset is null
+```
+
+Verify: `search_memory` for the Cursor topic returns the atomic
+project-scoped-config fact, and `/hook/read` shows a topic manifest. The
+extraction-fidelity audit (B1 exit gate) samples these backfilled facts against
+their source entries.
+
 ## Reference
 
 ### Endpoints

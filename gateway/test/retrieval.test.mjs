@@ -236,10 +236,38 @@ function bdoc(id, kind, tier, body, entities, sourceTs) {
 test("renderBriefing includes canon, open questions, 7-day decisions, and a topic manifest", () => {
   const now = new Date("2026-07-08T00:00:00Z");
   const docs = [
-    bdoc("c", "constraint", "canon", "Infra cost must stay $0/free-tier.", ["infra-cost"], "2026-02-01T00:00:00Z"),
-    bdoc("q", "question", "normal", "Should preferences travel across spaces?", ["multi-space"], "2026-07-07T00:00:00Z"),
-    bdoc("d", "decision", "normal", "Chose D1 for the index.", ["d1", "index"], "2026-07-07T00:00:00Z"),
-    bdoc("old", "decision", "normal", "Ancient decision.", ["legacy"], "2026-01-01T00:00:00Z"),
+    bdoc(
+      "c",
+      "constraint",
+      "canon",
+      "Infra cost must stay $0/free-tier.",
+      ["infra-cost"],
+      "2026-02-01T00:00:00Z",
+    ),
+    bdoc(
+      "q",
+      "question",
+      "normal",
+      "Should preferences travel across spaces?",
+      ["multi-space"],
+      "2026-07-07T00:00:00Z",
+    ),
+    bdoc(
+      "d",
+      "decision",
+      "normal",
+      "Chose D1 for the index.",
+      ["d1", "index"],
+      "2026-07-07T00:00:00Z",
+    ),
+    bdoc(
+      "old",
+      "decision",
+      "normal",
+      "Ancient decision.",
+      ["legacy"],
+      "2026-01-01T00:00:00Z",
+    ),
   ];
   const text = renderBriefing("memorylayer", docs, 4000, now);
   assert.match(text, /Infra cost must stay \$0/); // canon always shown

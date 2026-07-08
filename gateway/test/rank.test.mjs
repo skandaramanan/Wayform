@@ -71,10 +71,22 @@ test("rrfFuse: doc present in both lists beats single-list docs", () => {
 test("adjustScores: decisions get a boost; status decays with age", () => {
   const now = new Date("2026-07-08T00:00:00Z");
   const docsById = new Map([
-    ["d", { kind: "decision", tier: "normal", sourceTs: "2026-01-01T00:00:00Z" }],
-    ["c", { kind: "context", tier: "normal", sourceTs: "2026-01-01T00:00:00Z" }],
-    ["s-old", { kind: "status", tier: "normal", sourceTs: "2026-06-10T00:00:00Z" }], // 28d = 2 half-lives
-    ["s-new", { kind: "status", tier: "normal", sourceTs: "2026-07-08T00:00:00Z" }],
+    [
+      "d",
+      { kind: "decision", tier: "normal", sourceTs: "2026-01-01T00:00:00Z" },
+    ],
+    [
+      "c",
+      { kind: "context", tier: "normal", sourceTs: "2026-01-01T00:00:00Z" },
+    ],
+    [
+      "s-old",
+      { kind: "status", tier: "normal", sourceTs: "2026-06-10T00:00:00Z" },
+    ], // 28d = 2 half-lives
+    [
+      "s-new",
+      { kind: "status", tier: "normal", sourceTs: "2026-07-08T00:00:00Z" },
+    ],
   ]);
   const fused = new Map([
     ["d", 0.02],
@@ -96,8 +108,14 @@ test("TAU is a small positive floor below a single-list top-1 RRF score", () => 
 test("adjustScores: a canon fact outranks a same-similarity normal decision", () => {
   const now = new Date("2026-07-08T00:00:00Z");
   const docsById = new Map([
-    ["canon", { kind: "constraint", tier: "canon", sourceTs: "2026-01-01T00:00:00Z" }],
-    ["norm", { kind: "decision", tier: "normal", sourceTs: "2026-07-08T00:00:00Z" }],
+    [
+      "canon",
+      { kind: "constraint", tier: "canon", sourceTs: "2026-01-01T00:00:00Z" },
+    ],
+    [
+      "norm",
+      { kind: "decision", tier: "normal", sourceTs: "2026-07-08T00:00:00Z" },
+    ],
   ]);
   const fused = new Map([
     ["canon", 0.02],

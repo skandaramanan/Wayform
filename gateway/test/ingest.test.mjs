@@ -17,7 +17,12 @@ const twoFacts = JSON.stringify([
     body: "Cursor MCP config is project-scoped.",
     entities: ["cursor", "mcp-config"],
   },
-  { kind: "context", tier: "normal", body: "Verified 2026-07-04.", entities: [] },
+  {
+    kind: "context",
+    tier: "normal",
+    body: "Verified 2026-07-04.",
+    entities: [],
+  },
 ]);
 
 const SR = {
@@ -91,7 +96,12 @@ test("factToDoc maps a fact to a doc; synthetic id + source_id fall back to file
     payload: "body",
     file: "context/p/a/f.md",
   };
-  const fact = { kind: "constraint", tier: "canon", body: "b", entities: ["x"] };
+  const fact = {
+    kind: "constraint",
+    tier: "canon",
+    body: "b",
+    entities: ["x"],
+  };
   const d = factToDoc("s1", "My Proj", entry, fact, 0, [1]);
   assert.equal(d.id, "context/p/a/f.md#0");
   assert.equal(d.sourceId, "context/p/a/f.md");
@@ -168,7 +178,14 @@ test("reindexSpace wipes the space and rebuilds from the full tree", async () =>
       createdAt: "2026-01-01T00:00:00Z",
     },
   ]);
-  const result = await reindexSpace(env, db, fakeEmbed, null, SR, env.githubFetch);
+  const result = await reindexSpace(
+    env,
+    db,
+    fakeEmbed,
+    null,
+    SR,
+    env.githubFetch,
+  );
   assert.equal(result.count, 2);
   assert.equal(result.total, 2);
   assert.equal(result.nextOffset, null);
@@ -181,9 +198,17 @@ test("reindexSpace project filter scopes to one project's paths only", async () 
   const calls = [];
   const env = makeEnv(ghRoutes(calls));
   const db = new MemoryIndexDb();
-  const result = await reindexSpace(env, db, fakeEmbed, null, SR, env.githubFetch, {
-    project: "memorylayer",
-  });
+  const result = await reindexSpace(
+    env,
+    db,
+    fakeEmbed,
+    null,
+    SR,
+    env.githubFetch,
+    {
+      project: "memorylayer",
+    },
+  );
   assert.equal(result.count, 1);
   assert.equal(result.total, 1);
   assert.equal((await db.listDocs("s1", "memorylayer")).length, 1);
@@ -197,9 +222,17 @@ test("reindexSpace pagination: subrequest-budget-safe backfill across multiple c
 
   // Page 1: wipes the space (offset 0), indexes only the first path, does
   // NOT advance last_indexed_sha yet (more pages remain).
-  const page1 = await reindexSpace(env, db, fakeEmbed, null, SR, env.githubFetch, {
-    limit: 1,
-  });
+  const page1 = await reindexSpace(
+    env,
+    db,
+    fakeEmbed,
+    null,
+    SR,
+    env.githubFetch,
+    {
+      limit: 1,
+    },
+  );
   assert.equal(page1.count, 1);
   assert.equal(page1.total, 2);
   assert.equal(page1.nextOffset, 1);
@@ -208,10 +241,18 @@ test("reindexSpace pagination: subrequest-budget-safe backfill across multiple c
 
   // Page 2: does NOT re-wipe (offset > 0), indexes the remaining path, THEN
   // advances last_indexed_sha since this is the final page.
-  const page2 = await reindexSpace(env, db, fakeEmbed, null, SR, env.githubFetch, {
-    offset: page1.nextOffset,
-    limit: 1,
-  });
+  const page2 = await reindexSpace(
+    env,
+    db,
+    fakeEmbed,
+    null,
+    SR,
+    env.githubFetch,
+    {
+      offset: page1.nextOffset,
+      limit: 1,
+    },
+  );
   assert.equal(page2.count, 1);
   assert.equal(page2.nextOffset, null);
   assert.equal(await db.getLastIndexedSha("s1"), "headsha");
@@ -229,13 +270,12 @@ test("ingestEntries extracts N facts per entry as docs rows with synthetic ids +
     payload: "Cursor MCP config is project-scoped. Verified.",
     file: "context/memorylayer/skanda/e.md",
   };
-  const n = await ingestEntries(db, fakeEmbed, gen, "s1", "memorylayer", [entry]);
+  const n = await ingestEntries(db, fakeEmbed, gen, "s1", "memorylayer", [
+    entry,
+  ]);
   assert.equal(n, 2);
   const docs = await db.listDocs("s1", "memorylayer");
-  assert.deepEqual(
-    docs.map((d) => d.id).sort(),
-    ["e1#0", "e1#1"],
-  );
+  assert.deepEqual(docs.map((d) => d.id).sort(), ["e1#0", "e1#1"]);
   assert.ok(docs.every((d) => d.sourceId === "e1"));
   assert.equal(docs.find((d) => d.id === "e1#0").tier, "canon");
   assert.equal(docs.find((d) => d.id === "e1#0").embedding.length, 16);
@@ -283,7 +323,12 @@ test("ingestEntries is idempotent per entry: re-ingesting replaces the fact set"
     fakeEmbed,
     fakeGenText({
       "Cursor MCP": JSON.stringify([
-        { kind: "decision", tier: "normal", body: "single fact now", entities: [] },
+        {
+          kind: "decision",
+          tier: "normal",
+          body: "single fact now",
+          entities: [],
+        },
       ]),
     }),
     "s1",

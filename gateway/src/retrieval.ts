@@ -178,7 +178,9 @@ export function renderBriefing(
     for (const d of items) {
       const cost = estimateTokens(d.body) + ENTRY_OVERHEAD_TOKENS;
       if (lines.length > 1 && used + cost > budgetTokens) break;
-      lines.push(`- ${d.body} _(${d.sourceAuthor}, ${d.sourceTs.slice(0, 10)})_`);
+      lines.push(
+        `- ${d.body} _(${d.sourceAuthor}, ${d.sourceTs.slice(0, 10)})_`,
+      );
       used += cost;
     }
     return lines;

@@ -74,7 +74,8 @@ export async function handleHookRead(
       budget,
       env.githubFetch ?? fetch,
     );
-    text = total === 0 ? "" : preamble + projectContext(project, entries, total);
+    text =
+      total === 0 ? "" : preamble + projectContext(project, entries, total);
   }
 
   await env.ROUTING.put(cacheKey, text, { expirationTtl: CACHE_TTL_SECONDS });

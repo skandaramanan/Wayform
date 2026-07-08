@@ -54,7 +54,9 @@ export function buildExtractionPrompt(entry: ParsedEntry): string {
 
 /** The Phase A floor: one whole-entry normal fact. */
 function floor(entry: ParsedEntry): ExtractedFact[] {
-  return [{ kind: entry.type, tier: "normal", body: entry.payload, entities: [] }];
+  return [
+    { kind: entry.type, tier: "normal", body: entry.payload, entities: [] },
+  ];
 }
 
 function coerce(raw: unknown, entry: ParsedEntry): ExtractedFact[] | null {
@@ -66,7 +68,9 @@ function coerce(raw: unknown, entry: ParsedEntry): ExtractedFact[] | null {
     const body = typeof o.body === "string" ? o.body.trim() : "";
     if (!body) continue;
     const kind =
-      typeof o.kind === "string" && VALID_KINDS.has(o.kind) ? o.kind : entry.type;
+      typeof o.kind === "string" && VALID_KINDS.has(o.kind)
+        ? o.kind
+        : entry.type;
     const tier = o.tier === "canon" ? "canon" : "normal";
     const entities = Array.isArray(o.entities)
       ? [
