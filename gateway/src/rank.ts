@@ -107,6 +107,35 @@ export function rrfFuse(lists: Scored[][]): Map<string, number> {
  */
 export const TAU = 0.01;
 
+/** Canon tier boost (§5.3): a standing rule relevant to the query should
+ *  essentially always clear a slot, so this sits above the strongest kind
+ *  prior (1.2). Calibration target once retrieval_log accumulates data (§7). */
+export const CANON_BOOST = 1.5;
+
+/**
+ * Entity candidate generator (§5.1, the third generator alongside BM25 and
+ * cosine): a doc is a candidate when any token of any of its entity tags
+ * appears in the query. Rescues canonical topics that paraphrase-embeddings
+ * blur and multi-word tags BM25 splits. Score = overlap count (RRF only uses
+ * rank, so exact magnitude is irrelevant).
+ */
+export function entityRank(
+  docs: { id: string; entities: string[] }[],
+  query: string,
+): Scored[] {
+  const qTerms = new Set(tokenize(query));
+  if (qTerms.size === 0) return [];
+  const out: Scored[] = [];
+  for (const d of docs) {
+    let overlap = 0;
+    for (const e of d.entities) {
+      if (tokenize(e).some((t) => qTerms.has(t))) overlap += 1;
+    }
+    if (overlap > 0) out.push({ id: d.id, score: overlap });
+  }
+  return out.sort((a, b) => b.score - a.score);
+}
+
 const STATUS_HALF_LIFE_DAYS = 14;
 
 /**
@@ -125,7 +154,7 @@ const KIND_PRIOR: Record<string, number> = {
 
 export function adjustScores(
   fused: Map<string, number>,
-  docsById: Map<string, { kind: string; sourceTs: string }>,
+  docsById: Map<string, { kind: string; sourceTs: string; tier: string }>,
   now: Date,
 ): Scored[] {
   const out: Scored[] = [];
@@ -133,6 +162,7 @@ export function adjustScores(
     const doc = docsById.get(id);
     if (!doc) continue;
     let s = score * (KIND_PRIOR[doc.kind] ?? 1.0);
+    if (doc.tier === "canon") s *= CANON_BOOST;
     if (doc.kind === "status" || doc.kind === "question") {
       const ageMs = now.getTime() - Date.parse(doc.sourceTs);
       const ageDays = Number.isFinite(ageMs)
