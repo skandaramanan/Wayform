@@ -12,8 +12,8 @@ import { makeEnv, ghFetch, fakeEmbed } from "./helpers.mjs";
 
 const SR = { space: "s1", installationId: 7, owner: "o", repo: "r", branch: "main" };
 
-const entryMd = (project, body) =>
-  `---\nauthor: Skanda\ntype: decision\ntimestamp: 2026-07-04T11:00:00Z\nid: abc123\nproject: ${project}\n---\n\n${body}\n`;
+const entryMd = (project, body, id = "abc123") =>
+  `---\nauthor: Skanda\ntype: decision\ntimestamp: 2026-07-04T11:00:00Z\nid: ${id}\nproject: ${project}\n---\n\n${body}\n`;
 
 /** Routes shared by ingestFiles/reindexSpace tests: token + contents + tree + head. */
 function ghRoutes(calls) {
@@ -42,7 +42,7 @@ function ghRoutes(calls) {
     ],
     [
       "/contents/context/other-proj/skanda/b.md",
-      () => new Response(entryMd("other-proj", "Other project fact.")),
+      () => new Response(entryMd("other-proj", "Other project fact.", "def456")),
     ],
     [
       "/contents/context/memorylayer/skanda/broken.md",
