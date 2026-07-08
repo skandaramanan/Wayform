@@ -22,6 +22,8 @@ export interface IndexedDoc {
   embedding: number[];
   supersededBy: string | null;
   createdAt: string;
+  sourceId: string; // ledger entry id; groups the fact set for idempotent re-ingest
+  entities: string[]; // normalized tags; hydrated on listDocs, written to fact_entities
 }
 
 export interface RetrievalLogEntry {
@@ -42,6 +44,13 @@ export interface IndexDb {
   setLastIndexedSha(space: string, sha: string): Promise<void>;
   deleteSpace(space: string): Promise<void>;
   logRetrieval(rec: RetrievalLogEntry): Promise<void>;
+  /** Delete-then-insert every fact for one ledger entry, in one batch —
+   *  idempotent under non-deterministic extraction (roadmap §3). */
+  replaceBySource(
+    space: string,
+    sourceId: string,
+    docs: IndexedDoc[],
+  ): Promise<void>;
 }
 
 export class MemoryIndexDb implements IndexDb {
@@ -75,6 +84,16 @@ export class MemoryIndexDb implements IndexDb {
   async logRetrieval(rec: RetrievalLogEntry): Promise<void> {
     this.logged.push(rec);
   }
+  async replaceBySource(
+    space: string,
+    sourceId: string,
+    docs: IndexedDoc[],
+  ): Promise<void> {
+    for (const [key, d] of this.docs) {
+      if (d.space === space && d.sourceId === sourceId) this.docs.delete(key);
+    }
+    for (const d of docs) this.docs.set(`${d.space} ${d.id}`, d);
+  }
 }
 
 /** Minimal structural surface of a D1 prepared statement / database. */
@@ -100,32 +119,33 @@ export function decodeEmbedding(b: ArrayBuffer | null): number[] {
 
 const UPSERT_SQL =
   "INSERT OR REPLACE INTO docs (id, space, project, kind, tier, body, " +
-  "source_file, source_author, source_ts, embedding, superseded_by, created_at) " +
-  "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+  "source_file, source_author, source_ts, embedding, superseded_by, created_at, source_id) " +
+  "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)";
+
+function docBinds(d: IndexedDoc): unknown[] {
+  return [
+    d.id,
+    d.space,
+    d.project,
+    d.kind,
+    d.tier,
+    d.body,
+    d.sourceFile,
+    d.sourceAuthor,
+    d.sourceTs,
+    encodeEmbedding(d.embedding),
+    d.supersededBy,
+    d.createdAt,
+    d.sourceId,
+  ];
+}
 
 export function d1IndexDb(db: D1Like): IndexDb {
   return {
     async upsertDocs(docs) {
       if (docs.length === 0) return;
       await db.batch(
-        docs.map((d) =>
-          db
-            .prepare(UPSERT_SQL)
-            .bind(
-              d.id,
-              d.space,
-              d.project,
-              d.kind,
-              d.tier,
-              d.body,
-              d.sourceFile,
-              d.sourceAuthor,
-              d.sourceTs,
-              encodeEmbedding(d.embedding),
-              d.supersededBy,
-              d.createdAt,
-            ),
-        ),
+        docs.map((d) => db.prepare(UPSERT_SQL).bind(...docBinds(d))),
       );
     },
     async listDocs(space, project) {
@@ -137,6 +157,17 @@ export function d1IndexDb(db: D1Like): IndexDb {
           ? db.prepare(sql).bind(space, project)
           : db.prepare(sql).bind(space);
       const { results } = await stmt.all();
+      const { results: tagRows } = await db
+        .prepare("SELECT fact_id, entity FROM fact_entities WHERE space = ?")
+        .bind(space)
+        .all();
+      const tags = new Map<string, string[]>();
+      for (const r of tagRows) {
+        const id = r.fact_id as string;
+        const list = tags.get(id) ?? [];
+        list.push(r.entity as string);
+        tags.set(id, list);
+      }
       return results.map((r) => ({
         id: r.id as string,
         space: r.space as string,
@@ -150,6 +181,8 @@ export function d1IndexDb(db: D1Like): IndexDb {
         embedding: decodeEmbedding(r.embedding as ArrayBuffer | null),
         supersededBy: (r.superseded_by as string | null) ?? null,
         createdAt: r.created_at as string,
+        sourceId: (r.source_id as string | null) ?? "",
+        entities: tags.get(r.id as string) ?? [],
       }));
     },
     async getLastIndexedSha(space) {
@@ -189,6 +222,35 @@ export function d1IndexDb(db: D1Like): IndexDb {
           rec.ts,
         )
         .run();
+    },
+    async replaceBySource(space, sourceId, docs) {
+      // Order matters: batch statements run sequentially, and the tag delete
+      // reads docs by source_id — so it MUST precede the docs delete or its
+      // subquery finds nothing and orphans the fact_entities rows.
+      const stmts = [
+        db
+          .prepare(
+            "DELETE FROM fact_entities WHERE space = ? AND fact_id IN " +
+              "(SELECT id FROM docs WHERE space = ? AND source_id = ?)",
+          )
+          .bind(space, space, sourceId),
+        db
+          .prepare("DELETE FROM docs WHERE space = ? AND source_id = ?")
+          .bind(space, sourceId),
+      ];
+      for (const d of docs) {
+        stmts.push(db.prepare(UPSERT_SQL).bind(...docBinds(d)));
+        for (const e of d.entities) {
+          stmts.push(
+            db
+              .prepare(
+                "INSERT OR REPLACE INTO fact_entities (space, fact_id, entity) VALUES (?, ?, ?)",
+              )
+              .bind(d.space, d.id, e),
+          );
+        }
+      }
+      await db.batch(stmts);
     },
   };
 }

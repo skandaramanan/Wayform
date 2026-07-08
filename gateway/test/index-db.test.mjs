@@ -21,6 +21,8 @@ function doc(overrides = {}) {
     embedding: [0.1, 0.2],
     supersededBy: null,
     createdAt: "2026-07-08T00:00:00Z",
+    sourceId: "e1",
+    entities: [],
     ...overrides,
   };
 }
@@ -136,4 +138,95 @@ test("d1IndexDb issues parameterized SQL and decodes rows", async () => {
     ts: "2026-07-08T00:00:00Z",
   });
   assert.ok(executed.some((s) => /INSERT INTO retrieval_log/i.test(s.sql)));
+});
+
+test("MemoryIndexDb: replaceBySource is idempotent — re-running leaves no duplicate/orphan facts", async () => {
+  const db = new MemoryIndexDb();
+  const f = (id, body, entities = []) =>
+    doc({ id, body, entities, sourceId: "e1" });
+  await db.replaceBySource("s1", "e1", [
+    f("e1#0", "a", ["cursor"]),
+    f("e1#1", "b"),
+  ]);
+  assert.equal((await db.listDocs("s1")).length, 2);
+  // second extraction of the same entry yields a DIFFERENT fact set
+  await db.replaceBySource("s1", "e1", [f("e1#0", "a-updated", ["cursor"])]);
+  const docs = await db.listDocs("s1");
+  assert.equal(docs.length, 1); // e1#1 orphan is gone
+  assert.equal(docs[0].body, "a-updated");
+  assert.deepEqual(docs[0].entities, ["cursor"]); // entities hydrated on read
+});
+
+test("MemoryIndexDb: replaceBySource scopes deletion by (space, sourceId)", async () => {
+  const db = new MemoryIndexDb();
+  await db.replaceBySource("s1", "e1", [doc({ id: "e1#0", sourceId: "e1" })]);
+  await db.replaceBySource("s1", "e2", [doc({ id: "e2#0", sourceId: "e2" })]);
+  await db.replaceBySource("s1", "e1", []); // clears only e1's facts
+  assert.deepEqual(
+    (await db.listDocs("s1")).map((d) => d.id),
+    ["e2#0"],
+  );
+});
+
+test("d1IndexDb.replaceBySource batches deletes (fact_entities + docs) then inserts", async () => {
+  const executed = [];
+  const stmt = (sql) => ({
+    sql,
+    params: [],
+    bind(...v) {
+      this.params = v;
+      return this;
+    },
+    async run() {
+      executed.push(this);
+      return {};
+    },
+    async all() {
+      executed.push(this);
+      return { results: [] };
+    },
+    async first() {
+      return null;
+    },
+  });
+  const fake = {
+    prepare: (sql) => stmt(sql),
+    async batch(s) {
+      executed.push(...s);
+      return [];
+    },
+  };
+  const db = d1IndexDb(fake);
+  await db.replaceBySource("s1", "e1", [
+    doc({
+      id: "e1#0",
+      tier: "canon",
+      embedding: [0.5],
+      sourceId: "e1",
+      entities: ["cursor", "d1"],
+    }),
+  ]);
+  assert.ok(
+    executed.some((s) =>
+      /DELETE FROM docs WHERE space = \? AND source_id = \?/i.test(s.sql),
+    ),
+  );
+  assert.ok(
+    executed.some((s) =>
+      /DELETE FROM fact_entities WHERE space = \? AND fact_id IN/i.test(s.sql),
+    ),
+  );
+  assert.ok(
+    executed.some(
+      (s) =>
+        /INSERT OR REPLACE INTO docs/i.test(s.sql) && s.params.includes("e1#0"),
+    ),
+  );
+  assert.ok(
+    executed.some(
+      (s) =>
+        /INSERT OR REPLACE INTO fact_entities/i.test(s.sql) &&
+        s.params.includes("cursor"),
+    ),
+  );
 });
