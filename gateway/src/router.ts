@@ -4,6 +4,7 @@ import { handleMcp } from "./mcp.js";
 import { handleHookRead } from "./hook-read.js";
 import { handleWebhook } from "./webhook.js";
 import { handleAdminReindex } from "./reindex.js";
+import { handleApiRead } from "./api-read.js";
 
 /** Path routing only — each route's logic lives in its own module. */
 export async function handleRequest(
@@ -38,6 +39,10 @@ export async function handleRequest(
 
   if (url.pathname === "/hook/read" && req.method === "GET") {
     return handleHookRead(req, env);
+  }
+
+  if (url.pathname === "/api/read" && req.method === "GET") {
+    return handleApiRead(req, env);
   }
 
   return new Response("not found", { status: 404 });
