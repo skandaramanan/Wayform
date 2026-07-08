@@ -216,8 +216,18 @@ export async function reindexSpace(
   if (offset === 0) {
     await db.deleteSpace(sr.space);
   }
-  const count = await ingestFiles(env, db, embed, gen, sr, slice, sha, fetchImpl, {
-    setSha: nextOffset === null,
-  });
+  const count = await ingestFiles(
+    env,
+    db,
+    embed,
+    gen,
+    sr,
+    slice,
+    sha,
+    fetchImpl,
+    {
+      setSha: nextOffset === null,
+    },
+  );
   return { count, total, nextOffset };
 }
