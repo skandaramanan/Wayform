@@ -87,10 +87,20 @@ function coerce(raw: unknown, entry: ParsedEntry): ExtractedFact[] | null {
   return facts.length > 0 ? facts : null;
 }
 
-/** Strip an optional ```json ... ``` fence, then JSON.parse. */
+/**
+ * Parse a fact array out of a model completion. Small instruct models
+ * (llama-3.1-8b) routinely wrap the JSON in prose ("Here are the facts:\n[…]")
+ * or a code fence despite instructions, so we (1) strip an optional ```json```
+ * fence, then (2) fall back to the first `[`…last `]` span. Robustness here is
+ * what keeps extraction off the whole-entry floor.
+ */
 function parseModelJson(text: string): unknown {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const body = fenced ? fenced[1] : text;
+  let body = (fenced ? fenced[1] : text).trim();
+  if (!body.startsWith("[")) {
+    const span = body.match(/\[[\s\S]*\]/);
+    if (span) body = span[0];
+  }
   return JSON.parse(body);
 }
 
@@ -99,11 +109,32 @@ export async function extractFacts(
   entry: ParsedEntry,
 ): Promise<ExtractedFact[]> {
   if (!gen) return floor(entry);
+  let out: string;
   try {
-    const out = await gen(buildExtractionPrompt(entry));
+    out = await gen(buildExtractionPrompt(entry));
+  } catch (e) {
+    // fail-open, but no longer silent: a thrown gen call means the model id
+    // or binding is wrong / unavailable — surface it in `wrangler tail`.
+    console.warn(
+      `[extract] gen threw for ${entry.file}: ${(e as Error).message}`,
+    );
+    return floor(entry);
+  }
+  try {
     const coerced = coerce(parseModelJson(out), entry);
-    return coerced ?? floor(entry);
-  } catch {
+    if (coerced) return coerced;
+    console.warn(
+      `[extract] no valid facts parsed for ${entry.file}; raw head: ${String(
+        out,
+      ).slice(0, 200)}`,
+    );
+    return floor(entry);
+  } catch (e) {
+    console.warn(
+      `[extract] parse failed for ${entry.file}: ${(e as Error).message}; raw head: ${String(
+        out,
+      ).slice(0, 200)}`,
+    );
     return floor(entry);
   }
 }
