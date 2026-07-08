@@ -68,6 +68,22 @@ test("extractFacts recovers JSON wrapped in prose (8B models ignore 'JSON only')
   assert.deepEqual(facts[0].entities, ["d1"]);
 });
 
+test("extractFacts recovers a valid array followed by trailing chatter (the llama-3.3-70b failure)", async () => {
+  const gen = async () =>
+    '[{"kind":"decision","tier":"normal","body":"We chose D1.","entities":["d1"]}]\n\nLet me know if you need more facts!';
+  const facts = await extractFacts(gen, entry("chose D1"));
+  assert.equal(facts.length, 1);
+  assert.equal(facts[0].body, "We chose D1.");
+});
+
+test("extractJsonArray is not fooled by brackets inside string values", async () => {
+  const gen = async () =>
+    'Sure:\n[{"kind":"context","tier":"normal","body":"array syntax is [x, y]","entities":[]}] done';
+  const facts = await extractFacts(gen, entry("note about arrays"));
+  assert.equal(facts.length, 1);
+  assert.equal(facts[0].body, "array syntax is [x, y]");
+});
+
 test("fail-open floor: null gen → one normal fact = whole entry body", async () => {
   const facts = await extractFacts(null, entry("some prose", "context"));
   assert.deepEqual(facts, [
