@@ -56,6 +56,8 @@ export function entryToDoc(
     embedding,
     supersededBy: null,
     createdAt: new Date().toISOString(),
+    sourceId: entry.id || entry.file,
+    entities: [],
   };
 }
 
