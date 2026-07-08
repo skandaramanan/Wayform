@@ -16,9 +16,10 @@ export interface KVStore {
 import type { D1Like, IndexDb } from "./index-db.js";
 import type { Embedder } from "./retrieval.js";
 
-/** Minimal Workers AI surface used for embeddings. */
+/** Minimal Workers AI surface: embeddings and text generation. */
 export interface AiBinding {
   run(model: string, input: { text: string[] }): Promise<{ data: number[][] }>;
+  run(model: string, input: { prompt: string }): Promise<{ response: string }>;
 }
 
 export interface Env {
@@ -38,4 +39,6 @@ export interface Env {
   /** Test seams: injected index store / embedder. Production leaves unset. */
   indexDb?: IndexDb;
   embedder?: Embedder;
+  /** Test seam: injected text-gen. Production leaves it unset (uses AI). */
+  genText?: (prompt: string) => Promise<string>;
 }
