@@ -62,8 +62,11 @@ export async function retrieve(
   }
 
   const byId = new Map(docs.map((d) => [d.id, d]));
-  const scored = adjustScores(rrfFuse(lists), byId, opts.now ?? new Date())
-    .filter((s) => s.score >= TAU);
+  const scored = adjustScores(
+    rrfFuse(lists),
+    byId,
+    opts.now ?? new Date(),
+  ).filter((s) => s.score >= TAU);
 
   const results: Retrieved[] = [];
   let used = 0;

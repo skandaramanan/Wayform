@@ -6,3 +6,21 @@ compatibility_date = "2026-06-01"
 [[kv_namespaces]]
 binding = "ROUTING"
 id = "799c559402d6472993dc63ed26b0fd5e"
+
+# Relevance index (Phase A). Create with `wrangler d1 create memorylayer-index`
+# and paste the printed database_id, then apply migrations:
+#   wrangler d1 migrations apply memorylayer-index --remote
+[[d1_databases]]
+binding = "DB"
+database_name = "memorylayer-index"
+database_id = "PASTE-DATABASE-ID-HERE"
+migrations_dir = "migrations"
+
+# Workers AI: embeddings (@cf/baai/bge-base-en-v1.5), free-tier allocation.
+[ai]
+binding = "AI"
+
+# Webhook-drop reconciler (§2.1): every 15 minutes, reindex spaces whose
+# indexed sha lags the ledger HEAD.
+[triggers]
+crons = ["*/15 * * * *"]

@@ -10,7 +10,13 @@ import {
 } from "../dist/gateway/src/ingest.js";
 import { makeEnv, ghFetch, fakeEmbed } from "./helpers.mjs";
 
-const SR = { space: "s1", installationId: 7, owner: "o", repo: "r", branch: "main" };
+const SR = {
+  space: "s1",
+  installationId: 7,
+  owner: "o",
+  repo: "r",
+  branch: "main",
+};
 
 const entryMd = (project, body, id = "abc123") =>
   `---\nauthor: Skanda\ntype: decision\ntimestamp: 2026-07-04T11:00:00Z\nid: ${id}\nproject: ${project}\n---\n\n${body}\n`;
@@ -21,7 +27,10 @@ function ghRoutes(calls) {
     [
       "/app/installations/",
       () =>
-        Response.json({ token: "ghs_test", expires_at: "2099-01-01T00:00:00Z" }),
+        Response.json({
+          token: "ghs_test",
+          expires_at: "2099-01-01T00:00:00Z",
+        }),
     ],
     ["/commits/main", () => Response.json({ sha: "headsha" })],
     [
@@ -38,11 +47,14 @@ function ghRoutes(calls) {
     [
       "/contents/context/memorylayer/skanda/a.md",
       () =>
-        new Response(entryMd("memorylayer", "Cursor MCP config is project-scoped.")),
+        new Response(
+          entryMd("memorylayer", "Cursor MCP config is project-scoped."),
+        ),
     ],
     [
       "/contents/context/other-proj/skanda/b.md",
-      () => new Response(entryMd("other-proj", "Other project fact.", "def456")),
+      () =>
+        new Response(entryMd("other-proj", "Other project fact.", "def456")),
     ],
     [
       "/contents/context/memorylayer/skanda/broken.md",
@@ -52,7 +64,10 @@ function ghRoutes(calls) {
 }
 
 test("projectFromPath extracts the project slug segment", () => {
-  assert.equal(projectFromPath("context/memorylayer/skanda/x.md"), "memorylayer");
+  assert.equal(
+    projectFromPath("context/memorylayer/skanda/x.md"),
+    "memorylayer",
+  );
   assert.equal(projectFromPath("README.md"), null);
   assert.equal(projectFromPath("context/x/nope.txt"), null);
 });

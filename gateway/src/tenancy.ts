@@ -70,9 +70,7 @@ export async function getSpaceRepo(
 
 export async function listSpaceRepos(env: Env): Promise<SpaceRepo[]> {
   const raw = await env.ROUTING.get(REGISTRY_KEY);
-  return raw
-    ? Object.values(JSON.parse(raw) as Record<string, SpaceRepo>)
-    : [];
+  return raw ? Object.values(JSON.parse(raw) as Record<string, SpaceRepo>) : [];
 }
 
 const REQUIRED: (keyof SpaceMember)[] = [
