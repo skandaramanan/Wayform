@@ -88,20 +88,44 @@ function coerce(raw: unknown, entry: ParsedEntry): ExtractedFact[] | null {
 }
 
 /**
- * Parse a fact array out of a model completion. Small instruct models
- * (llama-3.1-8b) routinely wrap the JSON in prose ("Here are the facts:\n[…]")
- * or a code fence despite instructions, so we (1) strip an optional ```json```
- * fence, then (2) fall back to the first `[`…last `]` span. Robustness here is
- * what keeps extraction off the whole-entry floor.
+ * Extract the FIRST complete top-level JSON array from `text` by bracket-depth
+ * scan, ignoring anything before or after it and counting brackets only outside
+ * string literals. Instruct models (esp. on entries that themselves contain
+ * JSON/quotes) emit the array with a prose preamble AND trailing chatter — the
+ * confirmed llama-3.3-70b failure was "valid array, then more text" (JSON.parse
+ * "Unexpected non-whitespace character after JSON"). A greedy first-`[`-to-last-
+ * `]` regex over-grabs when prose contains stray brackets; depth-scanning stops
+ * at the matching close. Returns null when no balanced array exists.
+ */
+function extractJsonArray(text: string): string | null {
+  const start = text.indexOf("[");
+  if (start === -1) return null;
+  let depth = 0;
+  let inStr = false;
+  let esc = false;
+  for (let i = start; i < text.length; i++) {
+    const c = text[i];
+    if (inStr) {
+      if (esc) esc = false;
+      else if (c === "\\") esc = true;
+      else if (c === '"') inStr = false;
+    } else if (c === '"') inStr = true;
+    else if (c === "[") depth++;
+    else if (c === "]" && --depth === 0) return text.slice(start, i + 1);
+  }
+  return null;
+}
+
+/**
+ * Parse a fact array out of a model completion: strip an optional ```json```
+ * fence, then pull the first balanced `[…]` array (dropping any surrounding
+ * prose). Genuinely malformed JSON still throws → the caller floors to the
+ * whole entry (correct fail-open).
  */
 function parseModelJson(text: string): unknown {
   const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  let body = (fenced ? fenced[1] : text).trim();
-  if (!body.startsWith("[")) {
-    const span = body.match(/\[[\s\S]*\]/);
-    if (span) body = span[0];
-  }
-  return JSON.parse(body);
+  const body = (fenced ? fenced[1] : text).trim();
+  return JSON.parse(extractJsonArray(body) ?? body);
 }
 
 export async function extractFacts(
