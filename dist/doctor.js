@@ -174,7 +174,7 @@ async function runGit(cwd, args) {
     return stdout;
 }
 function printResults(results, write) {
-    write("MemoryLayer doctor");
+    write("Wayform doctor");
     for (const result of results) {
         write(`[${result.status}] ${result.name}: ${result.message}`);
     }

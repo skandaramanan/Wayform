@@ -8,8 +8,8 @@ export function buildHookEnv(v: {
   project: string;
 }): string {
   return [
-    "# MemoryLayer per-user hook config — gitignored. Do NOT commit.",
-    "# Written by `memorylayer init`. Your identity + context-repo access.",
+    "# Wayform per-user hook config — gitignored. Do NOT commit.",
+    "# Written by `wayform init`. Your identity + context-repo access.",
     `CONTEXT_REPO_URL=${v.repoUrl}`,
     `MEMORYLAYER_AUTHOR=${v.author}`,
     `MEMORYLAYER_AUTHOR_EMAIL=${v.email}`,
@@ -27,7 +27,7 @@ export function buildRemoteHookEnv(v: {
   email: string;
 }): string {
   return [
-    "# MemoryLayer per-user hook config — gitignored. Do NOT commit.",
+    "# Wayform per-user hook config — gitignored. Do NOT commit.",
     "# Written by `wayform init --remote`. Hosted (gateway) member — no local clone.",
     `MEMORYLAYER_GATEWAY_URL=${v.gatewayUrl}`,
     `MEMORYLAYER_GATEWAY_TOKEN=${v.token}`,
