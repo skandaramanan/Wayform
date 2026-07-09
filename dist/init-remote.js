@@ -34,7 +34,7 @@ export function registerClaudeCodeMcp(gatewayUrl, token, run = defaultRunner) {
         "http",
         "--scope",
         "local",
-        "memorylayer",
+        "wayform",
         `${gatewayUrl}/mcp`,
         "--header",
         `Authorization: Bearer ${token}`,
