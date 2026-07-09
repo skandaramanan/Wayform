@@ -3,19 +3,12 @@
   "hooks": {
     "sessionStart": [
       {
-        "command": "node ./dist/cli.js hook cursor"
-      },
-      {
-        "command": "memorylayer hook cursor"
+        "command": "wayform hook cursor"
       }
     ],
     "stop": [
       {
-        "command": "node ./dist/cli.js stop-review cursor",
-        "loop_limit": 3
-      },
-      {
-        "command": "memorylayer stop-review cursor",
+        "command": "wayform stop-review cursor",
         "loop_limit": 3
       }
     ]

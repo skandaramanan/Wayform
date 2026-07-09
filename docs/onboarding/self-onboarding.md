@@ -10,7 +10,7 @@ Contains live secrets and per-member token records. If this file ever shows in
 | Thing | Value |
 |---|---|
 | Gateway URL | `https://memorylayer-gateway.memory-layer.workers.dev` |
-| Admin secret | `0f044c106420d812a2888d03345e54171f05f27bbafaa799d3017507a1c3bc40` ⚠️ rotate before external teams: `cd gateway && npx wrangler secret put ADMIN_SECRET` |
+| Admin secret | `b59fe8a90a70440e6b67def4581b65e6ff1a49e8019f5d75db4015ddb12bf4bb` ⚠️ rotate before external teams: `cd gateway && npx wrangler secret put ADMIN_SECRET` |
 | KV namespace id | `799c559402d6472993dc63ed26b0fd5e` |
 | GitHub App page | `https://github.com/apps/memorylayer-gateway` *(fix slug if the App name differed)* |
 | App visibility | ⚠️ currently "Only on this account" — flip to **Any account** (App settings → Advanced) before ANY external team |
@@ -24,10 +24,11 @@ macOS curl always needs `--tlsv1.2` against workers.dev.
 
 Get the hash before sending the token: `printf '%s' 'mlk_...' | shasum -a 256`
 
-| Date | Member | Space | Token sha256 | Status |
-|---|---|---|---|---|
-| 2026-07-06 | Skanda | memorylayer | *(never minted — confirmed via empty `wrangler kv key list`)* | dead |
-| 2026-07-07 | Skanda | memorylayer | `5d912b27947762c31f588bdfd024434f2759a294615a73dde9536e926f816218` | active |
+
+| Date | Member | Space | Token sha256 | mlk_token | Status |
+|---|---|---|---|---|---|
+| 2026-07-09 | Skanda | memorylayer | `601f7c413426e4c735369f0eb17e5998d4a8e36b92175426e31546d4d47cfab8` | `mlk_YAPI4PRx9frKfPZ5KZBLWQ0EiTOYidagbcGwSVq3AEQ` | Active |
+
 
 Revoke a member:
 
