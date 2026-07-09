@@ -52,7 +52,7 @@ export function registerClaudeCodeMcp(
     "http",
     "--scope",
     "local",
-    "memorylayer",
+    "wayform",
     `${gatewayUrl}/mcp`,
     "--header",
     `Authorization: Bearer ${token}`,

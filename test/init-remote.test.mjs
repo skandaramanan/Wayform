@@ -17,7 +17,7 @@ test("registerClaudeCodeMcp invokes claude mcp add with scope local + bearer hea
     "http",
     "--scope",
     "local",
-    "memorylayer",
+    "wayform",
     "https://gw.example.com/mcp",
     "--header",
     "Authorization: Bearer mlk_x",

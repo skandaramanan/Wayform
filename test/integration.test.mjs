@@ -549,11 +549,11 @@ test("init --remote writes hosted config set, gitignores the token file, no comm
       fs.readFileSync(path.join(cwd, ".cursor/mcp.json"), "utf8"),
     );
     assert.equal(
-      cursorMcp.mcpServers.memorylayer.url,
+      cursorMcp.mcpServers.wayform.url,
       "https://gw.example.com/mcp",
     );
     assert.equal(
-      cursorMcp.mcpServers.memorylayer.headers.Authorization,
+      cursorMcp.mcpServers.wayform.headers.Authorization,
       "Bearer mlk_x",
     );
 
