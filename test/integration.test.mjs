@@ -1,12 +1,35 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
+import http from "node:http";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
+
+/**
+ * Run the built hook asynchronously (so an in-process HTTP server keeps serving
+ * on the parent event loop), with stdin set to "ignore" so the hook's drainStdin
+ * gets an immediate EOF instead of blocking forever on an open pipe.
+ */
+function runHookAsync(env) {
+  return new Promise((resolve, reject) => {
+    const child = spawn(process.execPath, [hookJs], {
+      stdio: ["ignore", "pipe", "ignore"],
+      env,
+    });
+    let out = "";
+    child.stdout.on("data", (d) => (out += d));
+    child.on("error", reject);
+    child.on("close", () => resolve(out));
+  });
+}
 import { ContextStore } from "../dist/store.js";
 import { recordMetric } from "../dist/metrics.js";
 import { serializeEntry } from "../dist/frontmatter.js";
+
+const cliPath = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
+const hookJs = fileURLToPath(new URL("../dist/hook.js", import.meta.url));
 
 const git = (cwd, ...args) =>
   execFileSync("git", args, { cwd, stdio: "pipe" }).toString();
@@ -429,5 +452,128 @@ test("flushMetrics is a silent no-op when nothing was recorded", async () => {
     assert.equal(/metrics: sync/.test(log), false);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("gateway-only hook injects the gateway's /hook/read text (no clone)", async () => {
+  const server = http.createServer((req, res) => {
+    if (req.url.startsWith("/hook/read")) {
+      res.writeHead(200, { "content-type": "text/plain" });
+      res.end("SHARED MEMORY FROM GATEWAY");
+    } else {
+      res.writeHead(404);
+      res.end();
+    }
+  });
+  await new Promise((r) => server.listen(0, "127.0.0.1", r));
+  const { port } = server.address();
+  try {
+    const stdout = await runHookAsync({
+      PATH: process.env.PATH ?? "",
+      MEMORYLAYER_HOOK_CLIENT: "raw",
+      MEMORYLAYER_AUTHOR: "Dana",
+      MEMORYLAYER_PROJECT: "acme-eng",
+      MEMORYLAYER_GATEWAY_URL: `http://127.0.0.1:${port}`,
+      MEMORYLAYER_GATEWAY_TOKEN: "mlk_x",
+      // deliberately NO CONTEXT_REPO_URL — hosted-only member
+    });
+    assert.match(stdout, /SHARED MEMORY FROM GATEWAY/);
+  } finally {
+    server.close();
+  }
+});
+
+test("gateway-only hook fails open (no clone, unreachable gateway) and writes no stray files", () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "ml-gwonly-"));
+  try {
+    const out = execFileSync(process.execPath, [hookJs], {
+      cwd,
+      input: "",
+      encoding: "utf8",
+      env: {
+        PATH: process.env.PATH ?? "",
+        MEMORYLAYER_HOOK_CLIENT: "claude-code",
+        MEMORYLAYER_AUTHOR: "Dana",
+        MEMORYLAYER_PROJECT: "acme-eng",
+        MEMORYLAYER_GATEWAY_URL: "http://127.0.0.1:1",
+        MEMORYLAYER_GATEWAY_TOKEN: "mlk_unreachable",
+      },
+    });
+    assert.equal(out.trim(), "{}"); // empty no-op, exit 0
+    assert.ok(
+      !fs.existsSync(path.join(cwd, "metrics")),
+      "no stray metrics dir",
+    );
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("init --remote writes hosted config set, gitignores the token file, no committed .mcp.json", () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "ml-initremote-"));
+  execFileSync("git", ["init", "-q"], { cwd });
+  try {
+    execFileSync(
+      process.execPath,
+      [
+        cliPath,
+        "init",
+        "--remote",
+        "--gateway",
+        "https://gw.example.com",
+        "--token",
+        "mlk_x",
+        "--project",
+        "acme-eng",
+        "--author",
+        "Dana",
+        "--email",
+        "dana@acme.com",
+        "--yes",
+      ],
+      // Empty PATH so the Claude-CLI shell-out ENOENTs immediately: the helper
+      // fails open (prints the manual command) and init completes — with no real
+      // `claude mcp add` invocation mutating the developer's ~/.claude.json.
+      { cwd, encoding: "utf8", env: { PATH: "" } },
+    );
+
+    const env = fs.readFileSync(
+      path.join(cwd, ".memorylayer-hook.env"),
+      "utf8",
+    );
+    assert.match(env, /MEMORYLAYER_GATEWAY_URL=https:\/\/gw\.example\.com/);
+    assert.match(env, /MEMORYLAYER_GATEWAY_TOKEN=mlk_x/);
+    assert.ok(!/CONTEXT_REPO_URL/.test(env));
+
+    const cursorMcp = JSON.parse(
+      fs.readFileSync(path.join(cwd, ".cursor/mcp.json"), "utf8"),
+    );
+    assert.equal(
+      cursorMcp.mcpServers.memorylayer.url,
+      "https://gw.example.com/mcp",
+    );
+    assert.equal(
+      cursorMcp.mcpServers.memorylayer.headers.Authorization,
+      "Bearer mlk_x",
+    );
+
+    const claude = JSON.parse(
+      fs.readFileSync(path.join(cwd, ".claude/settings.json"), "utf8"),
+    );
+    assert.equal(
+      claude.hooks.SessionStart[0].hooks[0].command,
+      "wayform hook claude-code",
+    );
+
+    const gi = fs.readFileSync(path.join(cwd, ".gitignore"), "utf8");
+    assert.match(gi, /^\.cursor\/mcp\.json$/m);
+    assert.match(gi, /^\.memorylayer-hook\.env$/m);
+
+    assert.ok(
+      !fs.existsSync(path.join(cwd, ".mcp.json")),
+      "hosted members do not get the committed stdio .mcp.json",
+    );
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
   }
 });

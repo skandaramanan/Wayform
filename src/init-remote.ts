@@ -26,7 +26,13 @@ import {
 export type Runner = (cmd: string, args: string[]) => void;
 
 const defaultRunner: Runner = (cmd, args) =>
-  void execFileSync(cmd, args, { stdio: "ignore" });
+  // Bounded + non-interactive: a hanging or prompting `claude` must never freeze
+  // init. On timeout/ENOENT this throws → the caller falls open to a printed
+  // manual command. stdin is closed so the child cannot block waiting for input.
+  void execFileSync(cmd, args, {
+    stdio: ["ignore", "ignore", "ignore"],
+    timeout: 15000,
+  });
 
 /**
  * Register the gateway as a project-scoped (`--scope local`) HTTP MCP server for
