@@ -32,49 +32,56 @@ function addOnce(list: unknown[], marker: string, entry: unknown): unknown[] {
   return present ? list : [...list, entry];
 }
 
-export function mergeClaudeSettings(existing: unknown): Json {
+export function mergeClaudeSettings(
+  existing: unknown,
+  bin: string = "memorylayer",
+): Json {
   const root = asObject(existing);
   const hooks = asObject(root.hooks);
   hooks.SessionStart = addOnce(
     asArray(hooks.SessionStart),
     "hook claude-code",
     {
-      hooks: [{ type: "command", command: "memorylayer hook claude-code" }],
+      hooks: [{ type: "command", command: `${bin} hook claude-code` }],
     },
   );
   hooks.Stop = addOnce(asArray(hooks.Stop), "stop-review claude-code", {
-    hooks: [
-      { type: "command", command: "memorylayer stop-review claude-code" },
-    ],
+    hooks: [{ type: "command", command: `${bin} stop-review claude-code` }],
   });
   root.hooks = hooks;
   return root;
 }
 
-export function mergeCursorHooks(existing: unknown): Json {
+export function mergeCursorHooks(
+  existing: unknown,
+  bin: string = "memorylayer",
+): Json {
   const root = asObject(existing);
   root.version = 1;
   const hooks = asObject(root.hooks);
   hooks.sessionStart = addOnce(asArray(hooks.sessionStart), "hook cursor", {
-    command: "memorylayer hook cursor",
+    command: `${bin} hook cursor`,
   });
   hooks.stop = addOnce(asArray(hooks.stop), "stop-review cursor", {
-    command: "memorylayer stop-review cursor",
+    command: `${bin} stop-review cursor`,
     loop_limit: 3,
   });
   root.hooks = hooks;
   return root;
 }
 
-export function mergeCodexHooks(existing: unknown): Json {
+export function mergeCodexHooks(
+  existing: unknown,
+  bin: string = "memorylayer",
+): Json {
   const root = asObject(existing);
   const hooks = asObject(root.hooks);
   hooks.SessionStart = addOnce(asArray(hooks.SessionStart), "hook codex", {
     matcher: "startup|resume",
-    hooks: [{ type: "command", command: "memorylayer hook codex" }],
+    hooks: [{ type: "command", command: `${bin} hook codex` }],
   });
   hooks.Stop = addOnce(asArray(hooks.Stop), "stop-review codex", {
-    hooks: [{ type: "command", command: "memorylayer stop-review codex" }],
+    hooks: [{ type: "command", command: `${bin} stop-review codex` }],
   });
   root.hooks = hooks;
   return root;
@@ -93,3 +100,35 @@ export const CODEX_MCP_TOML = `[mcp_servers.memorylayer]
 command = "memorylayer"
 args = []
 `;
+
+/**
+ * Native HTTP MCP for a hosted member, written into a project's `.cursor/mcp.json`.
+ * This file carries the member token, so `init --remote` MUST gitignore it — it is
+ * per-member and never committed. Non-clobbering + idempotent on `memorylayer`.
+ */
+export function mergeCursorRemoteMcp(
+  existing: unknown,
+  gatewayUrl: string,
+  token: string,
+): Json {
+  const root = asObject(existing);
+  const servers = asObject(root.mcpServers);
+  servers.memorylayer = {
+    url: `${gatewayUrl}/mcp`,
+    headers: { Authorization: `Bearer ${token}` },
+  };
+  root.mcpServers = servers;
+  return root;
+}
+
+/**
+ * Manual paste block for Codex MCP (global `~/.codex/config.toml`). Codex has no
+ * project-scoped MCP (platform limitation), so the hosted member pastes this;
+ * the `mcp-remote` bridge adapts the stdio-only client to the HTTP gateway.
+ */
+export function codexRemoteMcpToml(gatewayUrl: string, token: string): string {
+  return `[mcp_servers.memorylayer]
+command = "npx"
+args = ["-y", "mcp-remote", "${gatewayUrl}/mcp", "--header", "Authorization: Bearer ${token}"]
+`;
+}
