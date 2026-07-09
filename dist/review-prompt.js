@@ -7,7 +7,7 @@
  * write_context (the ~60-85% path that decays over long chats).
  */
 export function reviewInstruction(project) {
-    return (`MemoryLayer end-of-turn review for project "${project}". ` +
+    return (`Wayform end-of-turn review for project "${project}". ` +
         `Before finishing: did THIS turn settle a deliberate decision, or establish ` +
         `durable context, that is not already recorded in the shared store? A settled ` +
         `decision is "we decided X because Y" — not an open question, an option still ` +

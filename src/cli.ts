@@ -1,8 +1,7 @@
 #!/usr/bin/env node
 /**
- * The single `wayform` command (aliased `memorylayer` during the rename). Routes
- * subcommands so the tool is one installable binary (no bash launchers, no
- * separate entrypoints to wire):
+ * The single `wayform` command. Routes subcommands so the tool is one
+ * installable binary (no bash launchers, no separate entrypoints to wire):
  *
  *   wayform                       -> MCP server (default)
  *   wayform hook <client>         -> read hook

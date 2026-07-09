@@ -47,5 +47,5 @@ test("`init --help` routes to init and exits 0", () => {
     encoding: "utf8",
     env: { PATH: process.env.PATH ?? "" },
   });
-  assert.match(out, /memorylayer init/);
+  assert.match(out, /wayform init/);
 });

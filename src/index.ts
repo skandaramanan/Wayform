@@ -203,7 +203,7 @@ export async function runServer(): Promise<void> {
   await server.connect(transport);
   // stdio transport owns stdout; log to stderr only.
   console.error(
-    `memorylayer MCP server ready (author=${cfg.author}, store=${cfg.repoPath})`,
+    `wayform MCP server ready (author=${cfg.author}, store=${cfg.repoPath})`,
   );
 }
 

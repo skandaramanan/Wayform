@@ -1,5 +1,5 @@
 /**
- * `memorylayer init` — wire MemoryLayer into the current project repo.
+ * `wayform init` — wire Wayform into the current project repo.
  *
  * LOUD, not fail-open (the inverse of the runtime hooks): a half-written setup
  * must surface. Unparseable existing configs are backed up (.bak), never
@@ -11,7 +11,7 @@ import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { mergeClaudeSettings, mergeCursorHooks, mergeCodexHooks, mergeMcpJson, CODEX_MCP_TOML, } from "./init-configs.js";
 import { buildHookEnv, gitConfigDefault, ensureGitignore } from "./init-env.js";
-const USAGE = `memorylayer init — wire MemoryLayer into this project
+const USAGE = `wayform init — wire Wayform into this project
 
 Options (all optional; missing identity values are prompted for):
   --author <name>         commit author / attribution
@@ -117,8 +117,8 @@ export async function runInit(args) {
     // --- Codex MCP: manual step (global config.toml, no TOML dependency) ---
     console.log("\nNext steps:");
     console.log("  1. Commit the project configs so teammates inherit them:");
-    console.log("       git add .claude .cursor .codex .mcp.json .gitignore && git commit -m 'chore: wire MemoryLayer'");
-    console.log("  2. Each teammate runs `memorylayer init` to set their own identity.");
+    console.log("       git add .claude .cursor .codex .mcp.json .gitignore && git commit -m 'chore: wire Wayform'");
+    console.log("  2. Each teammate runs `wayform init` to set their own identity.");
     console.log("  3. Codex users: add this to ~/.codex/config.toml (MCP tools):\n");
     console.log(CODEX_MCP_TOML);
 }
