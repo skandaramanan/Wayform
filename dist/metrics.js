@@ -6,6 +6,11 @@ export function metricsRelPath(author) {
     return path.join("metrics", `${slug(author)}.jsonl`);
 }
 export async function recordMetric(cfg, rec) {
+    // Gateway-only members have no local clone to append metrics to; their reads
+    // are logged server-side (retrieval_log). No-op instead of writing a stray
+    // metrics/ file into the member's project cwd. (recordMetric is fail-open.)
+    if (!cfg.repoPath)
+        return;
     try {
         const line = JSON.stringify({
             ts: new Date().toISOString(),

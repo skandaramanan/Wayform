@@ -138,9 +138,23 @@ export function defaultProject(cwd = process.cwd()) {
 }
 export function loadConfig() {
     const author = required("MEMORYLAYER_AUTHOR");
-    const repoUrl = required("CONTEXT_REPO_URL");
-    const repoPath = process.env.CONTEXT_REPO_PATH?.trim() ||
-        path.join(dataHome(), "clones", cloneKey(repoUrl));
+    const gatewayUrl = process.env.MEMORYLAYER_GATEWAY_URL?.trim().replace(/\/+$/, "") ||
+        undefined;
+    const gatewayToken = process.env.MEMORYLAYER_GATEWAY_TOKEN?.trim() || undefined;
+    const hasGateway = Boolean(gatewayUrl && gatewayToken);
+    // Gateway-only members have no local clone. CONTEXT_REPO_URL is optional when a
+    // gateway is configured; without a gateway it stays required (local-only mode).
+    // We use "" as a clear "no clone" sentinel rather than making repoUrl/repoPath
+    // optional, which would ripple `string | undefined` through store/git-repo/
+    // metrics/doctor. The clone is never touched in gateway-only mode — the hook
+    // guard (hook.ts) and the metrics guard (metrics.ts) enforce that.
+    const repoUrl = hasGateway
+        ? process.env.CONTEXT_REPO_URL?.trim() || ""
+        : required("CONTEXT_REPO_URL");
+    const repoPath = repoUrl
+        ? process.env.CONTEXT_REPO_PATH?.trim() ||
+            path.join(dataHome(), "clones", cloneKey(repoUrl))
+        : "";
     const rawBudget = Number(process.env.MEMORYLAYER_READ_BUDGET_TOKENS);
     const readBudgetTokens = Number.isFinite(rawBudget) && rawBudget > 0
         ? rawBudget
@@ -153,9 +167,8 @@ export function loadConfig() {
             `${author.replace(/\s+/g, ".").toLowerCase()}@memorylayer.local`,
         autoPush: (process.env.MEMORYLAYER_AUTO_PUSH?.trim() || "true") !== "false",
         readBudgetTokens,
-        gatewayUrl: process.env.MEMORYLAYER_GATEWAY_URL?.trim().replace(/\/+$/, "") ||
-            undefined,
-        gatewayToken: process.env.MEMORYLAYER_GATEWAY_TOKEN?.trim() || undefined,
+        gatewayUrl,
+        gatewayToken,
     };
 }
 //# sourceMappingURL=config.js.map
