@@ -8,7 +8,7 @@
  */
 export function reviewInstruction(project: string): string {
   return (
-    `MemoryLayer end-of-turn review for project "${project}". ` +
+    `Wayform end-of-turn review for project "${project}". ` +
     `Before finishing: did THIS turn settle a deliberate decision, or establish ` +
     `durable context, that is not already recorded in the shared store? A settled ` +
     `decision is "we decided X because Y" — not an open question, an option still ` +

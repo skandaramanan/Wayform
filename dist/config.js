@@ -6,7 +6,7 @@ import { DEFAULT_BUDGET_TOKENS } from "./token-budget.js";
 function required(name) {
     const v = process.env[name];
     if (!v || v.trim() === "") {
-        throw new Error(`Missing required env var ${name}. See README for MemoryLayer configuration.`);
+        throw new Error(`Missing required env var ${name}. See README for Wayform configuration.`);
     }
     return v.trim();
 }

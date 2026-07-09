@@ -237,7 +237,7 @@ function printResults(
   results: CheckResult[],
   write: (line: string) => void,
 ): void {
-  write("MemoryLayer doctor");
+  write("Wayform doctor");
   for (const result of results) {
     write(`[${result.status}] ${result.name}: ${result.message}`);
   }

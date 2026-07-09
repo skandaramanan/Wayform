@@ -34,7 +34,7 @@ function required(name: string): string {
   const v = process.env[name];
   if (!v || v.trim() === "") {
     throw new Error(
-      `Missing required env var ${name}. See README for MemoryLayer configuration.`,
+      `Missing required env var ${name}. See README for Wayform configuration.`,
     );
   }
   return v.trim();

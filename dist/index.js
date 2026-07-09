@@ -169,7 +169,7 @@ export async function runServer() {
     const transport = new StdioServerTransport();
     await server.connect(transport);
     // stdio transport owns stdout; log to stderr only.
-    console.error(`memorylayer MCP server ready (author=${cfg.author}, store=${cfg.repoPath})`);
+    console.error(`wayform MCP server ready (author=${cfg.author}, store=${cfg.repoPath})`);
 }
 if (isMain(import.meta.url)) {
     runServer().catch((err) => {

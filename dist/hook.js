@@ -78,7 +78,7 @@ export async function runHook() {
         if (total === 0)
             emitEmpty();
         const body = projectContext(project, entries, total);
-        const text = `The following is shared planning memory (MemoryLayer) for project ` +
+        const text = `The following is shared planning memory (Wayform) for project ` +
             `"${project}", loaded automatically at session start. Treat these recorded ` +
             `decisions and context as already-known; do not ask the user to re-explain ` +
             `them.\n\n${body}`;
