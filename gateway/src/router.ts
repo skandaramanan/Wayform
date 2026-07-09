@@ -6,8 +6,44 @@ import { handleWebhook } from "./webhook.js";
 import { handleAdminReindex } from "./reindex.js";
 import { handleApiRead } from "./api-read.js";
 
+/**
+ * Browser-based MCP clients (ChatGPT's custom connector, Claude.ai web, etc.)
+ * preflight any cross-origin POST with a JSON body via OPTIONS before sending
+ * the real request. Without these headers the preflight 404s and the browser
+ * blocks the real call — the token/route can be perfectly correct and the
+ * client still fails. Stamped on every response, not just /mcp: OPTIONS is
+ * answered generically and any actual request still enforces its own auth.
+ */
+const CORS_HEADERS: Record<string, string> = {
+  "access-control-allow-origin": "*",
+  "access-control-allow-methods": "GET, POST, OPTIONS",
+  "access-control-allow-headers": "content-type, authorization",
+  "access-control-max-age": "86400",
+};
+
+function withCors(res: Response): Response {
+  const headers = new Headers(res.headers);
+  for (const [k, v] of Object.entries(CORS_HEADERS)) headers.set(k, v);
+  return new Response(res.body, {
+    status: res.status,
+    statusText: res.statusText,
+    headers,
+  });
+}
+
 /** Path routing only — each route's logic lives in its own module. */
 export async function handleRequest(
+  req: Request,
+  env: Env,
+  ctx?: { waitUntil(p: Promise<unknown>): void },
+): Promise<Response> {
+  if (req.method === "OPTIONS") {
+    return new Response(null, { status: 204, headers: CORS_HEADERS });
+  }
+  return withCors(await route(req, env, ctx));
+}
+
+async function route(
   req: Request,
   env: Env,
   ctx?: { waitUntil(p: Promise<unknown>): void },

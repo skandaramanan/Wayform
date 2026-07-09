@@ -19,3 +19,29 @@ test("unknown path returns 404", async () => {
   );
   assert.equal(res.status, 404);
 });
+
+test("OPTIONS preflight on /mcp/<token> returns 204 with CORS headers", async () => {
+  const res = await handleRequest(
+    new Request("https://gw.test/mcp/mlk_x", {
+      method: "OPTIONS",
+      headers: {
+        origin: "https://chatgpt.com",
+        "access-control-request-method": "POST",
+      },
+    }),
+    makeEnv(),
+  );
+  assert.equal(res.status, 204);
+  assert.equal(res.headers.get("access-control-allow-origin"), "*");
+  assert.match(res.headers.get("access-control-allow-methods"), /POST/);
+});
+
+test("a normal response still carries CORS headers (browser can read the body)", async () => {
+  const res = await handleRequest(
+    new Request("https://gw.test/health"),
+    makeEnv(),
+  );
+  assert.equal(res.status, 200);
+  assert.equal(res.headers.get("access-control-allow-origin"), "*");
+  assert.deepEqual(await res.json(), { ok: true });
+});
