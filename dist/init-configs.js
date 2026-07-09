@@ -80,12 +80,12 @@ args = []
 /**
  * Native HTTP MCP for a hosted member, written into a project's `.cursor/mcp.json`.
  * This file carries the member token, so `init --remote` MUST gitignore it — it is
- * per-member and never committed. Non-clobbering + idempotent on `memorylayer`.
+ * per-member and never committed. Non-clobbering + idempotent on `wayform`.
  */
 export function mergeCursorRemoteMcp(existing, gatewayUrl, token) {
     const root = asObject(existing);
     const servers = asObject(root.mcpServers);
-    servers.memorylayer = {
+    servers.wayform = {
         url: `${gatewayUrl}/mcp`,
         headers: { Authorization: `Bearer ${token}` },
     };
@@ -98,7 +98,7 @@ export function mergeCursorRemoteMcp(existing, gatewayUrl, token) {
  * the `mcp-remote` bridge adapts the stdio-only client to the HTTP gateway.
  */
 export function codexRemoteMcpToml(gatewayUrl, token) {
-    return `[mcp_servers.memorylayer]
+    return `[mcp_servers.wayform]
 command = "npx"
 args = ["-y", "mcp-remote", "${gatewayUrl}/mcp", "--header", "Authorization: Bearer ${token}"]
 `;

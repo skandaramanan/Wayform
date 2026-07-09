@@ -178,7 +178,7 @@ test("mergeCursorRemoteMcp writes an HTTP server with a bearer header", () => {
     "https://gw.example.com",
     "mlk_x",
   );
-  assert.deepEqual(out.mcpServers.memorylayer, {
+  assert.deepEqual(out.mcpServers.wayform, {
     url: "https://gw.example.com/mcp",
     headers: { Authorization: "Bearer mlk_x" },
   });
@@ -189,7 +189,7 @@ test("mergeCursorRemoteMcp preserves unrelated servers and is idempotent", () =>
   const once = mergeCursorRemoteMcp(existing, "https://gw", "mlk_x");
   const twice = mergeCursorRemoteMcp(once, "https://gw", "mlk_x");
   assert.equal(twice.mcpServers.other.url, "x");
-  assert.deepEqual(twice.mcpServers.memorylayer, {
+  assert.deepEqual(twice.mcpServers.wayform, {
     url: "https://gw/mcp",
     headers: { Authorization: "Bearer mlk_x" },
   });
@@ -197,7 +197,7 @@ test("mergeCursorRemoteMcp preserves unrelated servers and is idempotent", () =>
 
 test("codexRemoteMcpToml renders an mcp-remote bridge with the token", () => {
   const toml = codexRemoteMcpToml("https://gw", "mlk_x");
-  assert.match(toml, /\[mcp_servers\.memorylayer\]/);
+  assert.match(toml, /\[mcp_servers\.wayform\]/);
   assert.match(toml, /mcp-remote/);
   assert.match(toml, /https:\/\/gw\/mcp/);
   assert.match(toml, /Authorization: Bearer mlk_x/);
