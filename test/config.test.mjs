@@ -371,6 +371,45 @@ test("loadHookEnv honors the gateway keys", () => {
   }
 });
 
+test("loadConfig: gateway-only mode succeeds without CONTEXT_REPO_URL", () => {
+  withEnv(
+    {
+      MEMORYLAYER_AUTHOR: "Dana",
+      MEMORYLAYER_GATEWAY_URL: "https://gw.example.com",
+      MEMORYLAYER_GATEWAY_TOKEN: "mlk_x",
+    },
+    () => {
+      const cfg = loadConfig();
+      assert.equal(cfg.repoUrl, ""); // sentinel: no local clone
+      assert.equal(cfg.repoPath, "");
+      assert.equal(cfg.gatewayUrl, "https://gw.example.com");
+      assert.equal(cfg.gatewayToken, "mlk_x");
+    },
+  );
+});
+
+test("loadConfig: still throws when neither gateway nor CONTEXT_REPO_URL is set", () => {
+  withEnv({ MEMORYLAYER_AUTHOR: "Dana" }, () => {
+    assert.throws(() => loadConfig(), /CONTEXT_REPO_URL/);
+  });
+});
+
+test("loadConfig: gateway + CONTEXT_REPO_URL keeps the local clone path (coexist)", () => {
+  withEnv(
+    {
+      MEMORYLAYER_AUTHOR: "Dana",
+      CONTEXT_REPO_URL: "https://github.com/o/r.git",
+      MEMORYLAYER_GATEWAY_URL: "https://gw",
+      MEMORYLAYER_GATEWAY_TOKEN: "mlk_x",
+    },
+    () => {
+      const cfg = loadConfig();
+      assert.equal(cfg.repoUrl, "https://github.com/o/r.git");
+      assert.ok(cfg.repoPath.includes("clones"));
+    },
+  );
+});
+
 test("loadHookEnv allowlists MEMORYLAYER_READ_BUDGET_TOKENS", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ml-env-"));
   fs.writeFileSync(

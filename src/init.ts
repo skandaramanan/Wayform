@@ -28,6 +28,11 @@ Options (all optional; missing identity values are prompted for):
   --force                 rewrite an existing .memorylayer-hook.env
   --yes                   accept git-config / directory defaults, no prompts
   --help                  show this help
+
+Hosted member (gateway) mode:
+  --remote                wire a hosted member (gateway URL+token, no clone)
+  --gateway <url>         (remote) hosted gateway base URL
+  --token <mlk_...>       (remote) member token
 `;
 
 function flag(args: string[], name: string): string | undefined {
@@ -62,6 +67,12 @@ function writeJson(cwd: string, rel: string, data: unknown): void {
 export async function runInit(args: string[]): Promise<void> {
   if (has(args, "help")) {
     output.write(USAGE);
+    return;
+  }
+
+  if (has(args, "remote")) {
+    const { runInitRemote } = await import("./init-remote.js");
+    await runInitRemote(args);
     return;
   }
 

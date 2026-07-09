@@ -11,6 +11,19 @@ export function buildHookEnv(v) {
         "",
     ].join("\n");
 }
+/** Contents of `.memorylayer-hook.env` for a HOSTED (gateway) member — gitignored. */
+export function buildRemoteHookEnv(v) {
+    return [
+        "# MemoryLayer per-user hook config — gitignored. Do NOT commit.",
+        "# Written by `wayform init --remote`. Hosted (gateway) member — no local clone.",
+        `MEMORYLAYER_GATEWAY_URL=${v.gatewayUrl}`,
+        `MEMORYLAYER_GATEWAY_TOKEN=${v.token}`,
+        `MEMORYLAYER_PROJECT=${v.project}`,
+        `MEMORYLAYER_AUTHOR=${v.author}`,
+        `MEMORYLAYER_AUTHOR_EMAIL=${v.email}`,
+        "",
+    ].join("\n");
+}
 /** Read a git config value for a prompt default; "" if git/key is absent. */
 export function gitConfigDefault(key) {
     try {

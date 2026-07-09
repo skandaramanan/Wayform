@@ -84,6 +84,20 @@ curl --tlsv1.2 -s -X POST https://memorylayer-gateway.memory-layer.workers.dev/a
 
 ## Client setup snippets (send the relevant one to each member)
 
+### Hosted member, one command (`wayform init --remote`)
+
+Once `wayform` is installed (`npm install -g wayform`), a hosted member wires up
+their project in one step (no git clone, token stays out of git):
+
+```bash
+wayform init --remote --gateway <gateway-url> --token mlk_THEIR_TOKEN
+```
+
+This writes the gitignored gateway env + `wayform` session/Stop hooks, registers
+project-scoped Claude Code MCP (`claude mcp add --scope local`) and a gitignored
+`.cursor/mcp.json`, and prints the Codex snippet (Codex MCP is global-only). The
+per-client blocks below are the manual equivalents if you prefer to wire it by hand.
+
 ### Claude Code (native HTTP MCP — recommended)
 
 One command, token stays out of committed files (`--scope local` = this
