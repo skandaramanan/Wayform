@@ -451,3 +451,6 @@ dashboards, τ calibration loop, `memory_feedback` tool.
 Each phase's exit is a metric, not a feeling: A exits when golden-set recall@10 ≥ 0.9;
 B when extraction-fidelity and supersession audits pass on the re-ingested corpus;
 C when the prompt hook holds <10% unnecessary-injection at <500ms p95.
+
+---
+---
