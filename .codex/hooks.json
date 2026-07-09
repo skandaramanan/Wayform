@@ -6,16 +6,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ./dist/cli.js hook codex"
-          }
-        ]
-      },
-      {
-        "matcher": "startup|resume",
-        "hooks": [
-          {
-            "type": "command",
-            "command": "memorylayer hook codex"
+            "command": "wayform hook codex"
           }
         ]
       }
@@ -25,15 +16,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node ./dist/cli.js stop-review codex"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "memorylayer stop-review codex"
+            "command": "wayform stop-review codex"
           }
         ]
       }

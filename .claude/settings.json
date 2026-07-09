@@ -5,15 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/dist/cli.js\" hook claude-code"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "memorylayer hook claude-code"
+            "command": "wayform hook claude-code"
           }
         ]
       }
@@ -23,15 +15,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "node \"$CLAUDE_PROJECT_DIR/dist/cli.js\" stop-review claude-code"
-          }
-        ]
-      },
-      {
-        "hooks": [
-          {
-            "type": "command",
-            "command": "memorylayer stop-review claude-code"
+            "command": "wayform stop-review claude-code"
           }
         ]
       }
