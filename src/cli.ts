@@ -1,13 +1,14 @@
 #!/usr/bin/env node
 /**
- * The single `memorylayer` command. Routes subcommands so the tool is one
- * installable binary (no bash launchers, no separate entrypoints to wire):
+ * The single `wayform` command (aliased `memorylayer` during the rename). Routes
+ * subcommands so the tool is one installable binary (no bash launchers, no
+ * separate entrypoints to wire):
  *
- *   memorylayer                       -> MCP server (default)
- *   memorylayer hook <client>         -> read hook
- *   memorylayer stop-review <client>  -> Stop/write-review hook
- *   memorylayer init [flags]          -> installer
- *   memorylayer doctor                -> local diagnostics
+ *   wayform                       -> MCP server (default)
+ *   wayform hook <client>         -> read hook
+ *   wayform stop-review <client>  -> Stop/write-review hook
+ *   wayform init [flags]          -> installer (add --remote for hosted members)
+ *   wayform doctor                -> local diagnostics
  *
  * `hook`/`stop-review` set MEMORYLAYER_HOOK_CLIENT from the positional arg, then
  * delegate to the neutral run functions (which self-load .memorylayer-hook.env).
@@ -46,7 +47,7 @@ async function main(): Promise<void> {
       return;
     default:
       console.error(
-        `Unknown command "${sub}". Use: memorylayer [hook|stop-review|init|doctor] …`,
+        `Unknown command "${sub}". Use: wayform [hook|stop-review|init|doctor] …`,
       );
       process.exit(1);
   }
