@@ -71,6 +71,11 @@ export async function runHook(): Promise<void> {
       process.exit(0);
     }
 
+    // Gateway-only member (no local clone): there is nothing to fall back to.
+    // Fail-open to the client's empty no-op rather than constructing a store
+    // against an empty repo path.
+    if (!cfg.repoUrl) emitEmpty();
+
     const store = new ContextStore(cfg);
     await store.ensure();
     const { entries, total } = await store.read(project, cfg.readBudgetTokens);
