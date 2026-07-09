@@ -37,7 +37,7 @@ test("fail-open: unparseable stdin emits the no-op and exits 0", () => {
 
 test("raw client on a fresh turn emits the review text verbatim (no JSON)", () => {
   const out = runStopHook("raw", "{}");
-  assert.match(out, /MemoryLayer end-of-turn review/);
+  assert.match(out, /Wayform end-of-turn review/);
   assert.doesNotMatch(out, /hookSpecificOutput/);
 });
 
