@@ -1,6 +1,26 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { buildHookEnv, ensureGitignore } from "../dist/init-env.js";
+import {
+  buildHookEnv,
+  buildRemoteHookEnv,
+  ensureGitignore,
+} from "../dist/init-env.js";
+
+test("buildRemoteHookEnv writes gateway vars and omits CONTEXT_REPO_URL", () => {
+  const out = buildRemoteHookEnv({
+    gatewayUrl: "https://gw.example.com",
+    token: "mlk_x",
+    project: "acme-eng",
+    author: "Dana Lee",
+    email: "dana@acme.com",
+  });
+  assert.match(out, /MEMORYLAYER_GATEWAY_URL=https:\/\/gw\.example\.com/);
+  assert.match(out, /MEMORYLAYER_GATEWAY_TOKEN=mlk_x/);
+  assert.match(out, /MEMORYLAYER_PROJECT=acme-eng/);
+  assert.match(out, /MEMORYLAYER_AUTHOR=Dana Lee/);
+  assert.match(out, /MEMORYLAYER_AUTHOR_EMAIL=dana@acme.com/);
+  assert.ok(!/CONTEXT_REPO_URL/.test(out), "hosted-only: no local clone URL");
+});
 
 test("buildHookEnv emits all four keys", () => {
   const out = buildHookEnv({
