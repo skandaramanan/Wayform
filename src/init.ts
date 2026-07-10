@@ -64,6 +64,13 @@ function writeJson(cwd: string, rel: string, data: unknown): void {
   console.log(`  wrote ${rel}`);
 }
 
+function writeText(cwd: string, rel: string, text: string): void {
+  const file = path.join(cwd, rel);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, text);
+  console.log(`  wrote ${rel}`);
+}
+
 export async function runInit(args: string[]): Promise<void> {
   if (has(args, "help")) {
     output.write(USAGE);
@@ -100,7 +107,7 @@ export async function runInit(args: string[]): Promise<void> {
     mergeCodexHooks(readJson(path.join(cwd, ".codex/hooks.json"))),
   );
 
-  // --- Project tier: MCP registration (Claude Code + Cursor; Codex is manual) ---
+  // --- Project tier: MCP registration (Claude Code + Cursor + Codex) ---
   writeJson(
     cwd,
     ".mcp.json",
@@ -111,6 +118,7 @@ export async function runInit(args: string[]): Promise<void> {
     ".cursor/mcp.json",
     mergeMcpJson(readJson(path.join(cwd, ".cursor/mcp.json"))),
   );
+  writeText(cwd, ".codex/config.toml", CODEX_MCP_TOML);
 
   // --- User tier: identity env file ---
   const envFile = path.join(cwd, ".memorylayer-hook.env");
@@ -166,21 +174,20 @@ export async function runInit(args: string[]): Promise<void> {
     ensureGitignore(gi, [
       ".memorylayer-hook.env",
       ".claude/settings.local.json",
+      ".codex/config.toml",
     ]),
   );
   console.log("  updated .gitignore");
 
-  // --- Codex MCP: manual step (global config.toml, no TOML dependency) ---
   console.log("\nNext steps:");
   console.log("  1. Commit the project configs so teammates inherit them:");
   console.log(
-    "       git add .claude .cursor .codex .mcp.json .gitignore && git commit -m 'chore: wire Wayform'",
+    "       git add .claude .cursor .codex/hooks.json .mcp.json .gitignore && git commit -m 'chore: wire Wayform'",
   );
   console.log(
-    "  2. Each teammate runs `wayform init` to set their own identity.",
+    "  2. Each teammate runs `wayform init` to set their own identity and",
   );
   console.log(
-    "  3. Codex users: add this to ~/.codex/config.toml (MCP tools):\n",
+    "     regenerate the gitignored .codex/config.toml (project-scoped MCP).",
   );
-  console.log(CODEX_MCP_TOML);
 }

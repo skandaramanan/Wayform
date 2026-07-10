@@ -72,7 +72,12 @@ export function mergeMcpJson(existing) {
     root.mcpServers = servers;
     return root;
 }
-/** Manual paste block for Codex MCP (global ~/.codex/config.toml). */
+/**
+ * Project-scoped Codex MCP block for the LOCAL (self-hosted clone) tier, written
+ * to `.codex/config.toml`. Secret-free stdio server: `command = "memorylayer"`
+ * self-loads `.memorylayer-hook.env` at runtime. Codex applies project config
+ * for trusted repos, so this needs no global paste.
+ */
 export const CODEX_MCP_TOML = `[mcp_servers.memorylayer]
 command = "memorylayer"
 args = []
@@ -93,14 +98,18 @@ export function mergeCursorRemoteMcp(existing, gatewayUrl, token) {
     return root;
 }
 /**
- * Manual paste block for Codex MCP (global `~/.codex/config.toml`). Codex has no
- * project-scoped MCP (platform limitation), so the hosted member pastes this;
- * the `mcp-remote` bridge adapts the stdio-only client to the HTTP gateway.
+ * Project-scoped Codex MCP block for a HOSTED (gateway) member, written to
+ * `.codex/config.toml`. Codex 0.144+ speaks native streamable-HTTP and applies
+ * project config for trusted repos, so no global paste and no `mcp-remote`
+ * bridge are needed. Codex's HTTP transport has no inline-token field — the
+ * bearer is read at launch from `tokenEnvVar` — so this file carries NO secret
+ * (the token lives only in the gitignored `.memorylayer-hook.env` / the shell
+ * env). Export it before `codex`, e.g. `set -a; source .memorylayer-hook.env; set +a`.
  */
-export function codexRemoteMcpToml(gatewayUrl, token) {
+export function codexRemoteConfigToml(gatewayUrl, tokenEnvVar = "MEMORYLAYER_GATEWAY_TOKEN") {
     return `[mcp_servers.wayform]
-command = "npx"
-args = ["-y", "mcp-remote", "${gatewayUrl}/mcp", "--header", "Authorization: Bearer ${token}"]
+url = "${gatewayUrl}/mcp"
+bearer_token_env_var = "${tokenEnvVar}"
 `;
 }
 //# sourceMappingURL=init-configs.js.map
