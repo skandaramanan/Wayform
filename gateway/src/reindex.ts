@@ -28,6 +28,7 @@ export async function handleAdminReindex(
     project?: string;
     offset?: number;
     limit?: number;
+    clearSupersession?: boolean;
   };
   try {
     body = (await req.json()) as typeof body;
@@ -43,6 +44,9 @@ export async function handleAdminReindex(
   let pagination:
     Record<string, { total: number; nextOffset: number | null }> | undefined;
   for (const sr of repos) {
+    if (body.clearSupersession) {
+      await deps.db.clearAllSupersession(sr.space);
+    }
     const result = await reindexSpace(
       env,
       deps.db,

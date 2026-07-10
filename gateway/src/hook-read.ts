@@ -59,7 +59,36 @@ export async function handleHookRead(
     const deps = indexDeps(env);
     if (deps) {
       const docs = await deps.db.listDocs(member.space, slug(project));
-      const briefing = renderBriefing(project, docs, budget, new Date());
+      const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
+      let conflicts: { oldFactId: string; oldBody: string; reason: string }[] =
+        [];
+      try {
+        const logs = await deps.db.recentConflictLogs(
+          member.space,
+          slug(project),
+          since,
+          10,
+        );
+        for (const log of logs) {
+          const old =
+            (await deps.db.getDoc(member.space, log.oldFactId)) ??
+            ({ body: log.oldFactId } as { body: string });
+          conflicts.push({
+            oldFactId: log.oldFactId,
+            oldBody: old.body,
+            reason: log.reason,
+          });
+        }
+      } catch {
+        // fail-open
+      }
+      const briefing = renderBriefing(
+        project,
+        docs,
+        budget,
+        new Date(),
+        conflicts,
+      );
       if (briefing) text = preamble + briefing;
     }
   } catch {

@@ -36,10 +36,23 @@ export interface RetrievalLogEntry {
   ts: string;
 }
 
+export interface SupersessionLogEntry {
+  space: string;
+  project: string;
+  newFactId: string;
+  oldFactId: string;
+  verdict: string;
+  autoLinked: boolean;
+  reason: string;
+  ts: string;
+}
+
 export interface IndexDb {
   upsertDocs(docs: IndexedDoc[]): Promise<void>;
   /** Live (unsuperseded) docs; project omitted = whole space. */
   listDocs(space: string, project?: string): Promise<IndexedDoc[]>;
+  /** Fetch one doc by id regardless of superseded_by (briefing / audit). */
+  getDoc(space: string, id: string): Promise<IndexedDoc | null>;
   getLastIndexedSha(space: string): Promise<string | null>;
   setLastIndexedSha(space: string, sha: string): Promise<void>;
   deleteSpace(space: string): Promise<void>;
@@ -51,12 +64,58 @@ export interface IndexDb {
     sourceId: string,
     docs: IndexedDoc[],
   ): Promise<void>;
+  markSuperseded(
+    space: string,
+    oldFactId: string,
+    newFactId: string,
+  ): Promise<void>;
+  clearSupersessionPointersTo(
+    space: string,
+    deletedIds: string[],
+  ): Promise<void>;
+  idsBySource(space: string, sourceId: string): Promise<string[]>;
+  logSupersession(entry: SupersessionLogEntry): Promise<void>;
+  recentConflictLogs(
+    space: string,
+    project: string,
+    sinceIso: string,
+    limit?: number,
+  ): Promise<SupersessionLogEntry[]>;
+  clearAllSupersession(space: string): Promise<number>;
+  listSupersessionAudit(
+    space: string,
+    limit: number,
+    autoLinkedOnly: boolean,
+  ): Promise<SupersessionLogEntry[]>;
+}
+
+function rowToDoc(
+  r: Record<string, unknown>,
+  entities: string[] = [],
+): IndexedDoc {
+  return {
+    id: r.id as string,
+    space: r.space as string,
+    project: r.project as string,
+    kind: r.kind as string,
+    tier: r.tier as string,
+    body: r.body as string,
+    sourceFile: r.source_file as string,
+    sourceAuthor: r.source_author as string,
+    sourceTs: r.source_ts as string,
+    embedding: decodeEmbedding(r.embedding as ArrayBuffer | null),
+    supersededBy: (r.superseded_by as string | null) ?? null,
+    createdAt: r.created_at as string,
+    sourceId: (r.source_id as string | null) ?? "",
+    entities,
+  };
 }
 
 export class MemoryIndexDb implements IndexDb {
   private docs = new Map<string, IndexedDoc>();
   private shas = new Map<string, string>();
   readonly logged: RetrievalLogEntry[] = [];
+  readonly supersessionLogged: SupersessionLogEntry[] = [];
 
   async upsertDocs(docs: IndexedDoc[]): Promise<void> {
     for (const d of docs) this.docs.set(`${d.space} ${d.id}`, d);
@@ -68,6 +127,9 @@ export class MemoryIndexDb implements IndexDb {
         d.supersededBy === null &&
         (project === undefined || d.project === project),
     );
+  }
+  async getDoc(space: string, id: string): Promise<IndexedDoc | null> {
+    return this.docs.get(`${space} ${id}`) ?? null;
   }
   async getLastIndexedSha(space: string): Promise<string | null> {
     return this.shas.get(space) ?? null;
@@ -89,10 +151,80 @@ export class MemoryIndexDb implements IndexDb {
     sourceId: string,
     docs: IndexedDoc[],
   ): Promise<void> {
+    const deleting = await this.idsBySource(space, sourceId);
+    await this.clearSupersessionPointersTo(space, deleting);
     for (const [key, d] of this.docs) {
       if (d.space === space && d.sourceId === sourceId) this.docs.delete(key);
     }
     for (const d of docs) this.docs.set(`${d.space} ${d.id}`, d);
+  }
+  async markSuperseded(
+    space: string,
+    oldFactId: string,
+    newFactId: string,
+  ): Promise<void> {
+    const d = this.docs.get(`${space} ${oldFactId}`);
+    if (d) d.supersededBy = newFactId;
+  }
+  async clearSupersessionPointersTo(
+    space: string,
+    deletedIds: string[],
+  ): Promise<void> {
+    if (deletedIds.length === 0) return;
+    const gone = new Set(deletedIds);
+    for (const d of this.docs.values()) {
+      if (d.space === space && d.supersededBy && gone.has(d.supersededBy)) {
+        d.supersededBy = null;
+      }
+    }
+  }
+  async idsBySource(space: string, sourceId: string): Promise<string[]> {
+    return [...this.docs.values()]
+      .filter((d) => d.space === space && d.sourceId === sourceId)
+      .map((d) => d.id);
+  }
+  async logSupersession(entry: SupersessionLogEntry): Promise<void> {
+    this.supersessionLogged.push(entry);
+  }
+  async recentConflictLogs(
+    space: string,
+    project: string,
+    sinceIso: string,
+    limit = 10,
+  ): Promise<SupersessionLogEntry[]> {
+    const since = Date.parse(sinceIso);
+    const seen = new Set<string>();
+    const out: SupersessionLogEntry[] = [];
+    for (const e of [...this.supersessionLogged].reverse()) {
+      if (e.space !== space || e.project !== project) continue;
+      if (e.verdict !== "contradicts" && e.verdict !== "uncertain") continue;
+      if (Date.parse(e.ts) < since) continue;
+      if (seen.has(e.oldFactId)) continue;
+      seen.add(e.oldFactId);
+      out.push(e);
+      if (out.length >= limit) break;
+    }
+    return out;
+  }
+  async clearAllSupersession(space: string): Promise<number> {
+    let n = 0;
+    for (const d of this.docs.values()) {
+      if (d.space === space && d.supersededBy) {
+        d.supersededBy = null;
+        n++;
+      }
+    }
+    return n;
+  }
+  async listSupersessionAudit(
+    space: string,
+    limit: number,
+    autoLinkedOnly: boolean,
+  ): Promise<SupersessionLogEntry[]> {
+    return [...this.supersessionLogged]
+      .filter((e) => e.space === space && (!autoLinkedOnly || e.autoLinked))
+      .slice(-limit)
+      .reverse();
   }
 }
 
@@ -168,22 +300,24 @@ export function d1IndexDb(db: D1Like): IndexDb {
         list.push(r.entity as string);
         tags.set(id, list);
       }
-      return results.map((r) => ({
-        id: r.id as string,
-        space: r.space as string,
-        project: r.project as string,
-        kind: r.kind as string,
-        tier: r.tier as string,
-        body: r.body as string,
-        sourceFile: r.source_file as string,
-        sourceAuthor: r.source_author as string,
-        sourceTs: r.source_ts as string,
-        embedding: decodeEmbedding(r.embedding as ArrayBuffer | null),
-        supersededBy: (r.superseded_by as string | null) ?? null,
-        createdAt: r.created_at as string,
-        sourceId: (r.source_id as string | null) ?? "",
-        entities: tags.get(r.id as string) ?? [],
-      }));
+      return results.map((r) => rowToDoc(r, tags.get(r.id as string) ?? []));
+    },
+    async getDoc(space, id) {
+      const row = await db
+        .prepare("SELECT * FROM docs WHERE space = ? AND id = ?")
+        .bind(space, id)
+        .first();
+      if (!row) return null;
+      const { results: tagRows } = await db
+        .prepare(
+          "SELECT entity FROM fact_entities WHERE space = ? AND fact_id = ?",
+        )
+        .bind(space, id)
+        .all();
+      return rowToDoc(
+        row,
+        tagRows.map((r) => r.entity as string),
+      );
     },
     async getLastIndexedSha(space) {
       const row = await db
@@ -224,10 +358,23 @@ export function d1IndexDb(db: D1Like): IndexDb {
         .run();
     },
     async replaceBySource(space, sourceId, docs) {
-      // Order matters: batch statements run sequentially, and the tag delete
-      // reads docs by source_id — so it MUST precede the docs delete or its
-      // subquery finds nothing and orphans the fact_entities rows.
-      const stmts = [
+      const { results: existing } = await db
+        .prepare("SELECT id FROM docs WHERE space = ? AND source_id = ?")
+        .bind(space, sourceId)
+        .all();
+      const deleting = existing.map((r) => r.id as string);
+      const stmts: D1Stmt[] = [];
+      if (deleting.length > 0) {
+        const placeholders = deleting.map(() => "?").join(", ");
+        stmts.push(
+          db
+            .prepare(
+              `UPDATE docs SET superseded_by = NULL WHERE space = ? AND superseded_by IN (${placeholders})`,
+            )
+            .bind(space, ...deleting),
+        );
+      }
+      stmts.push(
         db
           .prepare(
             "DELETE FROM fact_entities WHERE space = ? AND fact_id IN " +
@@ -237,7 +384,7 @@ export function d1IndexDb(db: D1Like): IndexDb {
         db
           .prepare("DELETE FROM docs WHERE space = ? AND source_id = ?")
           .bind(space, sourceId),
-      ];
+      );
       for (const d of docs) {
         stmts.push(db.prepare(UPSERT_SQL).bind(...docBinds(d)));
         for (const e of d.entities) {
@@ -251,6 +398,108 @@ export function d1IndexDb(db: D1Like): IndexDb {
         }
       }
       await db.batch(stmts);
+    },
+    async markSuperseded(space, oldFactId, newFactId) {
+      await db
+        .prepare("UPDATE docs SET superseded_by = ? WHERE space = ? AND id = ?")
+        .bind(newFactId, space, oldFactId)
+        .run();
+    },
+    async clearSupersessionPointersTo(space, deletedIds) {
+      if (deletedIds.length === 0) return;
+      const placeholders = deletedIds.map(() => "?").join(", ");
+      await db
+        .prepare(
+          `UPDATE docs SET superseded_by = NULL WHERE space = ? AND superseded_by IN (${placeholders})`,
+        )
+        .bind(space, ...deletedIds)
+        .run();
+    },
+    async idsBySource(space, sourceId) {
+      const { results } = await db
+        .prepare("SELECT id FROM docs WHERE space = ? AND source_id = ?")
+        .bind(space, sourceId)
+        .all();
+      return results.map((r) => r.id as string);
+    },
+    async logSupersession(entry) {
+      await db
+        .prepare(
+          "INSERT INTO supersession_log (space, project, new_fact_id, old_fact_id, verdict, auto_linked, reason, ts) " +
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(
+          entry.space,
+          entry.project,
+          entry.newFactId,
+          entry.oldFactId,
+          entry.verdict,
+          entry.autoLinked ? 1 : 0,
+          entry.reason,
+          entry.ts,
+        )
+        .run();
+    },
+    async recentConflictLogs(space, project, sinceIso, limit = 10) {
+      const { results } = await db
+        .prepare(
+          "SELECT * FROM supersession_log WHERE space = ? AND project = ? " +
+            "AND verdict IN ('contradicts', 'uncertain') AND ts >= ? " +
+            "ORDER BY ts DESC LIMIT ?",
+        )
+        .bind(space, project, sinceIso, limit * 3)
+        .all();
+      const seen = new Set<string>();
+      const out: SupersessionLogEntry[] = [];
+      for (const r of results) {
+        const oldId = r.old_fact_id as string;
+        if (seen.has(oldId)) continue;
+        seen.add(oldId);
+        out.push({
+          space: r.space as string,
+          project: r.project as string,
+          newFactId: r.new_fact_id as string,
+          oldFactId: oldId,
+          verdict: r.verdict as string,
+          autoLinked: (r.auto_linked as number) === 1,
+          reason: (r.reason as string) ?? "",
+          ts: r.ts as string,
+        });
+        if (out.length >= limit) break;
+      }
+      return out;
+    },
+    async clearAllSupersession(space) {
+      const row = await db
+        .prepare(
+          "SELECT COUNT(*) AS n FROM docs WHERE space = ? AND superseded_by IS NOT NULL",
+        )
+        .bind(space)
+        .first();
+      const n = (row?.n as number) ?? 0;
+      await db
+        .prepare(
+          "UPDATE docs SET superseded_by = NULL WHERE space = ? AND superseded_by IS NOT NULL",
+        )
+        .bind(space)
+        .run();
+      return n;
+    },
+    async listSupersessionAudit(space, limit, autoLinkedOnly) {
+      const sql = autoLinkedOnly
+        ? "SELECT * FROM supersession_log WHERE space = ? AND auto_linked = 1 ORDER BY ts DESC LIMIT ?"
+        : "SELECT * FROM supersession_log WHERE space = ? ORDER BY ts DESC LIMIT ?";
+      const { results } = await db.prepare(sql).bind(space, limit).all();
+      return results.map((r) => ({
+        space: r.space as string,
+        project: r.project as string,
+        newFactId: r.new_fact_id as string,
+        oldFactId: r.old_fact_id as string,
+        verdict: r.verdict as string,
+        autoLinked: (r.auto_linked as number) === 1,
+        reason: (r.reason as string) ?? "",
+        ts: r.ts as string,
+      }));
     },
   };
 }

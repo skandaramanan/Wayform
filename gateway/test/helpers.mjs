@@ -79,6 +79,16 @@ export function fakeGenText(script = {}) {
   };
 }
 
+/** Returns canned judge JSON when the prompt contains a marker substring. */
+export function fakeJudge(script = {}) {
+  return async (prompt) => {
+    for (const [marker, json] of Object.entries(script)) {
+      if (prompt.includes(marker)) return json;
+    }
+    return '{"verdict":"relates","reason":"default"}';
+  };
+}
+
 /** Mock fetch: records calls, answers by first matching URL substring. */
 export function ghFetch(calls, routes) {
   return async (url, init = {}) => {
