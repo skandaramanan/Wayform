@@ -176,6 +176,11 @@ export async function handleMcp(
         protocolVersion: PROTOCOL_VERSION,
         capabilities: { tools: {} },
         serverInfo: { name: "memorylayer", version: "0.1.0" },
+        instructions:
+          `This server holds shared planning memory (decisions and durable context) for the space "${member.space}". ` +
+          `Call read_context at the start of a planning turn with project set to the name of the project/repo you are working in (default to "${member.space}" if unsure) so you see decisions your collaborators already recorded. ` +
+          `Call search_memory before contradicting or re-deciding anything that might already be settled. ` +
+          `Call write_context only for a DELIBERATE decision ("we decided X because Y") or durable background — not every reasoning step.`,
       });
     case "notifications/initialized":
       return new Response(null, { status: 202 });
