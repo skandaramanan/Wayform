@@ -15,8 +15,14 @@ import {
 test("adjustScores demotes a net-negative fact below an identical clean one", () => {
   const now = new Date("2026-07-10T00:00:00Z");
   const docsById = new Map([
-    ["f1", { kind: "decision", sourceTs: "2026-07-01T00:00:00Z", tier: "normal" }],
-    ["f2", { kind: "decision", sourceTs: "2026-07-01T00:00:00Z", tier: "normal" }],
+    [
+      "f1",
+      { kind: "decision", sourceTs: "2026-07-01T00:00:00Z", tier: "normal" },
+    ],
+    [
+      "f2",
+      { kind: "decision", sourceTs: "2026-07-01T00:00:00Z", tier: "normal" },
+    ],
   ]);
   const fused = new Map([
     ["f1", 0.02],
@@ -27,14 +33,27 @@ test("adjustScores demotes a net-negative fact below an identical clean one", ()
   const s1 = scored.find((s) => s.id === "f1").score;
   const s2 = scored.find((s) => s.id === "f2").score;
   assert.ok(s1 < s2, "flagged fact ranks below the clean one");
-  assert.ok(Math.abs(s1 - s2 * FEEDBACK_PENALTY ** 2) < 1e-9, "penalty is FEEDBACK_PENALTY**net");
+  assert.ok(
+    Math.abs(s1 - s2 * FEEDBACK_PENALTY ** 2) < 1e-9,
+    "penalty is FEEDBACK_PENALTY**net",
+  );
 });
 
 test("adjustScores with no penalties map is a no-op", () => {
   const now = new Date("2026-07-10T00:00:00Z");
-  const docsById = new Map([["f1", { kind: "decision", sourceTs: "2026-07-01T00:00:00Z", tier: "normal" }]]);
+  const docsById = new Map([
+    [
+      "f1",
+      { kind: "decision", sourceTs: "2026-07-01T00:00:00Z", tier: "normal" },
+    ],
+  ]);
   const withOut = adjustScores(new Map([["f1", 0.02]]), docsById, now);
-  const withEmpty = adjustScores(new Map([["f1", 0.02]]), docsById, now, new Map());
+  const withEmpty = adjustScores(
+    new Map([["f1", 0.02]]),
+    docsById,
+    now,
+    new Map(),
+  );
   assert.equal(withOut[0].score, withEmpty[0].score);
 });
 

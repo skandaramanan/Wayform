@@ -214,7 +214,9 @@ test("detectWriteConflicts fails open to hits-so-far when the judge exceeds time
 test("detectWriteConflicts passes the real entry kind to the judge", async () => {
   const db = new MemoryIndexDb();
   const [emb] = await fakeEmbed(["MCP is project-scoped"]);
-  await db.upsertDocs([liveDoc("o1", "MCP is project-scoped", ["cursor"], emb)]);
+  await db.upsertDocs([
+    liveDoc("o1", "MCP is project-scoped", ["cursor"], emb),
+  ]);
   const embed = async () => [emb];
   let seenPrompt = "";
   const gen = async (p) => {

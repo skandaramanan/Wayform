@@ -144,7 +144,8 @@ const TOOLS = [
       properties: {
         fact_id: {
           type: "string",
-          description: "The id of the fact to rate, as shown in search results.",
+          description:
+            "The id of the fact to rate, as shown in search results.",
         },
         verdict: {
           type: "string",

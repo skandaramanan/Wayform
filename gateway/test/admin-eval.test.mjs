@@ -13,8 +13,17 @@ test("POST /admin/golden-candidate records a candidate with the admin secret", a
   const res = await handleRequest(
     new Request("https://gw.test/admin/golden-candidate", {
       method: "POST",
-      headers: { "x-admin-secret": "test-admin-secret", "content-type": "application/json" },
-      body: JSON.stringify({ space: "s1", project: "memorylayer", query: "cursor scoping", expectedFactId: "cursor-fact", note: "live miss" }),
+      headers: {
+        "x-admin-secret": "test-admin-secret",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        space: "s1",
+        project: "memorylayer",
+        query: "cursor scoping",
+        expectedFactId: "cursor-fact",
+        note: "live miss",
+      }),
     }),
     env(db),
   );
@@ -38,13 +47,21 @@ test("POST /admin/golden-candidate is forbidden without the secret", async () =>
 test("GET /admin/retrieval-log returns rows since a timestamp", async () => {
   const db = new MemoryIndexDb();
   await db.logRetrieval({
-    space: "s1", project: "memorylayer", trigger: "hook_prompt", query: "q",
-    returned: [{ id: "f1", score: 0.03 }], injected: true, ts: "2026-07-10T00:00:00Z",
+    space: "s1",
+    project: "memorylayer",
+    trigger: "hook_prompt",
+    query: "q",
+    returned: [{ id: "f1", score: 0.03 }],
+    injected: true,
+    ts: "2026-07-10T00:00:00Z",
   });
   const res = await handleRequest(
-    new Request("https://gw.test/admin/retrieval-log?space=s1&since=2026-07-01T00:00:00Z", {
-      headers: { "x-admin-secret": "test-admin-secret" },
-    }),
+    new Request(
+      "https://gw.test/admin/retrieval-log?space=s1&since=2026-07-01T00:00:00Z",
+      {
+        headers: { "x-admin-secret": "test-admin-secret" },
+      },
+    ),
     env(db),
   );
   assert.equal(res.status, 200);

@@ -27,7 +27,10 @@ test("renderPromptInjection is silent on empty results", () => {
 
 test("renderPromptInjection frames hits as data, not a search", () => {
   const text = renderPromptInjection("memorylayer", [
-    { doc: doc("cursor-fact", "Cursor MCP config is project-scoped."), score: 0.05 },
+    {
+      doc: doc("cursor-fact", "Cursor MCP config is project-scoped."),
+      score: 0.05,
+    },
   ]);
   assert.match(text, /already-known context/);
   assert.match(text, /Cursor MCP config is project-scoped/);
@@ -65,7 +68,10 @@ async function setup(extra = {}) {
 function post(token, body) {
   return new Request("https://gw.test/hook/prompt", {
     method: "POST",
-    headers: { authorization: `Bearer ${token}`, "content-type": "application/json" },
+    headers: {
+      authorization: `Bearer ${token}`,
+      "content-type": "application/json",
+    },
     body: JSON.stringify(body),
   });
 }
@@ -78,7 +84,13 @@ async function seed(db, docs) {
 test("hook prompt returns the on-topic fact for a matching prompt (Cursor regression)", async () => {
   const db = new MemoryIndexDb();
   await seed(db, [
-    { ...doc("cursor-fact", "Cursor MCP config is project-scoped, not global — verified 2026-07-04."), space: "team-a" },
+    {
+      ...doc(
+        "cursor-fact",
+        "Cursor MCP config is project-scoped, not global — verified 2026-07-04.",
+      ),
+      space: "team-a",
+    },
     ...Array.from({ length: 20 }, (_, i) => ({
       ...doc(`f${i}`, `gateway auth hardening step ${i}`),
       space: "team-a",
@@ -87,7 +99,10 @@ test("hook prompt returns the on-topic fact for a matching prompt (Cursor regres
   ]);
   const { env, token } = await setup({ indexDb: db, embedder: fakeEmbed });
   const res = await handleRequest(
-    post(token, { project: "memorylayer", prompt: "how is cursor mcp config scoped?" }),
+    post(token, {
+      project: "memorylayer",
+      prompt: "how is cursor mcp config scoped?",
+    }),
     env,
   );
   assert.equal(res.status, 200);
@@ -96,7 +111,9 @@ test("hook prompt returns the on-topic fact for a matching prompt (Cursor regres
 
 test("hook prompt is silent (empty 200) when nothing clears tau", async () => {
   const db = new MemoryIndexDb();
-  await seed(db, [{ ...doc("d1", "we chose D1 for the index plane"), space: "team-a" }]);
+  await seed(db, [
+    { ...doc("d1", "we chose D1 for the index plane"), space: "team-a" },
+  ]);
   const { env, token } = await setup({ indexDb: db, embedder: null });
   const res = await handleRequest(
     post(token, { project: "memorylayer", prompt: "zzqx unrelated nonsense" }),
