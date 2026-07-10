@@ -190,16 +190,19 @@ test("admin installations: 400 when owner query param is missing", async () => {
 });
 
 test("admin installations: 200 with installationId on a single case-insensitive match", async () => {
-  const fetchImpl = ghFetch([], [
+  const fetchImpl = ghFetch(
+    [],
     [
-      "/app/installations?per_page=100",
-      () =>
-        Response.json([
-          { id: 111, account: { login: "OtherOrg" } },
-          { id: 222, account: { login: "Acme" } },
-        ]),
+      [
+        "/app/installations?per_page=100",
+        () =>
+          Response.json([
+            { id: 111, account: { login: "OtherOrg" } },
+            { id: 222, account: { login: "Acme" } },
+          ]),
+      ],
     ],
-  ]);
+  );
   const env = makeEnv(fetchImpl);
   const res = await listInstallations(env, "acme");
   assert.equal(res.status, 200);
@@ -207,28 +210,34 @@ test("admin installations: 200 with installationId on a single case-insensitive 
 });
 
 test("admin installations: 404 when no installation matches the owner", async () => {
-  const fetchImpl = ghFetch([], [
+  const fetchImpl = ghFetch(
+    [],
     [
-      "/app/installations?per_page=100",
-      () => Response.json([{ id: 111, account: { login: "OtherOrg" } }]),
+      [
+        "/app/installations?per_page=100",
+        () => Response.json([{ id: 111, account: { login: "OtherOrg" } }]),
+      ],
     ],
-  ]);
+  );
   const env = makeEnv(fetchImpl);
   const res = await listInstallations(env, "acme");
   assert.equal(res.status, 404);
 });
 
 test("admin installations: 409 with all matching IDs when the owner is ambiguous", async () => {
-  const fetchImpl = ghFetch([], [
+  const fetchImpl = ghFetch(
+    [],
     [
-      "/app/installations?per_page=100",
-      () =>
-        Response.json([
-          { id: 111, account: { login: "acme" } },
-          { id: 222, account: { login: "acme" } },
-        ]),
+      [
+        "/app/installations?per_page=100",
+        () =>
+          Response.json([
+            { id: 111, account: { login: "acme" } },
+            { id: 222, account: { login: "acme" } },
+          ]),
+      ],
     ],
-  ]);
+  );
   const env = makeEnv(fetchImpl);
   const res = await listInstallations(env, "acme");
   assert.equal(res.status, 409);
@@ -237,9 +246,15 @@ test("admin installations: 409 with all matching IDs when the owner is ambiguous
 });
 
 test("admin installations: 502 when GitHub's API call fails", async () => {
-  const fetchImpl = ghFetch([], [
-    ["/app/installations?per_page=100", () => new Response("nope", { status: 500 })],
-  ]);
+  const fetchImpl = ghFetch(
+    [],
+    [
+      [
+        "/app/installations?per_page=100",
+        () => new Response("nope", { status: 500 }),
+      ],
+    ],
+  );
   const env = makeEnv(fetchImpl);
   const res = await listInstallations(env, "acme");
   assert.equal(res.status, 502);

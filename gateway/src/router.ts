@@ -1,5 +1,8 @@
 import type { Env } from "./env.js";
-import { handleAdminAddMember, handleAdminListInstallations } from "./tenancy.js";
+import {
+  handleAdminAddMember,
+  handleAdminListInstallations,
+} from "./tenancy.js";
 import { handleMcp } from "./mcp.js";
 import { handleHookRead } from "./hook-read.js";
 import { handleWebhook } from "./webhook.js";
