@@ -74,21 +74,16 @@ test("parseSpaceCreateArgs falls back to WAYFORM_GITHUB_APP_SLUG env var", () =>
 test("parseSpaceCreateArgs throws when --space, --owner, or --repo is missing", () => {
   assert.throws(() => parseSpaceCreateArgs(["--owner", "acme", "--repo", "r"]));
   assert.throws(() => parseSpaceCreateArgs(["--space", "s", "--repo", "r"]));
-  assert.throws(() => parseSpaceCreateArgs(["--space", "s", "--owner", "acme"]));
+  assert.throws(() =>
+    parseSpaceCreateArgs(["--space", "s", "--owner", "acme"]),
+  );
 });
 
 test("parseSpaceCreateArgs throws when no app slug is available", () => {
   delete process.env.WAYFORM_GITHUB_APP_SLUG;
   assert.throws(
     () =>
-      parseSpaceCreateArgs([
-        "--space",
-        "s",
-        "--owner",
-        "acme",
-        "--repo",
-        "r",
-      ]),
+      parseSpaceCreateArgs(["--space", "s", "--owner", "acme", "--repo", "r"]),
     /app-slug/,
   );
 });
@@ -159,10 +154,17 @@ test("createRepoWithPat falls back to /user/repos when the org endpoint 404s", a
   const calls = [];
   const fetchImpl = async (url) => {
     calls.push(String(url));
-    if (String(url).includes("/orgs/")) return new Response("nope", { status: 404 });
+    if (String(url).includes("/orgs/"))
+      return new Response("nope", { status: 404 });
     return new Response("{}", { status: 201 });
   };
-  await createRepoWithPat("skanda", "personal-space", false, "pat_x", fetchImpl);
+  await createRepoWithPat(
+    "skanda",
+    "personal-space",
+    false,
+    "pat_x",
+    fetchImpl,
+  );
   assert.deepEqual(calls, [
     "https://api.github.com/orgs/skanda/repos",
     "https://api.github.com/user/repos",
@@ -372,7 +374,9 @@ test("runSpaceCreate: end-to-end happy path via gh, prints the handoff command",
     cmd: "gh",
     args: ["repo", "create", "acme/team-a-memory", "--private"],
   });
-  assert.ok(fetchCalls.some((u) => u.includes("/admin/installations?owner=acme")));
+  assert.ok(
+    fetchCalls.some((u) => u.includes("/admin/installations?owner=acme")),
+  );
   assert.ok(fetchCalls.some((u) => u.includes("/admin/members")));
   assert.ok(logs.some((l) => l.includes("mlk_handoff")));
   assert.ok(
@@ -412,7 +416,8 @@ test("runSpaceCreate: falls back to the PAT prompt when gh is unavailable", asyn
         promptForPat: async () => "pat_x",
         fetchImpl: async (url, init) => {
           fetchCalls.push(String(url));
-          if (String(url).includes("/orgs/")) return new Response("{}", { status: 201 });
+          if (String(url).includes("/orgs/"))
+            return new Response("{}", { status: 201 });
           if (String(url).includes("/admin/installations")) {
             return Response.json({ installationId: 42 });
           }
@@ -428,5 +433,9 @@ test("runSpaceCreate: falls back to the PAT prompt when gh is unavailable", asyn
   } finally {
     delete process.env.WAYFORM_ADMIN_SECRET;
   }
-  assert.ok(fetchCalls.some((u) => u.includes("https://api.github.com/orgs/acme/repos")));
+  assert.ok(
+    fetchCalls.some((u) =>
+      u.includes("https://api.github.com/orgs/acme/repos"),
+    ),
+  );
 });
