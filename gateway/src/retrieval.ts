@@ -136,6 +136,10 @@ export function renderSearchResults(
 }
 
 const BRIEFING_RECENT_DECISION_DAYS = 7;
+/** Cap the topic manifest so it stays near its ~100-token budget (§6) as the
+ *  corpus grows; the highest-frequency topics — the ones most worth matching a
+ *  task against — are kept, the tail is summarized as "+N more". */
+const MANIFEST_MAX_ENTITIES = 40;
 
 /**
  * The session-start briefing (§6): selective, not a dump. Canon facts (always,
@@ -163,13 +167,16 @@ export function renderBriefing(
   const manifest = new Map<string, number>();
   for (const d of docs)
     for (const e of d.entities) manifest.set(e, (manifest.get(e) ?? 0) + 1);
+  const ranked = [...manifest.entries()].sort((a, b) => b[1] - a[1]);
+  const overflow = ranked.length - MANIFEST_MAX_ENTITIES;
   const manifestLine =
     manifest.size > 0
       ? "memory covers: " +
-        [...manifest.entries()]
-          .sort((a, b) => b[1] - a[1])
+        ranked
+          .slice(0, MANIFEST_MAX_ENTITIES)
           .map(([e, n]) => `${e} (${n})`)
-          .join(", ")
+          .join(", ") +
+        (overflow > 0 ? `, +${overflow} more` : "")
       : "";
 
   const section = (title: string, items: IndexedDoc[]): string[] => {

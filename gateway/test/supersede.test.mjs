@@ -155,6 +155,78 @@ test("detectWriteConflicts surfaces contradicts", async () => {
   assert.equal(hits[0].verdict, "contradicts");
 });
 
+test("detectWriteConflicts judges at most SYNC_JUDGE_LIMIT candidates on the write path", async () => {
+  const db = new MemoryIndexDb();
+  const [emb] = await fakeEmbed(["MCP is project-scoped"]);
+  // Three live facts all sharing the topic and embedding — all clear the
+  // cosine floor, so without a cap all three would hit the LLM judge on the
+  // hot write path.
+  await db.upsertDocs([
+    liveDoc("o1", "MCP is project-scoped one", ["cursor"], emb),
+    liveDoc("o2", "MCP is project-scoped two", ["cursor"], emb),
+    liveDoc("o3", "MCP is project-scoped three", ["cursor"], emb),
+  ]);
+  const embed = async () => [emb];
+  let calls = 0;
+  const gen = async () => {
+    calls++;
+    return '{"verdict":"contradicts","reason":"conflict"}';
+  };
+  const hits = await detectWriteConflicts(
+    db,
+    embed,
+    gen,
+    "s1",
+    "memorylayer",
+    "MCP is global",
+  );
+  assert.equal(calls, 2, "judge called at most twice despite 3 candidates");
+  assert.equal(hits.length, 2);
+});
+
+test("detectWriteConflicts fails open to hits-so-far when the judge exceeds timeoutMs", async () => {
+  const db = new MemoryIndexDb();
+  const [emb] = await fakeEmbed(["MCP is project-scoped"]);
+  await db.upsertDocs([
+    liveDoc("o1", "MCP is project-scoped one", ["cursor"], emb),
+    liveDoc("o2", "MCP is project-scoped two", ["cursor"], emb),
+  ]);
+  const embed = async () => [emb];
+  const gen = async () => {
+    await new Promise((r) => setTimeout(r, 200));
+    return '{"verdict":"contradicts","reason":"slow"}';
+  };
+  const started = Date.now();
+  const hits = await detectWriteConflicts(
+    db,
+    embed,
+    gen,
+    "s1",
+    "memorylayer",
+    "MCP is global",
+    { timeoutMs: 20 },
+  );
+  const elapsed = Date.now() - started;
+  assert.ok(elapsed < 150, `returned before judges finished (${elapsed}ms)`);
+  assert.equal(hits.length, 0, "no judge completed within the deadline");
+});
+
+test("detectWriteConflicts passes the real entry kind to the judge", async () => {
+  const db = new MemoryIndexDb();
+  const [emb] = await fakeEmbed(["MCP is project-scoped"]);
+  await db.upsertDocs([liveDoc("o1", "MCP is project-scoped", ["cursor"], emb)]);
+  const embed = async () => [emb];
+  let seenPrompt = "";
+  const gen = async (p) => {
+    seenPrompt = p;
+    return '{"verdict":"relates","reason":"x"}';
+  };
+  await detectWriteConflicts(db, embed, gen, "s1", "memorylayer", "some note", {
+    kind: "context",
+  });
+  assert.match(seenPrompt, /NEW \(context\)/);
+});
+
 test("formatWriteResult appends conflict section", () => {
   const text = formatWriteResult(
     {
