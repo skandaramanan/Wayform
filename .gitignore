@@ -13,3 +13,6 @@ node_modules/
 docs/pilot-onboarding.local.md
 .cursor/mcp.json
 .cursor/settings.json
+
+# Codex project-scoped MCP config — regenerated per-member by `wayform init --remote`
+.codex/config.toml

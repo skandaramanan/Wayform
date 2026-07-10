@@ -1,9 +1,0 @@
-# Wayform MCP — project-scoped Codex config.
-# Native streamable-HTTP MCP. Carries NO secret: the bearer token is read at
-# launch from the MEMORYLAYER_GATEWAY_TOKEN environment variable (same var the
-# hook env file defines). Export it before running codex, e.g.:
-#   set -a; source .memorylayer-hook.env; set +a; codex
-# This file is gitignored — each member's `wayform init --remote` regenerates it.
-[mcp_servers.wayform]
-url = "https://memorylayer-gateway.memory-layer.workers.dev/mcp"
-bearer_token_env_var = "MEMORYLAYER_GATEWAY_TOKEN"
