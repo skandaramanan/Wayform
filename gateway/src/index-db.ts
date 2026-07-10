@@ -47,6 +47,15 @@ export interface SupersessionLogEntry {
   ts: string;
 }
 
+export interface FeedbackEntry {
+  space: string;
+  project: string;
+  factId: string;
+  member: string;
+  verdict: string; // "useful" | "wrong" | "stale"
+  ts: string;
+}
+
 export interface IndexDb {
   upsertDocs(docs: IndexedDoc[]): Promise<void>;
   /** Live (unsuperseded) docs; project omitted = whole space. */
@@ -57,6 +66,10 @@ export interface IndexDb {
   setLastIndexedSha(space: string, sha: string): Promise<void>;
   deleteSpace(space: string): Promise<void>;
   logRetrieval(rec: RetrievalLogEntry): Promise<void>;
+  recordFeedback(entry: FeedbackEntry): Promise<void>;
+  /** fact id → net-negative feedback count (wrong+stale minus useful), only
+   *  facts with net > 0. Keyed by space (fact ids are space-unique). */
+  feedbackPenalties(space: string): Promise<Map<string, number>>;
   /** Delete-then-insert every fact for one ledger entry, in one batch —
    *  idempotent under non-deterministic extraction (roadmap §3). */
   replaceBySource(
@@ -145,6 +158,23 @@ export class MemoryIndexDb implements IndexDb {
   }
   async logRetrieval(rec: RetrievalLogEntry): Promise<void> {
     this.logged.push(rec);
+  }
+  readonly feedbackLogged: FeedbackEntry[] = [];
+  async recordFeedback(entry: FeedbackEntry): Promise<void> {
+    this.feedbackLogged.push(entry);
+  }
+  async feedbackPenalties(space: string): Promise<Map<string, number>> {
+    const net = new Map<string, number>();
+    for (const f of this.feedbackLogged) {
+      if (f.space !== space) continue;
+      net.set(
+        f.factId,
+        (net.get(f.factId) ?? 0) + (f.verdict === "useful" ? -1 : 1),
+      );
+    }
+    const out = new Map<string, number>();
+    for (const [id, n] of net) if (n > 0) out.set(id, n);
+    return out;
   }
   async replaceBySource(
     space: string,
@@ -356,6 +386,34 @@ export function d1IndexDb(db: D1Like): IndexDb {
           rec.ts,
         )
         .run();
+    },
+    async recordFeedback(entry) {
+      await db
+        .prepare(
+          "INSERT INTO memory_feedback (space, project, fact_id, member, verdict, ts) " +
+            "VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(
+          entry.space,
+          entry.project,
+          entry.factId,
+          entry.member,
+          entry.verdict,
+          entry.ts,
+        )
+        .run();
+    },
+    async feedbackPenalties(space) {
+      const { results } = await db
+        .prepare(
+          "SELECT fact_id, SUM(CASE WHEN verdict = 'useful' THEN -1 ELSE 1 END) AS net " +
+            "FROM memory_feedback WHERE space = ? GROUP BY fact_id HAVING net > 0",
+        )
+        .bind(space)
+        .all();
+      const out = new Map<string, number>();
+      for (const r of results) out.set(r.fact_id as string, Number(r.net));
+      return out;
     },
     async replaceBySource(space, sourceId, docs) {
       const { results: existing } = await db

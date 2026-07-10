@@ -92,7 +92,12 @@ test("initialize and tools/list expose the stdio-identical contract", async () =
     env,
   );
   const names = (await list.json()).result.tools.map((t) => t.name).sort();
-  assert.deepEqual(names, ["read_context", "search_memory", "write_context"]);
+  assert.deepEqual(names, [
+    "memory_feedback",
+    "read_context",
+    "search_memory",
+    "write_context",
+  ]);
 });
 
 function docFor(space, project, id, body, embedding) {
@@ -537,4 +542,59 @@ test("unknown method -> -32601; parse error -> -32700; batch -> -32600", async (
     env,
   );
   assert.equal((await batch.json()).error.code, -32600);
+});
+
+test("memory_feedback records one row from the bearer identity", async () => {
+  const db = new MemoryIndexDb();
+  await db.upsertDocs([
+    { id: "f1", space: "team-a", project: "memorylayer", kind: "decision", tier: "normal",
+      body: "x", sourceFile: "f", sourceAuthor: "Ada", sourceTs: "2026-07-01T00:00:00Z",
+      embedding: [], supersededBy: null, createdAt: "2026-07-01T00:00:00Z", sourceId: "f1", entities: [] },
+  ]);
+  const { env, tokens } = await setup(TOKEN_ROUTES, { indexDb: db });
+  const res = await handleRequest(
+    rpc(tokens["team-a"], {
+      jsonrpc: "2.0", id: 1, method: "tools/call",
+      params: { name: "memory_feedback", arguments: { fact_id: "f1", verdict: "wrong" } },
+    }),
+    env,
+  );
+  const text = (await res.json()).result.content[0].text;
+  assert.match(text, /Recorded 'wrong'/);
+  assert.equal(db.feedbackLogged.length, 1);
+  assert.equal(db.feedbackLogged[0].factId, "f1");
+  assert.equal(db.feedbackLogged[0].member, "Ada");
+});
+
+test("memory_feedback rejects an unknown verdict", async () => {
+  const db = new MemoryIndexDb();
+  const { env, tokens } = await setup(TOKEN_ROUTES, { indexDb: db });
+  const res = await handleRequest(
+    rpc(tokens["team-a"], {
+      jsonrpc: "2.0", id: 1, method: "tools/call",
+      params: { name: "memory_feedback", arguments: { fact_id: "f1", verdict: "bogus" } },
+    }),
+    env,
+  );
+  const out = (await res.json()).result;
+  assert.equal(out.isError, true);
+  assert.match(out.content[0].text, /verdict must be one of/);
+});
+
+test("memory_feedback fails open on a write error", async () => {
+  const db = new MemoryIndexDb();
+  db.recordFeedback = async () => {
+    throw new Error("store down");
+  };
+  const { env, tokens } = await setup(TOKEN_ROUTES, { indexDb: db });
+  const res = await handleRequest(
+    rpc(tokens["team-a"], {
+      jsonrpc: "2.0", id: 1, method: "tools/call",
+      params: { name: "memory_feedback", arguments: { fact_id: "f1", verdict: "useful" } },
+    }),
+    env,
+  );
+  const out = (await res.json()).result;
+  assert.equal(out.isError, true);
+  assert.match(out.content[0].text, /couldn't record feedback/);
 });

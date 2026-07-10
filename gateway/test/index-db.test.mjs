@@ -7,6 +7,18 @@ import {
   d1IndexDb,
 } from "../dist/gateway/src/index-db.js";
 
+test("feedbackPenalties nets wrong+stale minus useful, floored above zero", async () => {
+  const db = new MemoryIndexDb();
+  const base = { space: "s1", project: "memorylayer", member: "Ada", ts: "2026-07-10T00:00:00Z" };
+  await db.recordFeedback({ ...base, factId: "f1", verdict: "wrong" });
+  await db.recordFeedback({ ...base, factId: "f1", verdict: "stale" });
+  await db.recordFeedback({ ...base, factId: "f1", verdict: "useful" }); // net = 2 - 1 = 1
+  await db.recordFeedback({ ...base, factId: "f2", verdict: "useful" }); // net = -1 → dropped
+  const pen = await db.feedbackPenalties("s1");
+  assert.equal(pen.get("f1"), 1);
+  assert.equal(pen.has("f2"), false);
+});
+
 function doc(overrides = {}) {
   return {
     id: "e1",

@@ -66,10 +66,17 @@ export async function retrieve(
   lists.push(entityRank(docs, opts.query));
 
   const byId = new Map(docs.map((d) => [d.id, d]));
+  let penalties = new Map<string, number>();
+  try {
+    penalties = await deps.db.feedbackPenalties(opts.space);
+  } catch {
+    // fail-open: feedback must never break retrieval
+  }
   const scored = adjustScores(
     rrfFuse(lists),
     byId,
     opts.now ?? new Date(),
+    penalties,
   ).filter((s) => s.score >= TAU);
 
   const results: Retrieved[] = [];
