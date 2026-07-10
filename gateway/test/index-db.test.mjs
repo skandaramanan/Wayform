@@ -19,6 +19,28 @@ test("feedbackPenalties nets wrong+stale minus useful, floored above zero", asyn
   assert.equal(pen.has("f2"), false);
 });
 
+test("recordGoldenCandidate and listRetrievalLog round-trip in MemoryIndexDb", async () => {
+  const db = new MemoryIndexDb();
+  await db.recordGoldenCandidate({
+    space: "s1", project: "memorylayer", query: "cursor scoping",
+    expectedFactId: "cursor-fact", note: "live miss", ts: "2026-07-10T00:00:00Z",
+  });
+  assert.equal(db.goldenCandidates.length, 1);
+  assert.equal(db.goldenCandidates[0].expectedFactId, "cursor-fact");
+
+  await db.logRetrieval({
+    space: "s1", project: "memorylayer", trigger: "hook_prompt", query: "q",
+    returned: [{ id: "f1", score: 0.03 }], injected: true, ts: "2026-07-10T00:00:00Z",
+  });
+  await db.logRetrieval({
+    space: "s1", project: "memorylayer", trigger: "hook_prompt", query: "old", returned: [],
+    injected: false, ts: "2026-07-01T00:00:00Z",
+  });
+  const rows = await db.listRetrievalLog("s1", "2026-07-05T00:00:00Z", 100);
+  assert.equal(rows.length, 1); // the 07-01 entry is before `since`
+  assert.equal(rows[0].query, "q");
+});
+
 function doc(overrides = {}) {
   return {
     id: "e1",

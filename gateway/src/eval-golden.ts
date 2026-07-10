@@ -38,3 +38,59 @@ export function recallAtK(
       : perCase.reduce((s, p) => s + p.recall, 0) / perCase.length;
   return { recall, perCase };
 }
+
+export interface Judged {
+  score: number;
+  relevant: boolean;
+}
+
+export interface TauRecommendation {
+  tau: number | null;
+  precision: number;
+  buckets: { lo: number; hi: number; n: number; relevant: number }[];
+}
+
+/**
+ * Sweep candidate thresholds ascending; return the lowest τ at which the facts
+ * scoring ≥ τ hit the precision target (keeps the most facts while meeting the
+ * bar). Recommend-only — a human edits the TAU constant. Buckets are for the
+ * printed report. `null` τ means no threshold reached the target.
+ */
+export function recommendTau(
+  judged: Judged[],
+  target = 0.9,
+  bucketWidth = 0.02,
+): TauRecommendation {
+  const thresholds = [...new Set(judged.map((j) => j.score))].sort(
+    (a, b) => a - b,
+  );
+  let tau: number | null = null;
+  let precision = 0;
+  for (const t of thresholds) {
+    const kept = judged.filter((j) => j.score >= t);
+    if (kept.length === 0) continue;
+    const p = kept.filter((j) => j.relevant).length / kept.length;
+    if (p >= target) {
+      tau = t;
+      precision = p;
+      break;
+    }
+  }
+  const buckets: TauRecommendation["buckets"] = [];
+  if (judged.length > 0) {
+    const max = Math.max(...judged.map((j) => j.score));
+    for (let lo = 0; lo <= max; lo += bucketWidth) {
+      const hi = lo + bucketWidth;
+      const inBucket = judged.filter((j) => j.score >= lo && j.score < hi);
+      if (inBucket.length > 0) {
+        buckets.push({
+          lo,
+          hi,
+          n: inBucket.length,
+          relevant: inBucket.filter((j) => j.relevant).length,
+        });
+      }
+    }
+  }
+  return { tau, precision, buckets };
+}

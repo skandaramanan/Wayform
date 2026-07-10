@@ -13,6 +13,10 @@ import {
   handleAdminSupersessionAudit,
 } from "./admin-supersession.js";
 import { handleApiRead } from "./api-read.js";
+import {
+  handleAdminGoldenCandidate,
+  handleAdminRetrievalLog,
+} from "./admin-eval.js";
 
 /**
  * Browser-based MCP clients (ChatGPT's custom connector, Claude.ai web, etc.)
@@ -80,6 +84,14 @@ async function route(
 
   if (url.pathname === "/admin/clear-supersession" && req.method === "POST") {
     return handleAdminClearSupersession(req, env);
+  }
+
+  if (url.pathname === "/admin/golden-candidate" && req.method === "POST") {
+    return handleAdminGoldenCandidate(req, env);
+  }
+
+  if (url.pathname === "/admin/retrieval-log" && req.method === "GET") {
+    return handleAdminRetrievalLog(req, env);
   }
 
   if (url.pathname === "/webhook/github" && req.method === "POST") {
