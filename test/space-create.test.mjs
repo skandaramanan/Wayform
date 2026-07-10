@@ -3,6 +3,9 @@ import assert from "node:assert/strict";
 import {
   parseSpaceCreateArgs,
   resolveAdminSecret,
+  ghAuthenticated,
+  createRepoWithGh,
+  createRepoWithPat,
 } from "../dist/space-create.js";
 
 test("parseSpaceCreateArgs reads required flags and defaults isPublic to false", () => {
@@ -98,4 +101,78 @@ test("resolveAdminSecret reads WAYFORM_ADMIN_SECRET, throws when unset", () => {
     if (prev === undefined) delete process.env.WAYFORM_ADMIN_SECRET;
     else process.env.WAYFORM_ADMIN_SECRET = prev;
   }
+});
+
+test("ghAuthenticated returns true when `gh auth status` succeeds", () => {
+  assert.equal(
+    ghAuthenticated(() => {}),
+    true,
+  );
+});
+
+test("ghAuthenticated returns false when the run throws (gh absent or unauthenticated)", () => {
+  assert.equal(
+    ghAuthenticated(() => {
+      throw new Error("spawn gh ENOENT");
+    }),
+    false,
+  );
+});
+
+test("createRepoWithGh shells out to `gh repo create` with --private by default", () => {
+  let seen;
+  createRepoWithGh("acme", "team-a-memory", false, (cmd, args) => {
+    seen = { cmd, args };
+  });
+  assert.equal(seen.cmd, "gh");
+  assert.deepEqual(seen.args, [
+    "repo",
+    "create",
+    "acme/team-a-memory",
+    "--private",
+  ]);
+});
+
+test("createRepoWithGh passes --public when isPublic is true", () => {
+  let seen;
+  createRepoWithGh("acme", "team-a-memory", true, (cmd, args) => {
+    seen = { cmd, args };
+  });
+  assert.deepEqual(seen.args.at(-1), "--public");
+});
+
+test("createRepoWithPat tries the org endpoint first and succeeds there", async () => {
+  const calls = [];
+  const fetchImpl = async (url, init) => {
+    calls.push(String(url));
+    assert.equal(init.headers.authorization, "Bearer pat_x");
+    return new Response("{}", { status: 201 });
+  };
+  await createRepoWithPat("acme", "team-a-memory", false, "pat_x", fetchImpl);
+  assert.deepEqual(calls, ["https://api.github.com/orgs/acme/repos"]);
+});
+
+test("createRepoWithPat falls back to /user/repos when the org endpoint 404s", async () => {
+  const calls = [];
+  const fetchImpl = async (url) => {
+    calls.push(String(url));
+    if (String(url).includes("/orgs/")) return new Response("nope", { status: 404 });
+    return new Response("{}", { status: 201 });
+  };
+  await createRepoWithPat("skanda", "personal-space", false, "pat_x", fetchImpl);
+  assert.deepEqual(calls, [
+    "https://api.github.com/orgs/skanda/repos",
+    "https://api.github.com/user/repos",
+  ]);
+});
+
+test("createRepoWithPat throws with GitHub's error body when both endpoints fail", async () => {
+  const fetchImpl = async (url) =>
+    String(url).includes("/orgs/")
+      ? new Response("nope", { status: 404 })
+      : new Response("already exists", { status: 422 });
+  await assert.rejects(
+    () => createRepoWithPat("acme", "team-a-memory", false, "pat_x", fetchImpl),
+    /422.*already exists/s,
+  );
 });
