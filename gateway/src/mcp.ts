@@ -131,6 +131,31 @@ const TOOLS = [
       required: ["query"],
     },
   },
+  {
+    name: "memory_feedback",
+    title: "Rate a retrieved memory fact",
+    description:
+      "Give feedback on a specific memory fact you retrieved: 'useful' if it " +
+      "helped, 'wrong' if it was incorrect, 'stale' if it's outdated. This " +
+      "gently lowers or restores how that fact ranks in future retrievals. " +
+      "Pass the fact id shown in search results.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fact_id: {
+          type: "string",
+          description:
+            "The id of the fact to rate, as shown in search results.",
+        },
+        verdict: {
+          type: "string",
+          enum: ["useful", "wrong", "stale"],
+          description: "'useful', 'wrong', or 'stale'.",
+        },
+      },
+      required: ["fact_id", "verdict"],
+    },
+  },
 ];
 
 /** Cache key for /hook/read's per-space projection cache (Task 7 reads it). */
@@ -378,6 +403,52 @@ async function toolsCall(
             ),
           ),
         );
+      }
+      case "memory_feedback": {
+        const factId =
+          typeof args.fact_id === "string" ? args.fact_id.trim() : "";
+        const verdict = args.verdict;
+        if (!factId)
+          return rpcResult(
+            msg.id,
+            toolText("missing required argument: fact_id", true),
+          );
+        if (verdict !== "useful" && verdict !== "wrong" && verdict !== "stale")
+          return rpcResult(
+            msg.id,
+            toolText("verdict must be one of: useful, wrong, stale", true),
+          );
+        const deps = indexDeps(env);
+        if (!deps)
+          return rpcResult(
+            msg.id,
+            toolText("memory feedback is not enabled on this gateway", true),
+          );
+        try {
+          const target = await deps.db.getDoc(member.space, factId);
+          await deps.db.recordFeedback({
+            space: member.space,
+            project: target?.project ?? "",
+            factId,
+            member: member.author,
+            verdict,
+            ts: new Date().toISOString(),
+          });
+          return rpcResult(
+            msg.id,
+            toolText(
+              `Recorded '${verdict}' feedback on ${factId}. This will adjust its future ranking.`,
+            ),
+          );
+        } catch {
+          return rpcResult(
+            msg.id,
+            toolText(
+              "couldn't record feedback right now (it was not saved)",
+              true,
+            ),
+          );
+        }
       }
       default:
         return rpcResult(

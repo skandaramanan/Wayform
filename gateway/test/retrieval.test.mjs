@@ -167,6 +167,77 @@ test("every retrieval is logged with trigger, query, scores, injected flag", asy
   assert.ok(db.logged[0].returned[0].score > 0);
 });
 
+test("retrieve applies feedback penalties and fails open when the map load throws", async () => {
+  const db = new MemoryIndexDb();
+  // "flagged" has more query-term content, so it out-ranks "clean" on the raw
+  // pipeline. Only the feedback penalty can push it below "clean".
+  await seed(db, [
+    doc("clean", "cursor mcp config scoping"),
+    doc("flagged", "cursor mcp config scoping cursor mcp config"),
+  ]);
+  const rawIds = (
+    await retrieve(
+      { db, embed: fakeEmbed },
+      {
+        space: "s1",
+        project: "memorylayer",
+        query: "cursor mcp config",
+        budgetTokens: 4000,
+        trigger: "test",
+      },
+    )
+  ).results.map((r) => r.doc.id);
+  assert.equal(
+    rawIds[0],
+    "flagged",
+    "precondition: flagged out-ranks clean without feedback",
+  );
+
+  // Flag "flagged" net-negative twice.
+  const fb = {
+    space: "s1",
+    project: "memorylayer",
+    member: "Ada",
+    ts: "2026-07-10T00:00:00Z",
+  };
+  await db.recordFeedback({ ...fb, factId: "flagged", verdict: "wrong" });
+  await db.recordFeedback({ ...fb, factId: "flagged", verdict: "wrong" });
+  const { results } = await retrieve(
+    { db, embed: fakeEmbed },
+    {
+      space: "s1",
+      project: "memorylayer",
+      query: "cursor mcp config",
+      budgetTokens: 4000,
+      trigger: "test",
+    },
+  );
+  const ids = results.map((r) => r.doc.id);
+  assert.ok(
+    ids.indexOf("clean") < ids.indexOf("flagged"),
+    "flagged fact demoted below clean",
+  );
+
+  // Fail-open: a throwing feedbackPenalties must not break retrieval.
+  db.feedbackPenalties = async () => {
+    throw new Error("penalty store down");
+  };
+  const { results: r2 } = await retrieve(
+    { db, embed: fakeEmbed },
+    {
+      space: "s1",
+      project: "memorylayer",
+      query: "cursor mcp config",
+      budgetTokens: 4000,
+      trigger: "test",
+    },
+  );
+  assert.ok(
+    r2.length >= 1,
+    "retrieval still returns results when penalties throw",
+  );
+});
+
 test("renderSearchResults groups by kind and carries provenance", () => {
   const results = [
     { doc: doc("d1", "we chose D1"), score: 0.03 },

@@ -6,7 +6,7 @@ import {
   mergeCodexHooks,
   mergeMcpJson,
   mergeCursorRemoteMcp,
-  codexRemoteMcpToml,
+  codexRemoteConfigToml,
   CODEX_MCP_TOML,
 } from "../dist/init-configs.js";
 
@@ -135,7 +135,7 @@ test("mergeMcpJson adds a secret-free memorylayer server, preserving others", ()
   });
 });
 
-test("CODEX_MCP_TOML is the manual mcp_servers block", () => {
+test("CODEX_MCP_TOML is the project-scoped local mcp_servers block", () => {
   assert.match(CODEX_MCP_TOML, /\[mcp_servers\.memorylayer\]/);
   assert.match(CODEX_MCP_TOML, /command = "memorylayer"/);
 });
@@ -195,10 +195,17 @@ test("mergeCursorRemoteMcp preserves unrelated servers and is idempotent", () =>
   });
 });
 
-test("codexRemoteMcpToml renders an mcp-remote bridge with the token", () => {
-  const toml = codexRemoteMcpToml("https://gw", "mlk_x");
+test("codexRemoteConfigToml renders a native HTTP server with an env-var token (no secret)", () => {
+  const toml = codexRemoteConfigToml("https://gw");
   assert.match(toml, /\[mcp_servers\.wayform\]/);
-  assert.match(toml, /mcp-remote/);
-  assert.match(toml, /https:\/\/gw\/mcp/);
-  assert.match(toml, /Authorization: Bearer mlk_x/);
+  assert.match(toml, /url = "https:\/\/gw\/mcp"/);
+  assert.match(toml, /bearer_token_env_var = "MEMORYLAYER_GATEWAY_TOKEN"/);
+  // The token itself must never appear in the project config file.
+  assert.doesNotMatch(toml, /mlk_/);
+  assert.doesNotMatch(toml, /mcp-remote/);
+});
+
+test("codexRemoteConfigToml honors a custom token env-var name", () => {
+  const toml = codexRemoteConfigToml("https://gw", "CUSTOM_TOKEN");
+  assert.match(toml, /bearer_token_env_var = "CUSTOM_TOKEN"/);
 });

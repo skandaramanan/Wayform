@@ -11,5 +11,10 @@ node_modules/
 # Agent authoring-workflow scaffolding (task briefs, reports, diffs) — not product; decisions live in the MemoryLayer store + docs/
 .superpowers/
 docs/pilot-onboarding.local.md
+docs/self-onboarding.local.md
+
 .cursor/mcp.json
 .cursor/settings.json
+
+# Codex project-scoped MCP config — regenerated per-member by `wayform init --remote`
+.codex/config.toml

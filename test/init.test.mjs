@@ -36,7 +36,7 @@ function runInit(dir) {
 test("init writes all three hook configs, both MCP files, env, and gitignore", () => {
   const dir = initRepo();
   try {
-    const out = runInit(dir);
+    runInit(dir);
     const read = (p) => fs.readFileSync(path.join(dir, p), "utf8");
 
     assert.match(read(".claude/settings.json"), /memorylayer hook claude-code/);
@@ -44,10 +44,11 @@ test("init writes all three hook configs, both MCP files, env, and gitignore", (
     assert.match(read(".codex/hooks.json"), /startup\|resume/);
     assert.match(read(".mcp.json"), /"memorylayer"/);
     assert.match(read(".cursor/mcp.json"), /"memorylayer"/);
+    // Codex MCP is now an auto-written, project-scoped, gitignored file.
+    assert.match(read(".codex/config.toml"), /\[mcp_servers\.memorylayer\]/);
     assert.match(read(".memorylayer-hook.env"), /MEMORYLAYER_AUTHOR=Ada/);
     assert.match(read(".gitignore"), /\.memorylayer-hook\.env/);
-    // Codex MCP is a printed manual step, not an auto-written file.
-    assert.match(out, /\[mcp_servers\.memorylayer\]/);
+    assert.match(read(".gitignore"), /\.codex\/config\.toml/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }

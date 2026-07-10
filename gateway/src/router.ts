@@ -5,6 +5,7 @@ import {
 } from "./tenancy.js";
 import { handleMcp } from "./mcp.js";
 import { handleHookRead } from "./hook-read.js";
+import { handleHookPrompt } from "./hook-prompt.js";
 import { handleWebhook } from "./webhook.js";
 import { handleAdminReindex } from "./reindex.js";
 import {
@@ -12,6 +13,10 @@ import {
   handleAdminSupersessionAudit,
 } from "./admin-supersession.js";
 import { handleApiRead } from "./api-read.js";
+import {
+  handleAdminGoldenCandidate,
+  handleAdminRetrievalLog,
+} from "./admin-eval.js";
 
 /**
  * Browser-based MCP clients (ChatGPT's custom connector, Claude.ai web, etc.)
@@ -81,6 +86,14 @@ async function route(
     return handleAdminClearSupersession(req, env);
   }
 
+  if (url.pathname === "/admin/golden-candidate" && req.method === "POST") {
+    return handleAdminGoldenCandidate(req, env);
+  }
+
+  if (url.pathname === "/admin/retrieval-log" && req.method === "GET") {
+    return handleAdminRetrievalLog(req, env);
+  }
+
   if (url.pathname === "/webhook/github" && req.method === "POST") {
     return handleWebhook(req, env, ctx);
   }
@@ -96,6 +109,10 @@ async function route(
 
   if (url.pathname === "/hook/read" && req.method === "GET") {
     return handleHookRead(req, env);
+  }
+
+  if (url.pathname === "/hook/prompt" && req.method === "POST") {
+    return handleHookPrompt(req, env);
   }
 
   if (url.pathname === "/api/read" && req.method === "GET") {

@@ -47,6 +47,24 @@ export interface SupersessionLogEntry {
   ts: string;
 }
 
+export interface FeedbackEntry {
+  space: string;
+  project: string;
+  factId: string;
+  member: string;
+  verdict: string; // "useful" | "wrong" | "stale"
+  ts: string;
+}
+
+export interface GoldenCandidate {
+  space: string;
+  project: string;
+  query: string;
+  expectedFactId: string;
+  note?: string;
+  ts: string;
+}
+
 export interface IndexDb {
   upsertDocs(docs: IndexedDoc[]): Promise<void>;
   /** Live (unsuperseded) docs; project omitted = whole space. */
@@ -57,6 +75,16 @@ export interface IndexDb {
   setLastIndexedSha(space: string, sha: string): Promise<void>;
   deleteSpace(space: string): Promise<void>;
   logRetrieval(rec: RetrievalLogEntry): Promise<void>;
+  recordFeedback(entry: FeedbackEntry): Promise<void>;
+  /** fact id → net-negative feedback count (wrong+stale minus useful), only
+   *  facts with net > 0. Keyed by space (fact ids are space-unique). */
+  feedbackPenalties(space: string): Promise<Map<string, number>>;
+  recordGoldenCandidate(entry: GoldenCandidate): Promise<void>;
+  listRetrievalLog(
+    space: string,
+    sinceIso: string,
+    limit: number,
+  ): Promise<RetrievalLogEntry[]>;
   /** Delete-then-insert every fact for one ledger entry, in one batch —
    *  idempotent under non-deterministic extraction (roadmap §3). */
   replaceBySource(
@@ -145,6 +173,38 @@ export class MemoryIndexDb implements IndexDb {
   }
   async logRetrieval(rec: RetrievalLogEntry): Promise<void> {
     this.logged.push(rec);
+  }
+  readonly feedbackLogged: FeedbackEntry[] = [];
+  async recordFeedback(entry: FeedbackEntry): Promise<void> {
+    this.feedbackLogged.push(entry);
+  }
+  async feedbackPenalties(space: string): Promise<Map<string, number>> {
+    const net = new Map<string, number>();
+    for (const f of this.feedbackLogged) {
+      if (f.space !== space) continue;
+      net.set(
+        f.factId,
+        (net.get(f.factId) ?? 0) + (f.verdict === "useful" ? -1 : 1),
+      );
+    }
+    const out = new Map<string, number>();
+    for (const [id, n] of net) if (n > 0) out.set(id, n);
+    return out;
+  }
+  readonly goldenCandidates: GoldenCandidate[] = [];
+  async recordGoldenCandidate(entry: GoldenCandidate): Promise<void> {
+    this.goldenCandidates.push(entry);
+  }
+  async listRetrievalLog(
+    space: string,
+    sinceIso: string,
+    limit: number,
+  ): Promise<RetrievalLogEntry[]> {
+    const since = Date.parse(sinceIso);
+    return this.logged
+      .filter((r) => r.space === space && Date.parse(r.ts) >= since)
+      .slice(-limit)
+      .reverse();
   }
   async replaceBySource(
     space: string,
@@ -356,6 +416,67 @@ export function d1IndexDb(db: D1Like): IndexDb {
           rec.ts,
         )
         .run();
+    },
+    async recordFeedback(entry) {
+      await db
+        .prepare(
+          "INSERT INTO memory_feedback (space, project, fact_id, member, verdict, ts) " +
+            "VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(
+          entry.space,
+          entry.project,
+          entry.factId,
+          entry.member,
+          entry.verdict,
+          entry.ts,
+        )
+        .run();
+    },
+    async feedbackPenalties(space) {
+      const { results } = await db
+        .prepare(
+          "SELECT fact_id, SUM(CASE WHEN verdict = 'useful' THEN -1 ELSE 1 END) AS net " +
+            "FROM memory_feedback WHERE space = ? GROUP BY fact_id HAVING net > 0",
+        )
+        .bind(space)
+        .all();
+      const out = new Map<string, number>();
+      for (const r of results) out.set(r.fact_id as string, Number(r.net));
+      return out;
+    },
+    async recordGoldenCandidate(entry) {
+      await db
+        .prepare(
+          "INSERT INTO golden_candidate (space, project, query, expected_fact_id, note, ts) " +
+            "VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(
+          entry.space,
+          entry.project,
+          entry.query,
+          entry.expectedFactId,
+          entry.note ?? "",
+          entry.ts,
+        )
+        .run();
+    },
+    async listRetrievalLog(space, sinceIso, limit) {
+      const { results } = await db
+        .prepare(
+          "SELECT * FROM retrieval_log WHERE space = ? AND ts >= ? ORDER BY ts DESC LIMIT ?",
+        )
+        .bind(space, sinceIso, limit)
+        .all();
+      return results.map((r) => ({
+        space: r.space as string,
+        project: r.project as string,
+        trigger: r.trigger_kind as string,
+        query: r.query as string,
+        returned: JSON.parse((r.returned as string) ?? "[]"),
+        injected: (r.injected as number) === 1,
+        ts: r.ts as string,
+      }));
     },
     async replaceBySource(space, sourceId, docs) {
       const { results: existing } = await db

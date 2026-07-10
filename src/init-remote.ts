@@ -15,7 +15,7 @@ import {
   mergeCursorHooks,
   mergeCodexHooks,
   mergeCursorRemoteMcp,
-  codexRemoteMcpToml,
+  codexRemoteConfigToml,
 } from "./init-configs.js";
 import {
   buildRemoteHookEnv,
@@ -91,6 +91,13 @@ function writeJson(cwd: string, rel: string, data: unknown): void {
   console.log(`  wrote ${rel}`);
 }
 
+function writeText(cwd: string, rel: string, text: string): void {
+  const file = path.join(cwd, rel);
+  fs.mkdirSync(path.dirname(file), { recursive: true });
+  fs.writeFileSync(file, text);
+  console.log(`  wrote ${rel}`);
+}
+
 export async function runInitRemote(args: string[]): Promise<void> {
   const cwd = process.cwd();
   if (!fs.existsSync(path.join(cwd, ".git"))) {
@@ -158,6 +165,9 @@ export async function runInitRemote(args: string[]): Promise<void> {
     ),
   );
 
+  // --- Codex native HTTP MCP (project-scoped; token read from env at launch) ---
+  writeText(cwd, ".codex/config.toml", codexRemoteConfigToml(gatewayUrl));
+
   // --- User tier: gitignored gateway env (hosted-only, no CONTEXT_REPO_URL) ---
   const envFile = path.join(cwd, ".memorylayer-hook.env");
   if (fs.existsSync(envFile) && !has(args, "force")) {
@@ -181,6 +191,7 @@ export async function runInitRemote(args: string[]): Promise<void> {
       ".memorylayer-hook.env",
       ".claude/settings.local.json",
       ".cursor/mcp.json",
+      ".codex/config.toml",
     ]),
   );
   console.log("  updated .gitignore");
@@ -196,18 +207,23 @@ export async function runInitRemote(args: string[]): Promise<void> {
     console.log(`    ${claude.command}\n`);
   }
 
+  console.log("  wrote .codex/config.toml (gitignored — token read from env)");
+
   console.log("\nNext steps:");
   console.log(
     "  1. Commit the project hook configs so teammates inherit them:",
   );
   console.log(
-    "       git add .claude .cursor/hooks.json .codex .gitignore && git commit -m 'chore: wire Wayform (remote)'",
+    "       git add .claude .cursor/hooks.json .codex/hooks.json .gitignore && git commit -m 'chore: wire Wayform (remote)'",
   );
   console.log(
-    "     (.cursor/mcp.json and .memorylayer-hook.env are gitignored — each member runs init --remote.)",
+    "     (.cursor/mcp.json, .codex/config.toml and .memorylayer-hook.env are gitignored — each member runs init --remote.)",
   );
   console.log(
-    "  2. Codex users: add this to ~/.codex/config.toml (MCP tools):\n",
+    "  2. Codex users: export the gateway token before launching, e.g.\n",
   );
-  console.log(codexRemoteMcpToml(gatewayUrl, token));
+  console.log("       set -a; source .memorylayer-hook.env; set +a; codex\n");
+  console.log(
+    "     (.codex/config.toml reads MEMORYLAYER_GATEWAY_TOKEN from the environment.)",
+  );
 }
