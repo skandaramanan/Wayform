@@ -130,3 +130,53 @@ export async function createRepoWithPat(
     throw new Error(`GitHub repo creation failed (${res.status}): ${detail}`);
   }
 }
+
+export interface PollOptions {
+  intervalMs: number;
+  timeoutMs: number;
+}
+
+const DEFAULT_POLL: PollOptions = { intervalMs: 3000, timeoutMs: 120_000 };
+const defaultSleep = (ms: number): Promise<void> =>
+  new Promise((resolve) => setTimeout(resolve, ms));
+
+export async function pollInstallation(
+  gatewayUrl: string,
+  adminSecret: string,
+  owner: string,
+  fetchImpl: typeof fetch = fetch,
+  opts: PollOptions = DEFAULT_POLL,
+  sleep: (ms: number) => Promise<void> = defaultSleep,
+): Promise<number> {
+  const deadline = Date.now() + opts.timeoutMs;
+  const url = `${gatewayUrl}/admin/installations?owner=${encodeURIComponent(owner)}`;
+  const manualFallback =
+    `curl -X POST ${gatewayUrl}/admin/members -H "x-admin-secret: <secret>" ` +
+    `-H "content-type: application/json" -d '{"space":"...","installationId":<id>,` +
+    `"owner":"${owner}","repo":"...","author":"...","authorEmail":"..."}'`;
+
+  while (true) {
+    const res = await fetchImpl(url, {
+      headers: { "x-admin-secret": adminSecret },
+    });
+    if (res.status === 200) {
+      const body = (await res.json()) as { installationId: number };
+      return body.installationId;
+    }
+    if (res.status === 409) {
+      const body = (await res.json()) as { installationIds: number[] };
+      throw new Error(
+        `Multiple GitHub App installations found for owner "${owner}" ` +
+          `(${body.installationIds.join(", ")}). Resolve manually, then mint the ` +
+          `token directly:\n  ${manualFallback}`,
+      );
+    }
+    if (Date.now() >= deadline) {
+      throw new Error(
+        `Timed out waiting for the GitHub App install on "${owner}". Install it, ` +
+          `then mint the token manually:\n  ${manualFallback}`,
+      );
+    }
+    await sleep(opts.intervalMs);
+  }
+}

@@ -6,6 +6,7 @@ import {
   ghAuthenticated,
   createRepoWithGh,
   createRepoWithPat,
+  pollInstallation,
 } from "../dist/space-create.js";
 
 test("parseSpaceCreateArgs reads required flags and defaults isPublic to false", () => {
@@ -174,5 +175,86 @@ test("createRepoWithPat throws with GitHub's error body when both endpoints fail
   await assert.rejects(
     () => createRepoWithPat("acme", "team-a-memory", false, "pat_x", fetchImpl),
     /422.*already exists/s,
+  );
+});
+
+test("pollInstallation returns installationId as soon as the gateway reports 200", async () => {
+  let calls = 0;
+  const fetchImpl = async (url, init) => {
+    calls++;
+    assert.equal(init.headers["x-admin-secret"], "secret");
+    assert.equal(
+      String(url),
+      "https://gw.example.com/admin/installations?owner=acme",
+    );
+    return Response.json({ installationId: 42 });
+  };
+  const id = await pollInstallation(
+    "https://gw.example.com",
+    "secret",
+    "acme",
+    fetchImpl,
+    { intervalMs: 10, timeoutMs: 1000 },
+    async () => {},
+  );
+  assert.equal(id, 42);
+  assert.equal(calls, 1);
+});
+
+test("pollInstallation retries on 404 (not installed yet) until it succeeds", async () => {
+  let calls = 0;
+  const fetchImpl = async () => {
+    calls++;
+    return calls < 3
+      ? new Response("{}", { status: 404 })
+      : Response.json({ installationId: 7 });
+  };
+  const sleeps = [];
+  const id = await pollInstallation(
+    "https://gw.example.com",
+    "secret",
+    "acme",
+    fetchImpl,
+    { intervalMs: 10, timeoutMs: 5000 },
+    async (ms) => sleeps.push(ms),
+  );
+  assert.equal(id, 7);
+  assert.equal(calls, 3);
+  assert.deepEqual(sleeps, [10, 10]);
+});
+
+test("pollInstallation throws immediately on 409 (ambiguous match)", async () => {
+  const fetchImpl = async () =>
+    Response.json(
+      { error: "ambiguous", installationIds: [1, 2] },
+      { status: 409 },
+    );
+  await assert.rejects(
+    () =>
+      pollInstallation(
+        "https://gw.example.com",
+        "secret",
+        "acme",
+        fetchImpl,
+        { intervalMs: 10, timeoutMs: 5000 },
+        async () => {},
+      ),
+    /1, 2/,
+  );
+});
+
+test("pollInstallation throws with a manual-fallback message on timeout", async () => {
+  const fetchImpl = async () => new Response("{}", { status: 404 });
+  await assert.rejects(
+    () =>
+      pollInstallation(
+        "https://gw.example.com",
+        "secret",
+        "acme",
+        fetchImpl,
+        { intervalMs: 1000, timeoutMs: 1 },
+        async () => {},
+      ),
+    /Timed out.*admin\/members/s,
   );
 });
