@@ -12,3 +12,4 @@ node_modules/
 .superpowers/
 docs/pilot-onboarding.local.md
 .cursor/mcp.json
+.cursor/settings.json
