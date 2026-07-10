@@ -24,3 +24,15 @@ jobs:
       - run: npm run typecheck
       - run: npm run format:check
       - run: npm test
+
+  gateway:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 20
+          cache: npm
+          cache-dependency-path: gateway/package-lock.json
+      - run: cd gateway && npm ci
+      - run: npm run test:gateway
