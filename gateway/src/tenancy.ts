@@ -1,5 +1,5 @@
 import type { Env } from "./env.js";
-import { b64url } from "./github-auth.js";
+import { b64url, appJwt } from "./github-auth.js";
 import type { SpaceRepo } from "./ingest.js";
 
 /**
@@ -138,4 +138,65 @@ export async function handleAdminAddMember(
     branch: member.branch,
   });
   return Response.json({ token, member });
+}
+
+/**
+ * GET /admin/installations?owner=<owner> — resolve a GitHub App
+ * installation ID for an owner, so the CLI onboarding flow (Plan C) can
+ * detect "the operator finished installing the App" without ever holding
+ * GITHUB_APP_PRIVATE_KEY itself. Pilot-scale assumption: one installation
+ * per account — two-plus matches is a 409, resolved manually.
+ */
+export async function handleAdminListInstallations(
+  req: Request,
+  env: Env,
+): Promise<Response> {
+  if (req.headers.get("x-admin-secret") !== env.ADMIN_SECRET) {
+    return new Response("forbidden", { status: 403 });
+  }
+  const owner = new URL(req.url).searchParams.get("owner");
+  if (!owner) {
+    return Response.json({ error: "missing owner" }, { status: 400 });
+  }
+  const fetchImpl = env.githubFetch ?? fetch;
+  const jwt = await appJwt(env.GITHUB_APP_ID, env.GITHUB_APP_PRIVATE_KEY);
+  const res = await fetchImpl(
+    "https://api.github.com/app/installations?per_page=100",
+    {
+      headers: {
+        authorization: `Bearer ${jwt}`,
+        accept: "application/vnd.github+json",
+        "user-agent": "memorylayer-gateway",
+      },
+    },
+  );
+  if (!res.ok) {
+    return Response.json(
+      { error: `github installations list failed: ${res.status}` },
+      { status: 502 },
+    );
+  }
+  const installations = (await res.json()) as {
+    id: number;
+    account: { login: string };
+  }[];
+  const matches = installations.filter(
+    (i) => i.account?.login?.toLowerCase() === owner.toLowerCase(),
+  );
+  if (matches.length === 0) {
+    return Response.json(
+      { error: `no installation found for owner "${owner}"` },
+      { status: 404 },
+    );
+  }
+  if (matches.length > 1) {
+    return Response.json(
+      {
+        error: `multiple installations found for owner "${owner}"`,
+        installationIds: matches.map((m) => m.id),
+      },
+      { status: 409 },
+    );
+  }
+  return Response.json({ installationId: matches[0].id });
 }

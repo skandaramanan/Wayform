@@ -8,6 +8,7 @@
  *   wayform stop-review <client>  -> Stop/write-review hook
  *   wayform init [flags]          -> installer (add --remote for hosted members)
  *   wayform doctor                -> local diagnostics
+ *   wayform space create [flags]  -> Plan C: provision a new hosted space
  *
  * `hook`/`stop-review` set MEMORYLAYER_HOOK_CLIENT from the positional arg, then
  * delegate to the neutral run functions (which self-load .memorylayer-hook.env).
@@ -18,6 +19,7 @@ import { runHook } from "./hook.js";
 import { runStopHook } from "./stop-hook.js";
 import { runInit } from "./init.js";
 import { runDoctor } from "./doctor.js";
+import { runSpaceCreate } from "./space-create.js";
 
 async function main(): Promise<void> {
   // Self-load .memorylayer-hook.env from the project cwd for every subcommand,
@@ -41,12 +43,22 @@ async function main(): Promise<void> {
     case "doctor":
       await runDoctor();
       return;
+    case "space":
+      if (rest[0] === "create") {
+        await runSpaceCreate(rest.slice(1));
+        return;
+      }
+      console.error(
+        `Unknown "space" subcommand "${rest[0]}". Use: wayform space create --space <name> --owner <owner> --repo <repo> --gateway <url>`,
+      );
+      process.exit(1);
+      return;
     case undefined:
       await runServer();
       return;
     default:
       console.error(
-        `Unknown command "${sub}". Use: wayform [hook|stop-review|init|doctor] …`,
+        `Unknown command "${sub}". Use: wayform [hook|stop-review|init|doctor|space] …`,
       );
       process.exit(1);
   }
