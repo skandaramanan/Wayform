@@ -112,6 +112,12 @@ export const TAU = 0.01;
  *  prior (1.2). Calibration target once retrieval_log accumulates data (§7). */
 export const CANON_BOOST = 1.5;
 
+/** Soft-demote multiplier for feedback (§ Phase C). A fact flagged net-negative
+ *  by member feedback is multiplied by FEEDBACK_PENALTY once per net-negative
+ *  vote: it ranks lower but is never removed — a nudge, not a silence. Start
+ *  conservative; recalibrate once the feedback log has data. */
+export const FEEDBACK_PENALTY = 0.8;
+
 /**
  * Entity candidate generator (§5.1, the third generator alongside BM25 and
  * cosine): a doc is a candidate when any token of any of its entity tags
@@ -156,6 +162,7 @@ export function adjustScores(
   fused: Map<string, number>,
   docsById: Map<string, { kind: string; sourceTs: string; tier: string }>,
   now: Date,
+  penalties?: Map<string, number>,
 ): Scored[] {
   const out: Scored[] = [];
   for (const [id, score] of fused) {
@@ -170,6 +177,8 @@ export function adjustScores(
         : 0;
       s *= Math.pow(0.5, ageDays / STATUS_HALF_LIFE_DAYS);
     }
+    const net = penalties?.get(id) ?? 0;
+    if (net > 0) s *= Math.pow(FEEDBACK_PENALTY, net);
     out.push({ id, score: s });
   }
   return out.sort((a, b) => b.score - a.score);

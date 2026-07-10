@@ -1,0 +1,71 @@
+{
+  "corpus": [
+    {
+      "id": "cursor-fact",
+      "kind": "constraint",
+      "tier": "canon",
+      "body": "Cursor MCP config is project-scoped, not global — verified 2026-07-04.",
+      "entities": ["cursor", "mcp-config"],
+      "sourceAuthor": "Skanda",
+      "sourceTs": "2026-07-04T11:00:00Z"
+    },
+    {
+      "id": "d1-choice",
+      "kind": "decision",
+      "tier": "normal",
+      "body": "We chose Cloudflare D1 as the disposable index plane for the relevance engine.",
+      "entities": ["d1", "relevance-engine"],
+      "sourceAuthor": "Skanda",
+      "sourceTs": "2026-07-06T00:00:00Z"
+    },
+    {
+      "id": "auth-1",
+      "kind": "decision",
+      "tier": "normal",
+      "body": "Gateway auth hardening: member identity comes from the bearer token, never a request field.",
+      "entities": ["hosted-gateway", "auth"],
+      "sourceAuthor": "Skanda",
+      "sourceTs": "2026-07-07T00:00:00Z"
+    },
+    {
+      "id": "cost-1",
+      "kind": "constraint",
+      "tier": "canon",
+      "body": "Infra cost must stay $0 / free-tier for the pilot.",
+      "entities": ["cost", "infra-cost"],
+      "sourceAuthor": "Skanda",
+      "sourceTs": "2026-02-01T00:00:00Z"
+    },
+    {
+      "id": "briefing-1",
+      "kind": "decision",
+      "tier": "normal",
+      "body": "Session-start briefing shows canon, open questions, recent decisions, and a topic manifest.",
+      "entities": ["briefing", "onboarding"],
+      "sourceAuthor": "Skanda",
+      "sourceTs": "2026-07-08T00:00:00Z"
+    }
+  ],
+  "cases": [
+    {
+      "query": "how is cursor mcp config scoped",
+      "expectedIds": ["cursor-fact"],
+      "note": "The confirmed 2026-07-04 Cursor miss — the anchor regression case."
+    },
+    {
+      "query": "what index did we choose for the relevance engine",
+      "expectedIds": ["d1-choice"],
+      "note": "Semantic + entity match on D1."
+    },
+    {
+      "query": "where does gateway member identity come from",
+      "expectedIds": ["auth-1"],
+      "note": "Auth decision retrievable by keyword."
+    },
+    {
+      "query": "what is the infra cost constraint",
+      "expectedIds": ["cost-1"],
+      "note": "Canon constraint."
+    }
+  ]
+}
