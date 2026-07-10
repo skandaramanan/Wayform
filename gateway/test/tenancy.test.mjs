@@ -5,8 +5,9 @@ import {
   resolveMember,
   newToken,
   getSpaceRepo,
+  handleAdminListInstallations,
 } from "../dist/gateway/src/tenancy.js";
-import { makeEnv } from "./helpers.mjs";
+import { makeEnv, ghFetch } from "./helpers.mjs";
 
 const MEMBER = {
   space: "team-a",
@@ -159,4 +160,87 @@ test("two members in different spaces resolve to their own records", async () =>
     );
   assert.equal((await resolve(a.token)).repo, "team-a-memory");
   assert.equal((await resolve(b.token)).repo, "team-b-memory");
+});
+
+function listInstallations(env, owner, secret = "test-admin-secret") {
+  return handleRequest(
+    new Request(
+      `https://gw.test/admin/installations?owner=${encodeURIComponent(owner)}`,
+      { headers: { "x-admin-secret": secret } },
+    ),
+    env,
+  );
+}
+
+test("admin installations: 403 on wrong/missing secret", async () => {
+  const env = makeEnv();
+  const res = await listInstallations(env, "acme", "wrong");
+  assert.equal(res.status, 403);
+});
+
+test("admin installations: 400 when owner query param is missing", async () => {
+  const env = makeEnv();
+  const res = await handleRequest(
+    new Request("https://gw.test/admin/installations", {
+      headers: { "x-admin-secret": "test-admin-secret" },
+    }),
+    env,
+  );
+  assert.equal(res.status, 400);
+});
+
+test("admin installations: 200 with installationId on a single case-insensitive match", async () => {
+  const fetchImpl = ghFetch([], [
+    [
+      "/app/installations?per_page=100",
+      () =>
+        Response.json([
+          { id: 111, account: { login: "OtherOrg" } },
+          { id: 222, account: { login: "Acme" } },
+        ]),
+    ],
+  ]);
+  const env = makeEnv(fetchImpl);
+  const res = await listInstallations(env, "acme");
+  assert.equal(res.status, 200);
+  assert.deepEqual(await res.json(), { installationId: 222 });
+});
+
+test("admin installations: 404 when no installation matches the owner", async () => {
+  const fetchImpl = ghFetch([], [
+    [
+      "/app/installations?per_page=100",
+      () => Response.json([{ id: 111, account: { login: "OtherOrg" } }]),
+    ],
+  ]);
+  const env = makeEnv(fetchImpl);
+  const res = await listInstallations(env, "acme");
+  assert.equal(res.status, 404);
+});
+
+test("admin installations: 409 with all matching IDs when the owner is ambiguous", async () => {
+  const fetchImpl = ghFetch([], [
+    [
+      "/app/installations?per_page=100",
+      () =>
+        Response.json([
+          { id: 111, account: { login: "acme" } },
+          { id: 222, account: { login: "acme" } },
+        ]),
+    ],
+  ]);
+  const env = makeEnv(fetchImpl);
+  const res = await listInstallations(env, "acme");
+  assert.equal(res.status, 409);
+  const body = await res.json();
+  assert.deepEqual(body.installationIds.sort(), [111, 222]);
+});
+
+test("admin installations: 502 when GitHub's API call fails", async () => {
+  const fetchImpl = ghFetch([], [
+    ["/app/installations?per_page=100", () => new Response("nope", { status: 500 })],
+  ]);
+  const env = makeEnv(fetchImpl);
+  const res = await listInstallations(env, "acme");
+  assert.equal(res.status, 502);
 });
