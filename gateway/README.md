@@ -344,6 +344,55 @@ project-scoped-config fact, and `/hook/read` shows a topic manifest. The
 extraction-fidelity audit (B1 exit gate) samples these backfilled facts against
 their source entries.
 
+## Relevance index (Phase B2) — supersession & conflicts
+
+Phase B2 adds **fact lifecycle** on top of B1's atomic facts:
+
+- **Async auto-supersession** on ingest: entity-scoped cosine candidates → LLM
+  judge → `superseded_by` write **only** on a clear `replaces` verdict.
+- **Sync conflict surfacing** on every `write_context`: embeds the raw payload,
+  judges top live facts, returns `contradicts` and `uncertain` hits in the tool
+  response (~100–500 ms; write already committed).
+- **Author override:** optional `supersedes: ["fact-id", ...]` on
+  `write_context` skips conflict checks for those ids and links without judge.
+- **Briefing:** session-start text includes an **Unresolved conflicts** section
+  from recent `contradicts`/`uncertain` log rows (last 7 days).
+- **Audit:** every judgment is logged to `supersession_log` in D1.
+
+### Apply migration + first B2 deploy
+
+```bash
+wrangler deploy
+wrangler d1 migrations apply memorylayer-index --remote
+
+# First B2 deploy on an existing index: clear stale edges, then rebuild facts
+curl -sX POST https://<gateway>/admin/reindex \
+  -H "x-admin-secret: $ADMIN_SECRET" \
+  -H "content-type: application/json" \
+  -d '{"clearSupersession": true}'
+```
+
+### Operator tools
+
+```bash
+# Sample auto-linked edges for the B2 exit audit
+curl -s "https://<gateway>/admin/supersession-audit?space=<space>&limit=20" \
+  -H "x-admin-secret: $ADMIN_SECRET"
+
+# Full recent verdict trail (not just auto-links)
+curl -s "https://<gateway>/admin/supersession-audit?space=<space>&auto_linked_only=0" \
+  -H "x-admin-secret: $ADMIN_SECRET"
+
+# Recovery if a bad deploy auto-linked wrongly (does not reindex)
+curl -sX POST https://<gateway>/admin/clear-supersession \
+  -H "x-admin-secret: $ADMIN_SECRET" \
+  -H "content-type: application/json" \
+  -d '{"space":"<space>"}'
+```
+
+B2 exit criterion: supersession-accuracy audit passes on sampled auto-links (zero
+false supersessions on the sample at pilot scale).
+
 ## Reference
 
 ### Endpoints
@@ -359,7 +408,12 @@ their source entries.
   absent = recency read. `Authorization: Bearer mlk_...`
 - `POST /webhook/github` — GitHub push webhook (HMAC-signed, `WEBHOOK_SECRET`)
 - `POST /admin/reindex` — rebuild spaces from the ledger (`x-admin-secret`);
-  optional body `{"repo":"owner/name"}` to scope to one space
+  optional body `{"repo":"owner/name","clearSupersession":true}` to wipe
+  `superseded_by` edges before rebuild
+- `GET /admin/supersession-audit?space=<s>&limit=<n>[&auto_linked_only=0]` —
+  supersession audit log (`x-admin-secret`)
+- `POST /admin/clear-supersession` — body `{"space":"<s>"}`; clears all
+  `superseded_by` edges (`x-admin-secret`)
 - `POST /admin/members` — mint a member token (`x-admin-secret` header)
 - `GET /health`
 
