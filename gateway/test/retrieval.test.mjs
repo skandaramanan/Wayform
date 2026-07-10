@@ -278,6 +278,32 @@ test("renderBriefing includes canon, open questions, 7-day decisions, and a topi
   assert.match(text, /infra-cost \(1\)/); // manifest counts entities
 });
 
+test("renderBriefing caps the topic manifest at 40 entities with a '+N more' suffix", () => {
+  const now = new Date("2026-07-08T00:00:00Z");
+  // 42 facts, each with a distinct single entity, all recent decisions. The
+  // manifest must list only the first 40 (stable order, all count 1) and
+  // summarize the overflow rather than growing unbounded.
+  const docs = Array.from({ length: 42 }, (_, i) => {
+    const tag = `e${String(i).padStart(2, "0")}`;
+    return bdoc(
+      tag,
+      "decision",
+      "normal",
+      `decision about ${tag}`,
+      [tag],
+      "2026-07-07T00:00:00Z",
+    );
+  });
+  const text = renderBriefing("memorylayer", docs, 4000, now);
+  const line = text.split("\n").find((l) => l.startsWith("memory covers:"));
+  assert.ok(line, "manifest line present");
+  const listed = (line.match(/\(\d+\)/g) ?? []).length;
+  assert.equal(listed, 40, "exactly 40 entities listed");
+  assert.match(line, /\+2 more/);
+  assert.match(line, /e00 \(1\)/); // kept
+  assert.doesNotMatch(line, /e41 \(1\)/); // dropped into the overflow count
+});
+
 test("renderBriefing on an empty index returns an empty string (caller falls back)", () => {
   assert.equal(renderBriefing("memorylayer", [], 4000, new Date()), "");
 });
