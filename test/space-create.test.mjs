@@ -7,6 +7,8 @@ import {
   createRepoWithGh,
   createRepoWithPat,
   pollInstallation,
+  mintMemberToken,
+  runSpaceCreate,
 } from "../dist/space-create.js";
 
 test("parseSpaceCreateArgs reads required flags and defaults isPublic to false", () => {
@@ -257,4 +259,174 @@ test("pollInstallation throws with a manual-fallback message on timeout", async 
       ),
     /Timed out.*admin\/members/s,
   );
+});
+
+test("mintMemberToken posts to /admin/members and returns the parsed body", async () => {
+  let seen;
+  const fetchImpl = async (url, init) => {
+    seen = { url: String(url), init };
+    return Response.json({
+      token: "mlk_x",
+      member: { space: "team-a", installationId: 42 },
+    });
+  };
+  const out = await mintMemberToken(
+    "https://gw.example.com",
+    "secret",
+    {
+      space: "team-a",
+      installationId: 42,
+      owner: "acme",
+      repo: "team-a-memory",
+      author: "Ada",
+      authorEmail: "ada@acme.io",
+    },
+    fetchImpl,
+  );
+  assert.equal(out.token, "mlk_x");
+  assert.equal(seen.url, "https://gw.example.com/admin/members");
+  assert.equal(seen.init.headers["x-admin-secret"], "secret");
+  assert.deepEqual(JSON.parse(seen.init.body), {
+    space: "team-a",
+    installationId: 42,
+    owner: "acme",
+    repo: "team-a-memory",
+    author: "Ada",
+    authorEmail: "ada@acme.io",
+  });
+});
+
+test("mintMemberToken throws with GitHub's/gateway's error body on failure", async () => {
+  const fetchImpl = async () => new Response("missing owner", { status: 400 });
+  await assert.rejects(
+    () =>
+      mintMemberToken(
+        "https://gw.example.com",
+        "secret",
+        {
+          space: "s",
+          installationId: 1,
+          owner: "o",
+          repo: "r",
+          author: "a",
+          authorEmail: "a@x.io",
+        },
+        fetchImpl,
+      ),
+    /400.*missing owner/s,
+  );
+});
+
+test("runSpaceCreate: end-to-end happy path via gh, prints the handoff command", async () => {
+  process.env.WAYFORM_ADMIN_SECRET = "secret";
+  const runCalls = [];
+  const fetchCalls = [];
+  const logs = [];
+  try {
+    await runSpaceCreate(
+      [
+        "--space",
+        "team-a",
+        "--owner",
+        "acme",
+        "--repo",
+        "team-a-memory",
+        "--app-slug",
+        "wayform-memory",
+        "--gateway",
+        "https://gw.example.com",
+        "--author",
+        "Ada",
+        "--author-email",
+        "ada@acme.io",
+      ],
+      {
+        run: (cmd, args) => {
+          runCalls.push({ cmd, args });
+        },
+        fetchImpl: async (url, init) => {
+          fetchCalls.push(String(url));
+          if (String(url).includes("/admin/installations")) {
+            return Response.json({ installationId: 42 });
+          }
+          if (String(url).includes("/admin/members")) {
+            return Response.json({
+              token: "mlk_handoff",
+              member: { space: "team-a" },
+            });
+          }
+          throw new Error(`unexpected fetch: ${url}`);
+        },
+        sleep: async () => {},
+        log: (msg) => logs.push(msg),
+      },
+    );
+  } finally {
+    delete process.env.WAYFORM_ADMIN_SECRET;
+  }
+  assert.deepEqual(runCalls[0], {
+    cmd: "gh",
+    args: ["auth", "status"],
+  });
+  assert.deepEqual(runCalls[1], {
+    cmd: "gh",
+    args: ["repo", "create", "acme/team-a-memory", "--private"],
+  });
+  assert.ok(fetchCalls.some((u) => u.includes("/admin/installations?owner=acme")));
+  assert.ok(fetchCalls.some((u) => u.includes("/admin/members")));
+  assert.ok(logs.some((l) => l.includes("mlk_handoff")));
+  assert.ok(
+    logs.some((l) =>
+      l.includes(
+        "wayform init --remote --gateway https://gw.example.com --token mlk_handoff",
+      ),
+    ),
+  );
+});
+
+test("runSpaceCreate: falls back to the PAT prompt when gh is unavailable", async () => {
+  process.env.WAYFORM_ADMIN_SECRET = "secret";
+  const fetchCalls = [];
+  try {
+    await runSpaceCreate(
+      [
+        "--space",
+        "team-a",
+        "--owner",
+        "acme",
+        "--repo",
+        "team-a-memory",
+        "--app-slug",
+        "wayform-memory",
+        "--gateway",
+        "https://gw.example.com",
+        "--author",
+        "Ada",
+        "--author-email",
+        "ada@acme.io",
+      ],
+      {
+        run: () => {
+          throw new Error("spawn gh ENOENT");
+        },
+        promptForPat: async () => "pat_x",
+        fetchImpl: async (url, init) => {
+          fetchCalls.push(String(url));
+          if (String(url).includes("/orgs/")) return new Response("{}", { status: 201 });
+          if (String(url).includes("/admin/installations")) {
+            return Response.json({ installationId: 42 });
+          }
+          if (String(url).includes("/admin/members")) {
+            return Response.json({ token: "mlk_y", member: {} });
+          }
+          throw new Error(`unexpected fetch: ${url}`);
+        },
+        sleep: async () => {},
+        log: () => {},
+      },
+    );
+  } finally {
+    delete process.env.WAYFORM_ADMIN_SECRET;
+  }
+  assert.ok(fetchCalls.some((u) => u.includes("https://api.github.com/orgs/acme/repos")));
 });
