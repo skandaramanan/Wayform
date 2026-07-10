@@ -5,6 +5,7 @@ import {
 } from "./tenancy.js";
 import { handleMcp } from "./mcp.js";
 import { handleHookRead } from "./hook-read.js";
+import { handleHookPrompt } from "./hook-prompt.js";
 import { handleWebhook } from "./webhook.js";
 import { handleAdminReindex } from "./reindex.js";
 import {
@@ -96,6 +97,10 @@ async function route(
 
   if (url.pathname === "/hook/read" && req.method === "GET") {
     return handleHookRead(req, env);
+  }
+
+  if (url.pathname === "/hook/prompt" && req.method === "POST") {
+    return handleHookPrompt(req, env);
   }
 
   if (url.pathname === "/api/read" && req.method === "GET") {
