@@ -8,6 +8,7 @@ import type { EntryType } from "../../src/frontmatter.js";
 import { indexDeps } from "./deps.js";
 import { retrieve, renderSearchResults } from "./retrieval.js";
 import { ingestEntries } from "./ingest.js";
+import { detectWriteConflicts, formatWriteResult } from "./supersede.js";
 
 /**
  * Stateless MCP over Streamable HTTP: every request is one JSON-RPC message
@@ -90,6 +91,12 @@ const TOOLS = [
           type: "string",
           description:
             "Ignored on the hosted gateway: attribution always comes from the authenticated member token.",
+        },
+        supersedes: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Optional live fact ids this entry replaces. Skips conflict checks for those ids; links after ingest without judge.",
         },
       },
       required: ["project", "payload"],
@@ -309,6 +316,26 @@ async function toolsCall(
         } catch {
           // swallow: stale cache expires via TTL
         }
+        const authorSupersedes = Array.isArray(args.supersedes)
+          ? args.supersedes.filter((x): x is string => typeof x === "string")
+          : [];
+        const deps = indexDeps(env);
+        let conflicts: Awaited<ReturnType<typeof detectWriteConflicts>> = [];
+        if (deps) {
+          try {
+            conflicts = await detectWriteConflicts(
+              deps.db,
+              deps.embed,
+              deps.gen,
+              member.space,
+              project,
+              payload,
+              { skipIds: authorSupersedes },
+            );
+          } catch {
+            // fail-open: write already committed
+          }
+        }
         // Index ingest runs async (ctx.waitUntil): LLM fact extraction would
         // add ~1-3s to the write, and the ledger entry is already committed and
         // served by the recency read, so read-your-own-writes on the extracted
@@ -326,6 +353,7 @@ async function toolsCall(
                 member.space,
                 project,
                 [entry],
+                { authorSupersedes },
               );
             }
           } catch {
@@ -337,7 +365,17 @@ async function toolsCall(
         return rpcResult(
           msg.id,
           toolText(
-            `Recorded ${entry.type} in '${project}' as ${entry.author} at ${entry.timestamp} (${entry.file}).`,
+            formatWriteResult(
+              {
+                type: entry.type,
+                author: entry.author,
+                timestamp: entry.timestamp,
+                file: entry.file,
+              },
+              project,
+              conflicts,
+              authorSupersedes,
+            ),
           ),
         );
       }

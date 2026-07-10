@@ -149,8 +149,9 @@ export function renderBriefing(
   docs: IndexedDoc[],
   budgetTokens: number,
   now: Date,
+  conflicts: { oldFactId: string; oldBody: string; reason: string }[] = [],
 ): string {
-  if (docs.length === 0) return "";
+  if (docs.length === 0 && conflicts.length === 0) return "";
 
   const canon = docs.filter((d) => d.tier === "canon");
   const questions = docs.filter((d) => d.kind === "question");
@@ -191,6 +192,25 @@ export function renderBriefing(
     ...(manifestLine ? [manifestLine] : []),
     ...section("Standing rules (canon)", canon),
     ...section("Open questions", questions),
+    ...section(
+      "Unresolved conflicts",
+      conflicts.map((c) => ({
+        id: c.oldFactId,
+        space: "",
+        project: "",
+        kind: "context",
+        tier: "normal",
+        body: `${c.oldBody} _(conflict: ${c.reason})_`,
+        sourceFile: "",
+        sourceAuthor: "",
+        sourceTs: "",
+        embedding: [],
+        supersededBy: null,
+        createdAt: "",
+        sourceId: "",
+        entities: [],
+      })),
+    ),
     ...section("Recent decisions (last 7 days)", recentDecisions),
   ];
   return parts.join("\n\n");

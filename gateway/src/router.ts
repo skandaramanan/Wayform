@@ -7,6 +7,10 @@ import { handleMcp } from "./mcp.js";
 import { handleHookRead } from "./hook-read.js";
 import { handleWebhook } from "./webhook.js";
 import { handleAdminReindex } from "./reindex.js";
+import {
+  handleAdminClearSupersession,
+  handleAdminSupersessionAudit,
+} from "./admin-supersession.js";
 import { handleApiRead } from "./api-read.js";
 
 /**
@@ -67,6 +71,14 @@ async function route(
 
   if (url.pathname === "/admin/reindex" && req.method === "POST") {
     return handleAdminReindex(req, env);
+  }
+
+  if (url.pathname === "/admin/supersession-audit" && req.method === "GET") {
+    return handleAdminSupersessionAudit(req, env);
+  }
+
+  if (url.pathname === "/admin/clear-supersession" && req.method === "POST") {
+    return handleAdminClearSupersession(req, env);
   }
 
   if (url.pathname === "/webhook/github" && req.method === "POST") {
