@@ -12,6 +12,14 @@ export const SYNC_COSINE_FLOOR = 0.7;
 export const ASYNC_COSINE_FLOOR = 0.6;
 export const SYNC_CANDIDATE_K = 10;
 export const ASYNC_CANDIDATE_K = 10;
+/**
+ * Cap on how many candidates the sync write-path conflict check sends to the
+ * LLM judge. detectWriteConflicts runs BEFORE write_context returns, so every
+ * judge call is user-facing latency; candidates arrive cosine-sorted, so the
+ * top few are the only plausible conflicts anyway. Async ingest still judges
+ * the full ASYNC_CANDIDATE_K set off the hot path.
+ */
+export const SYNC_JUDGE_LIMIT = 2;
 
 export type JudgeVerdict = "replaces" | "contradicts" | "relates" | "uncertain";
 
@@ -198,9 +206,10 @@ export async function detectWriteConflicts(
   space: string,
   project: string,
   entryBody: string,
-  opts: { skipIds?: string[] } = {},
+  opts: { skipIds?: string[]; kind?: string; timeoutMs?: number } = {},
 ): Promise<ConflictHit[]> {
   if (!embed || !gen) return [];
+  const kind = opts.kind ?? "decision";
   const skip = new Set(opts.skipIds ?? []);
   const live = (await db.listDocs(space, project)).filter(
     (d) => !skip.has(d.id),
@@ -219,7 +228,7 @@ export async function detectWriteConflicts(
     id: "__pending__",
     space,
     project,
-    kind: "decision",
+    kind,
     tier: "normal",
     body: entryBody,
     sourceFile: "",
@@ -232,39 +241,53 @@ export async function detectWriteConflicts(
     entities: [],
   };
 
+  // Judge only the top few candidates: this runs before write_context returns,
+  // so each judge call is user-facing latency (§ write-path budget).
   const cands = supersessionCandidates(
     live,
     pseudo,
     SYNC_CANDIDATE_K,
     SYNC_COSINE_FLOOR,
-  );
+  ).slice(0, SYNC_JUDGE_LIMIT);
   const hits: ConflictHit[] = [];
   const ts = new Date().toISOString();
 
-  for (const old of cands) {
-    const result = await judgePair(
-      gen,
-      { body: entryBody, kind: "decision" },
-      old,
-    );
-    await logJudgment(db, {
-      space,
-      project,
-      newFactId: "(pending)",
-      oldFactId: old.id,
-      verdict: result.verdict,
-      autoLinked: false,
-      reason: result.reason,
-      ts,
-    });
-    if (result.verdict === "contradicts" || result.verdict === "uncertain") {
-      hits.push({
-        factId: old.id,
-        body: old.body,
-        reason: result.reason,
+  const judgeAll = async () => {
+    for (const old of cands) {
+      const result = await judgePair(gen, { body: entryBody, kind }, old);
+      await logJudgment(db, {
+        space,
+        project,
+        newFactId: "(pending)",
+        oldFactId: old.id,
         verdict: result.verdict,
+        autoLinked: false,
+        reason: result.reason,
+        ts,
       });
+      if (result.verdict === "contradicts" || result.verdict === "uncertain") {
+        hits.push({
+          factId: old.id,
+          body: old.body,
+          reason: result.reason,
+          verdict: result.verdict,
+        });
+      }
     }
+  };
+
+  // Hard wall-clock bound: if the judge stalls, surface whatever conflicts were
+  // found so far rather than making the author wait — the write is already
+  // committed, so partial conflict info is strictly better than a slow response.
+  if (opts.timeoutMs != null) {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const deadline = new Promise<void>((resolve) => {
+      timer = setTimeout(resolve, opts.timeoutMs);
+    });
+    await Promise.race([judgeAll(), deadline]);
+    if (timer) clearTimeout(timer);
+  } else {
+    await judgeAll();
   }
   return hits;
 }

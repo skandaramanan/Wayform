@@ -330,7 +330,7 @@ async function toolsCall(
               member.space,
               project,
               payload,
-              { skipIds: authorSupersedes },
+              { skipIds: authorSupersedes, kind: type, timeoutMs: 2000 },
             );
           } catch {
             // fail-open: write already committed
