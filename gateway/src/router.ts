@@ -1,5 +1,8 @@
 import type { Env } from "./env.js";
-import { handleAdminAddMember } from "./tenancy.js";
+import {
+  handleAdminAddMember,
+  handleAdminListInstallations,
+} from "./tenancy.js";
 import { handleMcp } from "./mcp.js";
 import { handleHookRead } from "./hook-read.js";
 import { handleWebhook } from "./webhook.js";
@@ -56,6 +59,10 @@ async function route(
 
   if (url.pathname === "/admin/members" && req.method === "POST") {
     return handleAdminAddMember(req, env);
+  }
+
+  if (url.pathname === "/admin/installations" && req.method === "GET") {
+    return handleAdminListInstallations(req, env);
   }
 
   if (url.pathname === "/admin/reindex" && req.method === "POST") {
