@@ -5,6 +5,9 @@
  * credential the manual `curl` flow against POST /admin/members already uses.
  */
 import { execFileSync } from "node:child_process";
+import readline from "node:readline/promises";
+import { stdin as input, stdout as output } from "node:process";
+import { gitConfigDefault } from "./init-env.js";
 
 const flag = (args: string[], name: string): string | undefined => {
   const i = args.indexOf(`--${name}`);
@@ -179,4 +182,138 @@ export async function pollInstallation(
     }
     await sleep(opts.intervalMs);
   }
+}
+
+export interface MintedMember {
+  token: string;
+  member: {
+    space: string;
+    installationId: number;
+    owner: string;
+    repo: string;
+    branch: string;
+    author: string;
+    authorEmail: string;
+  };
+}
+
+export async function mintMemberToken(
+  gatewayUrl: string,
+  adminSecret: string,
+  body: {
+    space: string;
+    installationId: number;
+    owner: string;
+    repo: string;
+    author: string;
+    authorEmail: string;
+  },
+  fetchImpl: typeof fetch = fetch,
+): Promise<MintedMember> {
+  const res = await fetchImpl(`${gatewayUrl}/admin/members`, {
+    method: "POST",
+    headers: {
+      "x-admin-secret": adminSecret,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const detail = await res.text();
+    throw new Error(`token mint failed (${res.status}): ${detail}`);
+  }
+  return (await res.json()) as MintedMember;
+}
+
+export async function promptForPat(): Promise<string> {
+  const rl = readline.createInterface({ input, output });
+  const pat = await rl.question(
+    "gh not found or not authenticated. Paste a GitHub PAT with repo-creation scope: ",
+  );
+  rl.close();
+  return pat.trim();
+}
+
+export interface SpaceCreateDeps {
+  run: Runner;
+  fetchImpl: typeof fetch;
+  promptForPat: () => Promise<string>;
+  sleep: (ms: number) => Promise<void>;
+  log: (msg: string) => void;
+  poll: PollOptions;
+}
+
+const defaultDeps: SpaceCreateDeps = {
+  run: defaultRunner,
+  fetchImpl: fetch,
+  promptForPat,
+  sleep: defaultSleep,
+  log: (msg) => console.log(msg),
+  poll: DEFAULT_POLL,
+};
+
+export async function runSpaceCreate(
+  args: string[],
+  deps: Partial<SpaceCreateDeps> = {},
+): Promise<void> {
+  const d: SpaceCreateDeps = { ...defaultDeps, ...deps };
+  const parsed = parseSpaceCreateArgs(args);
+  const gatewayUrl = (flag(args, "gateway") ?? "").replace(/\/+$/, "");
+  if (!gatewayUrl) {
+    throw new Error("wayform space create requires --gateway <url>");
+  }
+  const adminSecret = resolveAdminSecret();
+  const author = parsed.author ?? gitConfigDefault("user.name");
+  const authorEmail = parsed.authorEmail ?? gitConfigDefault("user.email");
+
+  d.log(`Creating repo ${parsed.owner}/${parsed.repo}...`);
+  if (ghAuthenticated(d.run)) {
+    createRepoWithGh(parsed.owner, parsed.repo, parsed.isPublic, d.run);
+  } else {
+    const pat = await d.promptForPat();
+    await createRepoWithPat(
+      parsed.owner,
+      parsed.repo,
+      parsed.isPublic,
+      pat,
+      d.fetchImpl,
+    );
+  }
+
+  d.log(
+    `Repo created. Install the GitHub App: https://github.com/apps/${parsed.appSlug}/installations/new`,
+  );
+  d.log("Waiting for the App to be installed...");
+  const installationId = await pollInstallation(
+    gatewayUrl,
+    adminSecret,
+    parsed.owner,
+    d.fetchImpl,
+    d.poll,
+    d.sleep,
+  );
+
+  d.log(`Detected installation ${installationId}. Minting member token...`);
+  const minted = await mintMemberToken(
+    gatewayUrl,
+    adminSecret,
+    {
+      space: parsed.space,
+      installationId,
+      owner: parsed.owner,
+      repo: parsed.repo,
+      author,
+      authorEmail,
+    },
+    d.fetchImpl,
+  );
+
+  d.log("");
+  d.log(`Space "${parsed.space}" created.`);
+  d.log(`Token (shown once): ${minted.token}`);
+  d.log("");
+  d.log("Hand this to each teammate:");
+  d.log(
+    `  wayform init --remote --gateway ${gatewayUrl} --token ${minted.token}`,
+  );
 }
