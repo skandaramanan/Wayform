@@ -281,3 +281,21 @@ test("renderBriefing includes canon, open questions, 7-day decisions, and a topi
 test("renderBriefing on an empty index returns an empty string (caller falls back)", () => {
   assert.equal(renderBriefing("memorylayer", [], 4000, new Date()), "");
 });
+
+test("renderBriefing includes unresolved conflicts when provided", () => {
+  const text = renderBriefing(
+    "memorylayer",
+    [],
+    4000,
+    new Date("2026-07-08T00:00:00Z"),
+    [
+      {
+        oldFactId: "o1",
+        oldBody: "MCP is project-scoped",
+        reason: "scope clash",
+      },
+    ],
+  );
+  assert.match(text, /Unresolved conflicts/);
+  assert.match(text, /scope clash/);
+});

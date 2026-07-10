@@ -230,3 +230,68 @@ test("d1IndexDb.replaceBySource batches deletes (fact_entities + docs) then inse
     ),
   );
 });
+
+test("markSuperseded sets old fact's supersededBy; listDocs excludes it", async () => {
+  const db = new MemoryIndexDb();
+  await db.upsertDocs([doc(), doc({ id: "new1" })]);
+  await db.markSuperseded("s1", "e1", "new1");
+  const live = await db.listDocs("s1");
+  assert.deepEqual(
+    live.map((d) => d.id),
+    ["new1"],
+  );
+});
+
+test("clearSupersessionPointersTo un-hides facts pointing at deleted ids", async () => {
+  const db = new MemoryIndexDb();
+  await db.upsertDocs([doc({ id: "victim" }), doc({ id: "soon-gone" })]);
+  await db.markSuperseded("s1", "victim", "soon-gone");
+  await db.clearSupersessionPointersTo("s1", ["soon-gone"]);
+  const live = await db.listDocs("s1");
+  assert.ok(live.some((d) => d.id === "victim"));
+});
+
+test("replaceBySource clears inbound pointers before delete", async () => {
+  const db = new MemoryIndexDb();
+  await db.upsertDocs([
+    doc({ id: "other", sourceId: "other" }),
+    doc({ id: "e1#0", sourceId: "e1" }),
+  ]);
+  await db.markSuperseded("s1", "other", "e1#0");
+  await db.replaceBySource("s1", "e1", [
+    doc({ id: "e1#0", sourceId: "e1", body: "rewritten" }),
+  ]);
+  const live = await db.listDocs("s1");
+  assert.ok(live.some((d) => d.id === "other"));
+});
+
+test("clearAllSupersession wipes edges and returns count", async () => {
+  const db = new MemoryIndexDb();
+  await db.upsertDocs([doc({ id: "a" }), doc({ id: "b" })]);
+  await db.markSuperseded("s1", "a", "b");
+  const n = await db.clearAllSupersession("s1");
+  assert.equal(n, 1);
+  assert.equal((await db.listDocs("s1")).length, 2);
+});
+
+test("logSupersession + recentConflictLogs round-trip", async () => {
+  const db = new MemoryIndexDb();
+  await db.logSupersession({
+    space: "s1",
+    project: "memorylayer",
+    newFactId: "n1",
+    oldFactId: "o1",
+    verdict: "contradicts",
+    autoLinked: false,
+    reason: "scope mismatch",
+    ts: "2026-07-10T00:00:00Z",
+  });
+  const rows = await db.recentConflictLogs(
+    "s1",
+    "memorylayer",
+    "2026-07-09T00:00:00Z",
+    5,
+  );
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].verdict, "contradicts");
+});

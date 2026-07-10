@@ -14,6 +14,7 @@ import type { Env } from "./env.js";
 import type { IndexDb, IndexedDoc } from "./index-db.js";
 import type { Embedder } from "./retrieval.js";
 import { extractFacts, type GenText, type ExtractedFact } from "./extract.js";
+import { applySupersession } from "./supersede.js";
 
 const GH = "https://api.github.com";
 
@@ -74,6 +75,7 @@ export async function ingestEntries(
   space: string,
   project: string,
   entries: ParsedEntry[],
+  opts: { authorSupersedes?: string[] } = {},
 ): Promise<number> {
   if (entries.length === 0) return 0;
   let count = 0;
@@ -91,6 +93,9 @@ export async function ingestEntries(
       factToDoc(space, project, entry, f, i, vecs[i] ?? []),
     );
     await db.replaceBySource(space, entry.id || entry.file, docs);
+    await applySupersession(db, gen, space, slug(project), docs, {
+      authorSupersedes: opts.authorSupersedes,
+    });
     count += docs.length;
   }
   return count;
