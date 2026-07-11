@@ -130,17 +130,18 @@ export function mergeCursorRemoteMcp(
  * Project-scoped Codex MCP block for a HOSTED (gateway) member, written to
  * `.codex/config.toml`. Codex 0.144+ speaks native streamable-HTTP and applies
  * project config for trusted repos, so no global paste and no `mcp-remote`
- * bridge are needed. Codex's HTTP transport has no inline-token field — the
- * bearer is read at launch from `tokenEnvVar` — so this file carries NO secret
- * (the token lives only in the gitignored `.memorylayer-hook.env` / the shell
- * env). Export it before `codex`, e.g. `set -a; source .memorylayer-hook.env; set +a`.
+ * bridge are needed. The member token is inlined as a literal Authorization
+ * header via `http_headers` — the same pattern as `.cursor/mcp.json` — because
+ * the env-var alternative (`bearer_token_env_var`) requires exporting the token
+ * before every launch and fails SILENTLY for IDE-launched Codex (the MCP client
+ * never initializes and the model just sees no tools). Codex rejects a literal
+ * `bearer_token` field for HTTP servers; `http_headers` is the sanctioned
+ * literal path. This file therefore CARRIES THE TOKEN: `init --remote` MUST
+ * gitignore it and harden it to 0600.
  */
-export function codexRemoteConfigToml(
-  gatewayUrl: string,
-  tokenEnvVar: string = "MEMORYLAYER_GATEWAY_TOKEN",
-): string {
+export function codexRemoteConfigToml(gatewayUrl: string, token: string): string {
   return `[mcp_servers.wayform]
 url = "${gatewayUrl}/mcp"
-bearer_token_env_var = "${tokenEnvVar}"
+http_headers = { Authorization = "Bearer ${token}" }
 `;
 }

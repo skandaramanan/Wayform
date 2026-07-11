@@ -10,8 +10,13 @@ import { recordMetric } from "./metrics.js";
 import { isMain } from "./is-main.js";
 export async function runServer() {
     const cfg = loadConfig();
-    const store = new ContextStore(cfg);
-    await store.ensure();
+    // Gateway-only members ("" repoUrl) have no local clone: constructing the
+    // store would run git ops against whatever cwd happens to be (the crash a
+    // fallen-back agent hits). Reads stay remote-first; store-needing paths
+    // return honest tool errors instead.
+    const store = cfg.repoUrl ? new ContextStore(cfg) : null;
+    if (store)
+        await store.ensure();
     const server = new McpServer({
         name: "memorylayer",
         version: "0.1.0",
@@ -54,6 +59,19 @@ export async function runServer() {
             });
             return { content: [{ type: "text", text: remote.text }] };
         }
+        if (!store) {
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: "read_context could not reach the hosted gateway and this member " +
+                            "is gateway-only (no local clone to fall back to). Retry online, " +
+                            "or check MEMORYLAYER_GATEWAY_URL / MEMORYLAYER_GATEWAY_TOKEN.",
+                    },
+                ],
+                isError: true,
+            };
+        }
         const { entries, total } = await store.read(project, budget);
         await recordMetric(cfg, { source: "mcp", event: "read", project, total });
         const note = query?.trim()
@@ -88,6 +106,21 @@ export async function runServer() {
                 .describe("Who is recording this. Defaults to the configured MEMORYLAYER_AUTHOR."),
         },
     }, async ({ project, type, payload, author }) => {
+        // Gateway-only members write through the hosted MCP endpoint (the gateway
+        // owns the GitHub store); the local server has no clone to commit to.
+        if (!store) {
+            return {
+                content: [
+                    {
+                        type: "text",
+                        text: "write_context is unavailable on the local server for gateway-only " +
+                            "members — connect your client to the hosted MCP endpoint " +
+                            `(${cfg.gatewayUrl ?? "MEMORYLAYER_GATEWAY_URL"}/mcp) instead.`,
+                    },
+                ],
+                isError: true,
+            };
+        }
         try {
             const entry = await store.write(project, {
                 author: author?.trim() || cfg.author,
@@ -169,7 +202,7 @@ export async function runServer() {
     const transport = new StdioServerTransport();
     await server.connect(transport);
     // stdio transport owns stdout; log to stderr only.
-    console.error(`wayform MCP server ready (author=${cfg.author}, store=${cfg.repoPath})`);
+    console.error(`wayform MCP server ready (author=${cfg.author}, store=${cfg.repoPath || `gateway-only via ${cfg.gatewayUrl ?? "unset gateway"}`})`);
 }
 if (isMain(import.meta.url)) {
     runServer().catch((err) => {
