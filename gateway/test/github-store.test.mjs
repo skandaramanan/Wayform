@@ -3,6 +3,8 @@ import assert from "node:assert/strict";
 import {
   writeEntry,
   readEntries,
+  readEntriesCached,
+  recencyCacheKey,
   MAX_ENTRY_FETCH,
 } from "../dist/gateway/src/github-store.js";
 import { parseEntry } from "../dist/src/frontmatter.js";
@@ -144,6 +146,164 @@ test("readEntries caps blob fetches at MAX_ENTRY_FETCH newest files, total stays
   assert.equal(entries[entries.length - 1].payload, "e59");
   const blobCalls = calls.filter((c) => c.url.includes(".md"));
   assert.equal(blobCalls.length, MAX_ENTRY_FETCH);
+});
+
+test("readEntries fetches blobs in PARALLEL (a later blob starts before an earlier one resolves)", async () => {
+  const tree = {
+    tree: [
+      {
+        path: "context/roadmap/ada/2026-07-01T10-00-00-000Z-aaaaaaaa.md",
+        type: "blob",
+      },
+      {
+        path: "context/roadmap/bo/2026-07-02T10-00-00-000Z-bbbbbbbb.md",
+        type: "blob",
+      },
+    ],
+  };
+  // Blob A only resolves once blob B's fetch has STARTED. A sequential loop
+  // never starts B while awaiting A → deadlock → the race below fails loudly.
+  let releaseA;
+  const bStarted = new Promise((resolve) => (releaseA = resolve));
+  const fetchImpl = ghFetch(
+    [],
+    [
+      TOKEN_ROUTE,
+      ["/git/trees/main?recursive=1", () => Response.json(tree)],
+      [
+        "aaaaaaaa.md",
+        async () => {
+          await bStarted;
+          return new Response(entryMd("2026-07-01T10:00:00.000Z", "Ada", "first"));
+        },
+      ],
+      [
+        "bbbbbbbb.md",
+        () => {
+          releaseA();
+          return new Response(entryMd("2026-07-02T10:00:00.000Z", "Bo", "second"));
+        },
+      ],
+    ],
+  );
+  const timeout = new Promise((_, reject) =>
+    setTimeout(
+      () => reject(new Error("blob fetches ran sequentially, not in parallel")),
+      2000,
+    ),
+  );
+  const { entries, total } = await Promise.race([
+    readEntries(makeEnv(fetchImpl), MEMBER, "roadmap", undefined, fetchImpl),
+    timeout,
+  ]);
+  assert.equal(total, 2);
+  // Order is still oldest→newest regardless of resolution order.
+  assert.deepEqual(
+    entries.map((e) => e.payload),
+    ["first", "second"],
+  );
+});
+
+test("readEntriesCached serves repeat reads from KV with ZERO GitHub calls, budget applied per call", async () => {
+  const tree = {
+    tree: [
+      {
+        path: "context/roadmap/ada/2026-07-01T10-00-00-000Z-aaaaaaaa.md",
+        type: "blob",
+      },
+      {
+        path: "context/roadmap/bo/2026-07-02T10-00-00-000Z-bbbbbbbb.md",
+        type: "blob",
+      },
+    ],
+  };
+  const calls = [];
+  const fetchImpl = ghFetch(calls, [
+    TOKEN_ROUTE,
+    ["/git/trees/main?recursive=1", () => Response.json(tree)],
+    [
+      "aaaaaaaa.md",
+      () =>
+        new Response(
+          entryMd("2026-07-01T10:00:00.000Z", "Ada", "x".repeat(4000)),
+        ),
+    ],
+    [
+      "bbbbbbbb.md",
+      () =>
+        new Response(
+          entryMd("2026-07-02T10:00:00.000Z", "Bo", "y".repeat(4000)),
+        ),
+    ],
+  ]);
+  const env = makeEnv(fetchImpl);
+  const first = await readEntriesCached(env, MEMBER, "roadmap", 0, fetchImpl);
+  assert.equal(first.total, 2);
+  assert.equal(first.entries.length, 2);
+  const callsAfterFirst = calls.length;
+  assert.notEqual(
+    await env.ROUTING.get(recencyCacheKey("team-a", "roadmap")),
+    null,
+  );
+
+  // Repeat read: KV hit, no new GitHub traffic, same result.
+  const second = await readEntriesCached(env, MEMBER, "roadmap", 0, fetchImpl);
+  assert.equal(calls.length, callsAfterFirst);
+  assert.deepEqual(second, first);
+
+  // The cache stores UN-packed entries: a tighter budget on a hit packs down.
+  const tight = await readEntriesCached(env, MEMBER, "roadmap", 1000, fetchImpl);
+  assert.equal(calls.length, callsAfterFirst);
+  assert.equal(tight.total, 2);
+  assert.equal(tight.entries.length, 1);
+  assert.equal(tight.entries[0].author, "Bo"); // newest survives packing
+});
+
+test("readEntriesCached falls through to GitHub when KV is unavailable", async () => {
+  const tree = {
+    tree: [
+      {
+        path: "context/roadmap/ada/2026-07-01T10-00-00-000Z-aaaaaaaa.md",
+        type: "blob",
+      },
+    ],
+  };
+  const fetchImpl = ghFetch(
+    [],
+    [
+      TOKEN_ROUTE,
+      ["/git/trees/main?recursive=1", () => Response.json(tree)],
+      [
+        "aaaaaaaa.md",
+        () => new Response(entryMd("2026-07-01T10:00:00.000Z", "Ada", "first")),
+      ],
+    ],
+  );
+  const env = makeEnv(fetchImpl);
+  const broken = {
+    get: async (key) =>
+      key.startsWith("recency:") ? Promise.reject(new Error("KV down")) : null,
+    put: async (key) => {
+      if (key.startsWith("recency:")) throw new Error("KV down");
+    },
+    delete: async () => {},
+  };
+  // installationToken caches in ROUTING too — keep that path working.
+  const real = env.ROUTING;
+  env.ROUTING = {
+    get: (k) => (k.startsWith("recency:") ? broken.get(k) : real.get(k)),
+    put: (k, v, o) => (k.startsWith("recency:") ? broken.put(k) : real.put(k, v, o)),
+    delete: (k) => real.delete(k),
+  };
+  const { entries, total } = await readEntriesCached(
+    env,
+    MEMBER,
+    "roadmap",
+    undefined,
+    fetchImpl,
+  );
+  assert.equal(total, 1);
+  assert.equal(entries[0].payload, "first");
 });
 
 test("readEntries returns empty on 404/409 tree (empty repo or missing branch)", async () => {
