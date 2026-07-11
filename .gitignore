@@ -18,3 +18,4 @@ docs/self-onboarding.local.md
 
 # Codex project-scoped MCP config — regenerated per-member by `wayform init --remote`
 .codex/config.toml
+.gstack/
