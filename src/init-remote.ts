@@ -2,8 +2,8 @@
  * `wayform init --remote` — wire a HOSTED (gateway) member into the current
  * project. Same LOUD, idempotent posture as local `init`, but writes gateway
  * creds + native HTTP MCP instead of a local clone. Token never touches a
- * committed file (gitignored env + gitignored .cursor/mcp.json + Claude's
- * user-scoped ~/.claude.json).
+ * committed file (gitignored env + gitignored .cursor/mcp.json and
+ * .codex/config.toml + Claude's user-scoped ~/.claude.json).
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -169,8 +169,9 @@ export async function runInitRemote(args: string[]): Promise<void> {
   // Token-bearing: tighten to owner-only (writeJson creates at umask default).
   hardenSecretFile(path.join(cwd, ".cursor/mcp.json"));
 
-  // --- Codex native HTTP MCP (project-scoped; token read from env at launch) ---
-  writeText(cwd, ".codex/config.toml", codexRemoteConfigToml(gatewayUrl));
+  // --- Codex native HTTP MCP (project-scoped, gitignored — carries the token) ---
+  writeText(cwd, ".codex/config.toml", codexRemoteConfigToml(gatewayUrl, token));
+  hardenSecretFile(path.join(cwd, ".codex/config.toml"));
 
   // --- User tier: gitignored gateway env (hosted-only, no CONTEXT_REPO_URL) ---
   const envFile = path.join(cwd, ".memorylayer-hook.env");
@@ -212,7 +213,7 @@ export async function runInitRemote(args: string[]): Promise<void> {
     console.log(`    ${claude.command}\n`);
   }
 
-  console.log("  wrote .codex/config.toml (gitignored — token read from env)");
+  console.log("  wrote .codex/config.toml (gitignored — carries the member token)");
 
   console.log("\nNext steps:");
   console.log(
@@ -225,10 +226,9 @@ export async function runInitRemote(args: string[]): Promise<void> {
     "     (.cursor/mcp.json, .codex/config.toml and .memorylayer-hook.env are gitignored — each member runs init --remote.)",
   );
   console.log(
-    "  2. Codex users: export the gateway token before launching, e.g.\n",
+    "  2. Codex users: mark the project trusted (Codex only loads project-scoped",
   );
-  console.log("       set -a; source .memorylayer-hook.env; set +a; codex\n");
   console.log(
-    "     (.codex/config.toml reads MEMORYLAYER_GATEWAY_TOKEN from the environment.)",
+    "     config for trusted repos) — then wayform tools appear on next launch.",
   );
 }
