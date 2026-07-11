@@ -1,6 +1,6 @@
 import type { Env } from "./env.js";
 import { resolveMember } from "./tenancy.js";
-import { readEntries } from "./github-store.js";
+import { readEntriesCached } from "./github-store.js";
 import { hookCacheKey } from "./mcp.js";
 import { indexDeps } from "./deps.js";
 import { renderBriefing } from "./retrieval.js";
@@ -96,7 +96,7 @@ export async function handleHookRead(
   }
 
   if (text === "") {
-    const { entries, total } = await readEntries(
+    const { entries, total } = await readEntriesCached(
       env,
       member,
       project,

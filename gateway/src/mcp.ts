@@ -1,6 +1,10 @@
 import type { Env } from "./env.js";
 import { resolveMember, type SpaceMember } from "./tenancy.js";
-import { readEntries, writeEntry } from "./github-store.js";
+import {
+  readEntriesCached,
+  recencyCacheKey,
+  writeEntry,
+} from "./github-store.js";
 import { projectContext } from "../../src/context-format.js";
 import { slug } from "../../src/slug.js";
 import { DEFAULT_BUDGET_TOKENS } from "../../src/token-budget.js";
@@ -273,7 +277,7 @@ async function toolsCall(
             // fail-open to the recency read below
           }
         }
-        const { entries, total } = await readEntries(
+        const { entries, total } = await readEntriesCached(
           env,
           member,
           project,
@@ -338,6 +342,7 @@ async function toolsCall(
         // within a minute).
         try {
           await env.ROUTING.delete(hookCacheKey(member.space, project));
+          await env.ROUTING.delete(recencyCacheKey(member.space, project));
         } catch {
           // swallow: stale cache expires via TTL
         }
