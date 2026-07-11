@@ -11,7 +11,7 @@ import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { mergeClaudeSettings, mergeCursorHooks, mergeCodexHooks, mergeCursorRemoteMcp, codexRemoteConfigToml, } from "./init-configs.js";
-import { buildRemoteHookEnv, gitConfigDefault, ensureGitignore, } from "./init-env.js";
+import { buildRemoteHookEnv, gitConfigDefault, ensureGitignore, writeSecretFile, hardenSecretFile, } from "./init-env.js";
 const defaultRunner = (cmd, args) => 
 // Bounded + non-interactive: a hanging or prompting `claude` must never freeze
 // init. On timeout/ENOENT this throws → the caller falls open to a printed
@@ -110,15 +110,18 @@ export async function runInitRemote(args) {
     writeJson(cwd, ".codex/hooks.json", mergeCodexHooks(readJson(path.join(cwd, ".codex/hooks.json")), "wayform"));
     // --- Cursor native HTTP MCP (gitignored — carries the token) ---
     writeJson(cwd, ".cursor/mcp.json", mergeCursorRemoteMcp(readJson(path.join(cwd, ".cursor/mcp.json")), gatewayUrl, token));
+    // Token-bearing: tighten to owner-only (writeJson creates at umask default).
+    hardenSecretFile(path.join(cwd, ".cursor/mcp.json"));
     // --- Codex native HTTP MCP (project-scoped; token read from env at launch) ---
     writeText(cwd, ".codex/config.toml", codexRemoteConfigToml(gatewayUrl));
     // --- User tier: gitignored gateway env (hosted-only, no CONTEXT_REPO_URL) ---
     const envFile = path.join(cwd, ".memorylayer-hook.env");
     if (fs.existsSync(envFile) && !has(args, "force")) {
+        hardenSecretFile(envFile); // retro-tighten a pre-existing 0644 file
         console.log("  .memorylayer-hook.env exists — leaving it (use --force to rewrite).");
     }
     else {
-        fs.writeFileSync(envFile, buildRemoteHookEnv({ gatewayUrl, token, project, author, email }));
+        writeSecretFile(envFile, buildRemoteHookEnv({ gatewayUrl, token, project, author, email }));
         console.log("  wrote .memorylayer-hook.env (gitignored)");
     }
     // --- Gitignore secrets: env + local settings + the token-bearing cursor mcp ---

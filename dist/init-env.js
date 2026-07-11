@@ -1,4 +1,26 @@
 import { execFileSync } from "node:child_process";
+import fs from "node:fs";
+/**
+ * Write a secret-bearing file (identity env / token-carrying MCP config) with
+ * owner-only perms (0600). writeFileSync only applies `mode` on CREATE, so an
+ * older file left at the umask default (0644, world-readable) would keep loose
+ * perms on a rewrite — the explicit chmod retro-tightens it. Best-effort on
+ * filesystems without POSIX perms (Windows/NTFS): the chmod no-ops there, which
+ * is fine since the multi-UID threat model is a POSIX host.
+ */
+export function writeSecretFile(file, contents) {
+    fs.writeFileSync(file, contents, { mode: 0o600 });
+    hardenSecretFile(file);
+}
+/** Tighten an existing secret file to 0600 without rewriting its contents. */
+export function hardenSecretFile(file) {
+    try {
+        fs.chmodSync(file, 0o600);
+    }
+    catch {
+        // best-effort: no POSIX perms (Windows) or file vanished — nothing to do.
+    }
+}
 /** Contents of the per-user, gitignored .memorylayer-hook.env file. */
 export function buildHookEnv(v) {
     return [
