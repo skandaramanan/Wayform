@@ -427,6 +427,57 @@ test("ISOLATION: team-a token only ever touches team-a's repo", async () => {
   }
 });
 
+test("write_context invalidates the recency cache so the next queryless read refetches", async () => {
+  const md = `---\nauthor: Ada\ntype: decision\ntimestamp: 2026-07-01T00:00:00.000Z\nid: r1\nproject: roadmap\n---\n\nsettled`;
+  const { env, calls, tokens } = await setup([
+    ...TOKEN_ROUTES,
+    [
+      "/git/trees/",
+      () =>
+        Response.json({
+          tree: [
+            {
+              path: "context/roadmap/ada/2026-07-01T00-00-00-000Z-r1.md",
+              type: "blob",
+            },
+          ],
+        }),
+    ],
+    ["r1.md", () => new Response(md)],
+    ["/contents/", () => Response.json({ ok: true }, { status: 201 })],
+  ]);
+  const read = (id) =>
+    handleRequest(
+      rpc(tokens["team-a"], {
+        jsonrpc: "2.0",
+        id,
+        method: "tools/call",
+        params: { name: "read_context", arguments: { project: "roadmap" } },
+      }),
+      env,
+    );
+  const treeCalls = () => calls.filter((c) => c.url.includes("/git/trees/"));
+
+  await read(1);
+  await read(2); // cache hit
+  assert.equal(treeCalls().length, 1);
+
+  await handleRequest(
+    rpc(tokens["team-a"], {
+      jsonrpc: "2.0",
+      id: 3,
+      method: "tools/call",
+      params: {
+        name: "write_context",
+        arguments: { project: "roadmap", type: "decision", payload: "new" },
+      },
+    }),
+    env,
+  );
+  await read(4); // invalidated → refetch
+  assert.equal(treeCalls().length, 2);
+});
+
 test("storage failure surfaces as an MCP tool error, not a crash", async () => {
   const { env, tokens } = await setup([
     ...TOKEN_ROUTES,

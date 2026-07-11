@@ -7,7 +7,7 @@
  */
 import type { Env } from "./env.js";
 import { resolveMember } from "./tenancy.js";
-import { readEntries } from "./github-store.js";
+import { readEntriesCached } from "./github-store.js";
 import { projectContext } from "../../src/context-format.js";
 import { DEFAULT_BUDGET_TOKENS } from "../../src/token-budget.js";
 import { slug } from "../../src/slug.js";
@@ -53,7 +53,7 @@ export async function handleApiRead(req: Request, env: Env): Promise<Response> {
     }
   }
 
-  const { entries, total } = await readEntries(
+  const { entries, total } = await readEntriesCached(
     env,
     member,
     project,
