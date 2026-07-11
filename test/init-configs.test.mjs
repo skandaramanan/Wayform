@@ -195,17 +195,14 @@ test("mergeCursorRemoteMcp preserves unrelated servers and is idempotent", () =>
   });
 });
 
-test("codexRemoteConfigToml renders a native HTTP server with an env-var token (no secret)", () => {
-  const toml = codexRemoteConfigToml("https://gw");
+test("codexRemoteConfigToml renders a native HTTP server with a literal auth header", () => {
+  const toml = codexRemoteConfigToml("https://gw", "mlk_secret");
   assert.match(toml, /\[mcp_servers\.wayform\]/);
   assert.match(toml, /url = "https:\/\/gw\/mcp"/);
-  assert.match(toml, /bearer_token_env_var = "MEMORYLAYER_GATEWAY_TOKEN"/);
-  // The token itself must never appear in the project config file.
-  assert.doesNotMatch(toml, /mlk_/);
+  // Literal http_headers, NOT bearer_token_env_var: the env-var form requires
+  // exporting the token before every launch and silently breaks IDE-launched
+  // Codex (no env → MCP client never initializes → no tools).
+  assert.match(toml, /http_headers = \{ Authorization = "Bearer mlk_secret" \}/);
+  assert.doesNotMatch(toml, /bearer_token_env_var/);
   assert.doesNotMatch(toml, /mcp-remote/);
-});
-
-test("codexRemoteConfigToml honors a custom token env-var name", () => {
-  const toml = codexRemoteConfigToml("https://gw", "CUSTOM_TOKEN");
-  assert.match(toml, /bearer_token_env_var = "CUSTOM_TOKEN"/);
 });
