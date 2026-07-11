@@ -10,7 +10,7 @@ import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { mergeClaudeSettings, mergeCursorHooks, mergeCodexHooks, mergeMcpJson, CODEX_MCP_TOML, } from "./init-configs.js";
-import { buildHookEnv, gitConfigDefault, ensureGitignore } from "./init-env.js";
+import { buildHookEnv, gitConfigDefault, ensureGitignore, writeSecretFile, hardenSecretFile, } from "./init-env.js";
 const USAGE = `wayform init — wire Wayform into this project
 
 Options (all optional; missing identity values are prompted for):
@@ -83,6 +83,7 @@ export async function runInit(args) {
     // --- User tier: identity env file ---
     const envFile = path.join(cwd, ".memorylayer-hook.env");
     if (fs.existsSync(envFile) && !has(args, "force")) {
+        hardenSecretFile(envFile); // retro-tighten a pre-existing 0644 file
         console.log("  .memorylayer-hook.env exists — leaving it (use --force to rewrite).");
     }
     else {
@@ -110,7 +111,7 @@ export async function runInit(args) {
         if (!author || !repoUrl) {
             throw new Error("author and context-repo are required to write .memorylayer-hook.env");
         }
-        fs.writeFileSync(envFile, buildHookEnv({ author, email, repoUrl, project }));
+        writeSecretFile(envFile, buildHookEnv({ author, email, repoUrl, project }));
         console.log("  wrote .memorylayer-hook.env (gitignored)");
     }
     // --- Gitignore the per-user + per-user-local files ---

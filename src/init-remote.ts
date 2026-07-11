@@ -21,6 +21,8 @@ import {
   buildRemoteHookEnv,
   gitConfigDefault,
   ensureGitignore,
+  writeSecretFile,
+  hardenSecretFile,
 } from "./init-env.js";
 
 export type Runner = (cmd: string, args: string[]) => void;
@@ -164,6 +166,8 @@ export async function runInitRemote(args: string[]): Promise<void> {
       token,
     ),
   );
+  // Token-bearing: tighten to owner-only (writeJson creates at umask default).
+  hardenSecretFile(path.join(cwd, ".cursor/mcp.json"));
 
   // --- Codex native HTTP MCP (project-scoped; token read from env at launch) ---
   writeText(cwd, ".codex/config.toml", codexRemoteConfigToml(gatewayUrl));
@@ -171,11 +175,12 @@ export async function runInitRemote(args: string[]): Promise<void> {
   // --- User tier: gitignored gateway env (hosted-only, no CONTEXT_REPO_URL) ---
   const envFile = path.join(cwd, ".memorylayer-hook.env");
   if (fs.existsSync(envFile) && !has(args, "force")) {
+    hardenSecretFile(envFile); // retro-tighten a pre-existing 0644 file
     console.log(
       "  .memorylayer-hook.env exists — leaving it (use --force to rewrite).",
     );
   } else {
-    fs.writeFileSync(
+    writeSecretFile(
       envFile,
       buildRemoteHookEnv({ gatewayUrl, token, project, author, email }),
     );
