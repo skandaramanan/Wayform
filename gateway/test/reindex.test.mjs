@@ -89,3 +89,71 @@ test("reconcileAll reindexes only spaces whose indexed sha lags HEAD", async () 
   await reconcileAll(env);
   assert.equal((await db.listDocs("s1", "memorylayer")).length, 1);
 });
+
+// --- cron wipe-loop fix (paginated reconcile, 2026-07-13 incident) ---
+
+function envWithManyEntries(indexDb, fileCount) {
+  const files = Array.from(
+    { length: fileCount },
+    (_, i) => `context/memorylayer/skanda/2026-07-01T00-00-${String(i).padStart(2, "0")}Z-e${i}.md`,
+  );
+  const md = (i) =>
+    `---\nauthor: Skanda\ntype: decision\ntimestamp: 2026-07-01T00:00:${String(i).padStart(2, "0")}Z\nid: e${i}\nproject: memorylayer\n---\n\ndecision number ${i}\n`;
+  const calls = [];
+  const env = makeEnv(
+    ghFetch(calls, [
+      [
+        "/app/installations/",
+        () =>
+          Response.json({
+            token: "ghs_test",
+            expires_at: "2099-01-01T00:00:00Z",
+          }),
+      ],
+      ["/commits/main", () => Response.json({ sha: "headsha" })],
+      [
+        "/git/trees/main",
+        () =>
+          Response.json({
+            tree: files.map((path) => ({ path, type: "blob" })),
+          }),
+      ],
+      ...files.map((path, i) => [`/contents/${path}`, () => new Response(md(i))]),
+    ]),
+    { indexDb, embedder: fakeEmbed },
+  );
+  return env;
+}
+
+test("reconcileAll heals a large drifted space one bounded page per tick via a KV cursor", async () => {
+  const db = new MemoryIndexDb();
+  const env = envWithManyEntries(db, 25);
+  await registerSpaceRepo(env, {
+    space: "s1",
+    installationId: 7,
+    owner: "o",
+    repo: "r",
+    branch: "main",
+  });
+  // simulate the incident: no indexed sha at all (wiped space) → drift
+  // tick 1: wipes (offset 0) and ingests the first page only
+  await reconcileAll(env);
+  assert.equal((await db.listDocs("s1")).length, 10);
+  assert.equal(await env.ROUTING.get("reindex-cursor:s1"), "10");
+  assert.equal(await db.getLastIndexedSha("s1"), null); // not done → still drifts
+
+  // tick 2: resumes from the cursor without re-wiping
+  await reconcileAll(env);
+  assert.equal((await db.listDocs("s1")).length, 20);
+  assert.equal(await env.ROUTING.get("reindex-cursor:s1"), "20");
+
+  // tick 3: final page — sha advances, cursor cleared
+  await reconcileAll(env);
+  assert.equal((await db.listDocs("s1")).length, 25);
+  assert.equal(await env.ROUTING.get("reindex-cursor:s1"), null);
+  assert.equal(await db.getLastIndexedSha("s1"), "headsha");
+
+  // tick 4: no drift → untouched
+  await reconcileAll(env);
+  assert.equal((await db.listDocs("s1")).length, 25);
+});

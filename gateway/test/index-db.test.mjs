@@ -348,3 +348,127 @@ test("logSupersession + recentConflictLogs round-trip", async () => {
   assert.equal(rows.length, 1);
   assert.equal(rows[0].verdict, "contradicts");
 });
+
+// --- read-path hardening (queryScan + getDocsByIds), 2026-07-13 ---
+
+test("MemoryIndexDb.queryScan: scopes by project/kinds, splits generators' inputs", async () => {
+  const db = new MemoryIndexDb();
+  await db.upsertDocs([
+    doc({ id: "a", body: "cursor mcp config scoping", entities: ["cursor"] }),
+    doc({ id: "b", body: "unrelated ledger note", embedding: [0.9, 0.1] }),
+    doc({ id: "c", body: "cursor again", kind: "context" }),
+    doc({ id: "d", body: "cursor other project", project: "other" }),
+    doc({ id: "e", body: "cursor superseded", supersededBy: "a" }),
+  ]);
+  const scan = await db.queryScan("s1", ["cursor"], {
+    project: "memorylayer",
+    kinds: ["decision"],
+  });
+  assert.equal(scan.total, 2); // a + b (c wrong kind, d wrong project, e dead)
+  assert.deepEqual(
+    scan.embeddings.map((r) => r.id).sort(),
+    ["a", "b"],
+  );
+  assert.deepEqual(scan.tokenMatchIds, ["a"]);
+  assert.deepEqual(scan.entitiesByDoc.get("a"), ["cursor"]);
+  assert.equal(scan.entitiesByDoc.has("b"), false);
+});
+
+test("MemoryIndexDb.getDocsByIds hydrates only the requested live docs", async () => {
+  const db = new MemoryIndexDb();
+  await db.upsertDocs([
+    doc({ id: "a", entities: ["d1"] }),
+    doc({ id: "b" }),
+    doc({ id: "z", supersededBy: "a" }),
+  ]);
+  const got = await db.getDocsByIds("s1", ["a", "z", "missing"]);
+  assert.deepEqual(got.map((d) => d.id), ["a"]);
+  assert.deepEqual(got[0].entities, ["d1"]);
+});
+
+test("d1IndexDb.queryScan issues bounded SQL: embeddings-only scan, entity join, token LIKE prefilter", async () => {
+  const executed = [];
+  const stmt = (sql) => ({
+    sql,
+    params: [],
+    bind(...v) {
+      this.params = v;
+      return this;
+    },
+    async all() {
+      executed.push(this);
+      if (/SELECT id, embedding FROM docs/i.test(this.sql))
+        return {
+          results: [
+            { id: "a", embedding: encodeEmbedding([0.5, 0.5]) },
+            { id: "b", embedding: encodeEmbedding([0.1, 0.9]) },
+          ],
+        };
+      if (/FROM fact_entities fe JOIN docs d/i.test(this.sql))
+        return { results: [{ fact_id: "a", entity: "cursor" }] };
+      if (/body LIKE/i.test(this.sql)) return { results: [{ id: "a" }] };
+      return { results: [] };
+    },
+    async run() {
+      return {};
+    },
+    async first() {
+      return null;
+    },
+  });
+  const db = d1IndexDb({ prepare: (sql) => stmt(sql), batch: async () => [] });
+  const scan = await db.queryScan("s1", ["cursor", "mcp"], {
+    project: "memorylayer",
+    kinds: ["decision", "context"],
+  });
+  assert.equal(scan.total, 2);
+  assert.deepEqual(scan.tokenMatchIds, ["a"]);
+  assert.deepEqual(scan.entitiesByDoc.get("a"), ["cursor"]);
+  assert.deepEqual(scan.embeddings[0].embedding, [0.5, 0.5]);
+
+  const emb = executed.find((s) => /SELECT id, embedding/i.test(s.sql));
+  assert.ok(!/SELECT \*/.test(emb.sql), "embedding scan must not fetch full rows");
+  assert.deepEqual(emb.params, ["s1", "memorylayer", "decision", "context"]);
+
+  const tok = executed.find((s) => /body LIKE/i.test(s.sql));
+  assert.ok(/LIMIT \d+/.test(tok.sql), "token prefilter must be bounded");
+  assert.deepEqual(tok.params, [
+    "s1",
+    "memorylayer",
+    "decision",
+    "context",
+    "%cursor%",
+    "%mcp%",
+  ]);
+});
+
+test("d1IndexDb.getDocsByIds chunks IN lists under the D1 bound-parameter cap", async () => {
+  const executed = [];
+  const stmt = (sql) => ({
+    sql,
+    params: [],
+    bind(...v) {
+      this.params = v;
+      return this;
+    },
+    async all() {
+      executed.push(this);
+      return { results: [] };
+    },
+    async run() {
+      return {};
+    },
+    async first() {
+      return null;
+    },
+  });
+  const db = d1IndexDb({ prepare: (sql) => stmt(sql), batch: async () => [] });
+  const ids = Array.from({ length: 150 }, (_, i) => `id${i}`);
+  await db.getDocsByIds("s1", ids);
+  const docStmts = executed.filter((s) => /SELECT \* FROM docs/i.test(s.sql));
+  assert.equal(docStmts.length, 2); // 90 + 60
+  for (const s of docStmts) {
+    assert.ok(s.params.length <= 91, `too many binds: ${s.params.length}`);
+    assert.ok(/superseded_by IS NULL/i.test(s.sql));
+  }
+});

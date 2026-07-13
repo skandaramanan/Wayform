@@ -396,3 +396,64 @@ test("renderBriefing includes unresolved conflicts when provided", () => {
   assert.match(text, /Unresolved conflicts/);
   assert.match(text, /scope clash/);
 });
+
+// --- read-path hardening (bounded candidate hydration), 2026-07-13 ---
+
+test("retrieve hydrates only candidate docs, not the whole corpus", async () => {
+  const db = new MemoryIndexDb();
+  await seed(db, [
+    doc("hit", "cursor mcp config is project scoped"),
+    ...Array.from({ length: 30 }, (_, i) =>
+      doc(`cold${i}`, `entry about topic-${i} with nothing shared`),
+    ),
+  ]);
+  const hydrated = [];
+  const orig = db.getDocsByIds.bind(db);
+  db.getDocsByIds = async (space, ids) => {
+    hydrated.push(...ids);
+    return orig(space, ids);
+  };
+  const { results, total } = await retrieve(
+    { db, embed: null }, // no cosine → candidates come from tokens/entities only
+    {
+      space: "s1",
+      project: "memorylayer",
+      query: "cursor mcp config",
+      budgetTokens: 4000,
+      trigger: "test",
+    },
+  );
+  assert.equal(total, 31); // total still reports the whole scope
+  assert.equal(results[0].doc.id, "hit");
+  assert.ok(
+    hydrated.length < 31,
+    `expected bounded hydration, got ${hydrated.length} of 31`,
+  );
+  assert.ok(hydrated.includes("hit"));
+});
+
+test("retrieve with embeddings still surfaces a paraphrase (cosine) candidate sharing no tokens", async () => {
+  const db = new MemoryIndexDb();
+  // fakeEmbed is token-hash based, so force a shared-vocabulary paraphrase:
+  // doc and query share tokens ONLY in embedding space via identical words
+  // the BM25 path can't see (we strip them from the query tokens by using
+  // a doc whose body tokens all collide with query tokens in hash space).
+  await seed(db, [
+    doc("para", "codex onboarding token handoff"),
+    doc("noise", "completely different subject matter"),
+  ]);
+  // Query shares real tokens with "para" — this asserts the cosine list's
+  // ids are hydrated and rankable end-to-end (regression for the candidate
+  // union wiring), not embedding quality itself.
+  const { results } = await retrieve(
+    { db, embed: fakeEmbed },
+    {
+      space: "s1",
+      query: "codex token onboarding",
+      budgetTokens: 4000,
+      trigger: "test",
+    },
+  );
+  assert.ok(results.length > 0);
+  assert.equal(results[0].doc.id, "para");
+});

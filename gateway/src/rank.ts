@@ -26,9 +26,17 @@ export function bm25Rank(
   docs: { id: string; body: string }[],
   query: string,
   topK: number = DEFAULT_TOP_K,
+  corpusDocCount?: number,
 ): Scored[] {
   const qTerms = [...new Set(tokenize(query))];
   if (qTerms.length === 0 || docs.length === 0) return [];
+
+  // When the caller passes a bounded candidate set instead of the whole
+  // corpus (§5.1 read-path hardening), `corpusDocCount` keeps idf's N at the
+  // true corpus size. df stays exact because every doc containing a query
+  // token is in the candidate set; avgLen over candidates is an accepted
+  // approximation (RRF fuses by rank, not magnitude).
+  const nTotal = Math.max(corpusDocCount ?? docs.length, docs.length);
 
   const docTokens = docs.map((d) => tokenize(d.body));
   const avgLen =
@@ -52,7 +60,7 @@ export function bm25Rank(
       const f = tf.get(q) ?? 0;
       if (f === 0) continue;
       const n = df.get(q) ?? 0;
-      const idf = Math.log(1 + (docs.length - n + 0.5) / (n + 0.5));
+      const idf = Math.log(1 + (nTotal - n + 0.5) / (n + 0.5));
       score +=
         (idf * f * (BM25_K1 + 1)) /
         (f + BM25_K1 * (1 - BM25_B + (BM25_B * tokens.length) / avgLen));
