@@ -65,10 +65,33 @@ export interface GoldenCandidate {
   ts: string;
 }
 
+/** What retrieve()'s candidate generators need from one pass over the live
+ *  docs in scope — WITHOUT fetching every body/full row (read-path hardening:
+ *  per-query work must not grow with the whole corpus). */
+export interface QueryScan {
+  /** id + embedding for every live doc in scope — cosine's full scan. */
+  embeddings: { id: string; embedding: number[] }[];
+  /** entity tags per live doc id in scope (docs with no tags omitted). */
+  entitiesByDoc: Map<string, string[]>;
+  /** ids of docs whose body contains any query token — a superset of the
+   *  docs with nonzero BM25 score, so BM25 over these is exact. */
+  tokenMatchIds: string[];
+  /** live docs in scope (retrieve()'s reported total). */
+  total: number;
+}
+
 export interface IndexDb {
   upsertDocs(docs: IndexedDoc[]): Promise<void>;
   /** Live (unsuperseded) docs; project omitted = whole space. */
   listDocs(space: string, project?: string): Promise<IndexedDoc[]>;
+  /** Candidate-generation scan for the §5 read path; see QueryScan. */
+  queryScan(
+    space: string,
+    tokens: string[],
+    opts?: { project?: string; kinds?: string[] },
+  ): Promise<QueryScan>;
+  /** Hydrate specific live docs (with entity tags) by id. */
+  getDocsByIds(space: string, ids: string[]): Promise<IndexedDoc[]>;
   /** Fetch one doc by id regardless of superseded_by (briefing / audit). */
   getDoc(space: string, id: string): Promise<IndexedDoc | null>;
   getLastIndexedSha(space: string): Promise<string | null>;
@@ -155,6 +178,37 @@ export class MemoryIndexDb implements IndexDb {
         d.supersededBy === null &&
         (project === undefined || d.project === project),
     );
+  }
+  async queryScan(
+    space: string,
+    tokens: string[],
+    opts: { project?: string; kinds?: string[] } = {},
+  ): Promise<QueryScan> {
+    let docs = await this.listDocs(space, opts.project);
+    if (opts.kinds && opts.kinds.length > 0) {
+      docs = docs.filter((d) => opts.kinds!.includes(d.kind));
+    }
+    // Substring match mirrors the D1 impl's LIKE '%token%' semantics.
+    const lowered = tokens.map((t) => t.toLowerCase());
+    return {
+      embeddings: docs.map((d) => ({ id: d.id, embedding: d.embedding })),
+      entitiesByDoc: new Map(
+        docs
+          .filter((d) => (d.entities ?? []).length > 0)
+          .map((d) => [d.id, d.entities]),
+      ),
+      tokenMatchIds: docs
+        .filter((d) => {
+          const body = d.body.toLowerCase();
+          return lowered.some((t) => body.includes(t));
+        })
+        .map((d) => d.id),
+      total: docs.length,
+    };
+  }
+  async getDocsByIds(space: string, ids: string[]): Promise<IndexedDoc[]> {
+    const want = new Set(ids);
+    return (await this.listDocs(space)).filter((d) => want.has(d.id));
   }
   async getDoc(space: string, id: string): Promise<IndexedDoc | null> {
     return this.docs.get(`${space} ${id}`) ?? null;
@@ -309,6 +363,12 @@ export function decodeEmbedding(b: ArrayBuffer | null): number[] {
   return [...new Float32Array(b)];
 }
 
+/** Safety valve on the token-candidate prefilter: at pilot corpus sizes this
+ *  is never hit; it exists so a pathological common-token query stays bounded. */
+const TOKEN_MATCH_LIMIT = 500;
+/** D1 caps bound parameters per statement (~100), so IN-list queries chunk. */
+const ID_CHUNK = 90;
+
 const UPSERT_SQL =
   "INSERT OR REPLACE INTO docs (id, space, project, kind, tier, body, " +
   "source_file, source_author, source_ts, embedding, superseded_by, created_at, source_id) " +
@@ -361,6 +421,100 @@ export function d1IndexDb(db: D1Like): IndexDb {
         tags.set(id, list);
       }
       return results.map((r) => rowToDoc(r, tags.get(r.id as string) ?? []));
+    },
+    async queryScan(space, tokens, opts = {}) {
+      // Shared live-docs-in-scope predicate; `alias` prefixes columns when
+      // the docs table is joined under an alias.
+      const scope = (alias = "") =>
+        `${alias}space = ? AND ${alias}superseded_by IS NULL` +
+        (opts.project !== undefined ? ` AND ${alias}project = ?` : "") +
+        (opts.kinds && opts.kinds.length > 0
+          ? ` AND ${alias}kind IN (${opts.kinds.map(() => "?").join(", ")})`
+          : "");
+      const scopeBinds = [
+        space,
+        ...(opts.project !== undefined ? [opts.project] : []),
+        ...(opts.kinds && opts.kinds.length > 0 ? opts.kinds : []),
+      ];
+      const embStmt = db
+        .prepare(`SELECT id, embedding FROM docs WHERE ${scope()}`)
+        .bind(...scopeBinds);
+      const entStmt = db
+        .prepare(
+          "SELECT fe.fact_id AS fact_id, fe.entity AS entity " +
+            "FROM fact_entities fe JOIN docs d ON d.space = fe.space AND d.id = fe.fact_id " +
+            `WHERE ${scope("d.")}`,
+        )
+        .bind(...scopeBinds);
+      // Tokens come from tokenize(): lowercase [a-z0-9]+, so they are safe
+      // inside LIKE patterns (no %/_ metacharacters). Substring matches that
+      // are not token matches just hydrate a harmless extra candidate.
+      const tokStmt =
+        tokens.length > 0
+          ? db
+              .prepare(
+                `SELECT id FROM docs WHERE ${scope()} AND (` +
+                  tokens.map(() => "body LIKE ?").join(" OR ") +
+                  `) LIMIT ${TOKEN_MATCH_LIMIT}`,
+              )
+              .bind(...scopeBinds, ...tokens.map((t) => `%${t}%`))
+          : null;
+      const [embRes, entRes, tokRes] = await Promise.all([
+        embStmt.all(),
+        entStmt.all(),
+        tokStmt ? tokStmt.all() : Promise.resolve({ results: [] }),
+      ]);
+      const entitiesByDoc = new Map<string, string[]>();
+      for (const r of entRes.results) {
+        const id = r.fact_id as string;
+        const list = entitiesByDoc.get(id) ?? [];
+        list.push(r.entity as string);
+        entitiesByDoc.set(id, list);
+      }
+      const embeddings = embRes.results.map((r) => ({
+        id: r.id as string,
+        embedding: decodeEmbedding(r.embedding as ArrayBuffer | null),
+      }));
+      return {
+        embeddings,
+        entitiesByDoc,
+        tokenMatchIds: tokRes.results.map((r) => r.id as string),
+        total: embeddings.length,
+      };
+    },
+    async getDocsByIds(space, ids) {
+      const out: IndexedDoc[] = [];
+      for (let i = 0; i < ids.length; i += ID_CHUNK) {
+        const chunk = ids.slice(i, i + ID_CHUNK);
+        const ph = chunk.map(() => "?").join(", ");
+        const [docRes, tagRes] = await Promise.all([
+          db
+            .prepare(
+              `SELECT * FROM docs WHERE space = ? AND superseded_by IS NULL AND id IN (${ph})`,
+            )
+            .bind(space, ...chunk)
+            .all(),
+          db
+            .prepare(
+              `SELECT fact_id, entity FROM fact_entities WHERE space = ? AND fact_id IN (${ph})`,
+            )
+            .bind(space, ...chunk)
+            .all(),
+        ]);
+        const tags = new Map<string, string[]>();
+        for (const r of tagRes.results) {
+          const id = r.fact_id as string;
+          const list = tags.get(id) ?? [];
+          list.push(r.entity as string);
+          tags.set(id, list);
+        }
+        out.push(
+          ...docRes.results.map((r) =>
+            rowToDoc(r, tags.get(r.id as string) ?? []),
+          ),
+        );
+      }
+      return out;
     },
     async getDoc(space, id) {
       const row = await db
