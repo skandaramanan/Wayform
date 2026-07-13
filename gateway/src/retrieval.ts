@@ -1,9 +1,17 @@
 /**
  * The §5 pipeline, one code path for every trigger:
- * candidates (BM25 ∪ cosine) → RRF fusion → kind priors/decay → τ floor →
- * token-budget packing → render with provenance. Logs every run to
+ * candidates (BM25 ∪ cosine ∪ entity) → RRF fusion → kind priors/decay →
+ * τ floor → token-budget packing → render with provenance. Logs every run to
  * retrieval_log (§7) — the log is the training/calibration data every later
  * phase needs. No LLM on the read path (latency budget, §6).
+ *
+ * Read-path hardening (2026-07-13, post-1102): a query no longer loads every
+ * full doc row. queryScan fetches only what the candidate generators need
+ * (id+embedding for cosine, entity tags, token-match ids); full rows are
+ * hydrated for the bounded candidate union only, so per-query body/metadata
+ * work stops growing with the whole corpus. The embedding scan stays
+ * O(corpus) — irreducible without a vector index, and single-digit ms at
+ * pilot scale.
  */
 import type { IndexDb, IndexedDoc } from "./index-db.js";
 import {
@@ -12,6 +20,7 @@ import {
   entityRank,
   rrfFuse,
   adjustScores,
+  tokenize,
   TAU,
   type Scored,
 } from "./rank.js";
@@ -42,28 +51,58 @@ export interface Retrieved {
   score: number;
 }
 
+/** Bound the LIKE clauses a long query can generate. */
+const MAX_QUERY_TOKENS = 16;
+/** Entity-overlap candidates beyond this rank contribute <1/(60+200) RRF —
+ *  far under τ even combined — so capping the hydration set is safe. */
+const ENTITY_CANDIDATE_CAP = 200;
+
 export async function retrieve(
   deps: RetrieveDeps,
   opts: RetrieveOpts,
 ): Promise<{ results: Retrieved[]; total: number }> {
-  let docs = await deps.db.listDocs(opts.space, opts.project);
-  if (opts.kinds && opts.kinds.length > 0) {
-    docs = docs.filter((d) => opts.kinds!.includes(d.kind));
-  }
-  if (docs.length === 0) return { results: [], total: 0 };
+  const qTokens = [...new Set(tokenize(opts.query))].slice(0, MAX_QUERY_TOKENS);
+  const scan = await deps.db.queryScan(opts.space, qTokens, {
+    project: opts.project,
+    kinds: opts.kinds && opts.kinds.length > 0 ? opts.kinds : undefined,
+  });
+  if (scan.total === 0) return { results: [], total: 0 };
 
-  const lists: Scored[][] = [bm25Rank(docs, opts.query)];
+  let cosine: Scored[] = [];
   if (deps.embed) {
     try {
       const [queryVec] = await deps.embed([opts.query]);
-      lists.push(cosineTopK(docs, queryVec ?? []));
+      cosine = cosineTopK(scan.embeddings, queryVec ?? []);
     } catch {
       // fail-open: BM25 alone still rescues exact-term matches (§5.1)
     }
   }
   // Third candidate generator (§5.1): entity-tag overlap rescues canonical
   // topics that paraphrase-embeddings blur and multi-word tags BM25 splits.
-  lists.push(entityRank(docs, opts.query));
+  const entityCands = entityRank(
+    [...scan.entitiesByDoc].map(([id, entities]) => ({ id, entities })),
+    opts.query,
+  ).slice(0, ENTITY_CANDIDATE_CAP);
+
+  // Hydrate full rows for the candidate union only; every id that can appear
+  // in the fused ranking below is in this set.
+  const candidateIds = [
+    ...new Set([
+      ...scan.tokenMatchIds,
+      ...cosine.map((s) => s.id),
+      ...entityCands.map((s) => s.id),
+    ]),
+  ];
+  const docs =
+    candidateIds.length > 0
+      ? await deps.db.getDocsByIds(opts.space, candidateIds)
+      : [];
+
+  const lists: Scored[][] = [
+    bm25Rank(docs, opts.query, undefined, scan.total),
+    cosine,
+    entityCands,
+  ];
 
   const byId = new Map(docs.map((d) => [d.id, d]));
   let penalties = new Map<string, number>();
@@ -103,7 +142,7 @@ export async function retrieve(
     // logging must never break a read
   }
 
-  return { results, total: docs.length };
+  return { results, total: scan.total };
 }
 
 /**
