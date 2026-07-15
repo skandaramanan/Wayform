@@ -91,8 +91,8 @@ export async function runInit(args: string[]): Promise<void> {
 
   const cwd = process.cwd();
   if (!fs.existsSync(path.join(cwd, ".git"))) {
-    console.warn(
-      "! Not a git repository. Hooks are project-scoped; run this in your project root.",
+    throw new Error(
+      "Not a git repository — cd to your project's root and re-run. Nothing was written.",
     );
   }
 
