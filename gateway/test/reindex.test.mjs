@@ -95,7 +95,8 @@ test("reconcileAll reindexes only spaces whose indexed sha lags HEAD", async () 
 function envWithManyEntries(indexDb, fileCount) {
   const files = Array.from(
     { length: fileCount },
-    (_, i) => `context/memorylayer/skanda/2026-07-01T00-00-${String(i).padStart(2, "0")}Z-e${i}.md`,
+    (_, i) =>
+      `context/memorylayer/skanda/2026-07-01T00-00-${String(i).padStart(2, "0")}Z-e${i}.md`,
   );
   const md = (i) =>
     `---\nauthor: Skanda\ntype: decision\ntimestamp: 2026-07-01T00:00:${String(i).padStart(2, "0")}Z\nid: e${i}\nproject: memorylayer\n---\n\ndecision number ${i}\n`;
@@ -118,7 +119,10 @@ function envWithManyEntries(indexDb, fileCount) {
             tree: files.map((path) => ({ path, type: "blob" })),
           }),
       ],
-      ...files.map((path, i) => [`/contents/${path}`, () => new Response(md(i))]),
+      ...files.map((path, i) => [
+        `/contents/${path}`,
+        () => new Response(md(i)),
+      ]),
     ]),
     { indexDb, embedder: fakeEmbed },
   );
