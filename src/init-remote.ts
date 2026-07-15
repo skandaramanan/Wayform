@@ -170,7 +170,11 @@ export async function runInitRemote(args: string[]): Promise<void> {
   hardenSecretFile(path.join(cwd, ".cursor/mcp.json"));
 
   // --- Codex native HTTP MCP (project-scoped, gitignored — carries the token) ---
-  writeText(cwd, ".codex/config.toml", codexRemoteConfigToml(gatewayUrl, token));
+  writeText(
+    cwd,
+    ".codex/config.toml",
+    codexRemoteConfigToml(gatewayUrl, token),
+  );
   hardenSecretFile(path.join(cwd, ".codex/config.toml"));
 
   // --- User tier: gitignored gateway env (hosted-only, no CONTEXT_REPO_URL) ---
@@ -213,7 +217,9 @@ export async function runInitRemote(args: string[]): Promise<void> {
     console.log(`    ${claude.command}\n`);
   }
 
-  console.log("  wrote .codex/config.toml (gitignored — carries the member token)");
+  console.log(
+    "  wrote .codex/config.toml (gitignored — carries the member token)",
+  );
 
   console.log("\nNext steps:");
   console.log(

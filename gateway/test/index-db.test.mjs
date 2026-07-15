@@ -365,10 +365,7 @@ test("MemoryIndexDb.queryScan: scopes by project/kinds, splits generators' input
     kinds: ["decision"],
   });
   assert.equal(scan.total, 2); // a + b (c wrong kind, d wrong project, e dead)
-  assert.deepEqual(
-    scan.embeddings.map((r) => r.id).sort(),
-    ["a", "b"],
-  );
+  assert.deepEqual(scan.embeddings.map((r) => r.id).sort(), ["a", "b"]);
   assert.deepEqual(scan.tokenMatchIds, ["a"]);
   assert.deepEqual(scan.entitiesByDoc.get("a"), ["cursor"]);
   assert.equal(scan.entitiesByDoc.has("b"), false);
@@ -382,7 +379,10 @@ test("MemoryIndexDb.getDocsByIds hydrates only the requested live docs", async (
     doc({ id: "z", supersededBy: "a" }),
   ]);
   const got = await db.getDocsByIds("s1", ["a", "z", "missing"]);
-  assert.deepEqual(got.map((d) => d.id), ["a"]);
+  assert.deepEqual(
+    got.map((d) => d.id),
+    ["a"],
+  );
   assert.deepEqual(got[0].entities, ["d1"]);
 });
 
@@ -427,7 +427,10 @@ test("d1IndexDb.queryScan issues bounded SQL: embeddings-only scan, entity join,
   assert.deepEqual(scan.embeddings[0].embedding, [0.5, 0.5]);
 
   const emb = executed.find((s) => /SELECT id, embedding/i.test(s.sql));
-  assert.ok(!/SELECT \*/.test(emb.sql), "embedding scan must not fetch full rows");
+  assert.ok(
+    !/SELECT \*/.test(emb.sql),
+    "embedding scan must not fetch full rows",
+  );
   assert.deepEqual(emb.params, ["s1", "memorylayer", "decision", "context"]);
 
   const tok = executed.find((s) => /body LIKE/i.test(s.sql));

@@ -174,14 +174,18 @@ test("readEntries fetches blobs in PARALLEL (a later blob starts before an earli
         "aaaaaaaa.md",
         async () => {
           await bStarted;
-          return new Response(entryMd("2026-07-01T10:00:00.000Z", "Ada", "first"));
+          return new Response(
+            entryMd("2026-07-01T10:00:00.000Z", "Ada", "first"),
+          );
         },
       ],
       [
         "bbbbbbbb.md",
         () => {
           releaseA();
-          return new Response(entryMd("2026-07-02T10:00:00.000Z", "Bo", "second"));
+          return new Response(
+            entryMd("2026-07-02T10:00:00.000Z", "Bo", "second"),
+          );
         },
       ],
     ],
@@ -252,7 +256,13 @@ test("readEntriesCached serves repeat reads from KV with ZERO GitHub calls, budg
   assert.deepEqual(second, first);
 
   // The cache stores UN-packed entries: a tighter budget on a hit packs down.
-  const tight = await readEntriesCached(env, MEMBER, "roadmap", 1000, fetchImpl);
+  const tight = await readEntriesCached(
+    env,
+    MEMBER,
+    "roadmap",
+    1000,
+    fetchImpl,
+  );
   assert.equal(calls.length, callsAfterFirst);
   assert.equal(tight.total, 2);
   assert.equal(tight.entries.length, 1);
@@ -292,7 +302,8 @@ test("readEntriesCached falls through to GitHub when KV is unavailable", async (
   const real = env.ROUTING;
   env.ROUTING = {
     get: (k) => (k.startsWith("recency:") ? broken.get(k) : real.get(k)),
-    put: (k, v, o) => (k.startsWith("recency:") ? broken.put(k) : real.put(k, v, o)),
+    put: (k, v, o) =>
+      k.startsWith("recency:") ? broken.put(k) : real.put(k, v, o),
     delete: (k) => real.delete(k),
   };
   const { entries, total } = await readEntriesCached(

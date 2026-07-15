@@ -139,7 +139,10 @@ export function mergeCursorRemoteMcp(
  * literal path. This file therefore CARRIES THE TOKEN: `init --remote` MUST
  * gitignore it and harden it to 0600.
  */
-export function codexRemoteConfigToml(gatewayUrl: string, token: string): string {
+export function codexRemoteConfigToml(
+  gatewayUrl: string,
+  token: string,
+): string {
   return `[mcp_servers.wayform]
 url = "${gatewayUrl}/mcp"
 http_headers = { Authorization = "Bearer ${token}" }

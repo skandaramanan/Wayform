@@ -202,7 +202,10 @@ test("codexRemoteConfigToml renders a native HTTP server with a literal auth hea
   // Literal http_headers, NOT bearer_token_env_var: the env-var form requires
   // exporting the token before every launch and silently breaks IDE-launched
   // Codex (no env → MCP client never initializes → no tools).
-  assert.match(toml, /http_headers = \{ Authorization = "Bearer mlk_secret" \}/);
+  assert.match(
+    toml,
+    /http_headers = \{ Authorization = "Bearer mlk_secret" \}/,
+  );
   assert.doesNotMatch(toml, /bearer_token_env_var/);
   assert.doesNotMatch(toml, /mcp-remote/);
 });

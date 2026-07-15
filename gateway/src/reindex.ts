@@ -128,10 +128,18 @@ export async function reconcileAll(env: Env): Promise<void> {
       // final page completes, so an interrupted rebuild resumes, not lies.
       const raw = await env.ROUTING.get(reindexCursorKey(sr.space));
       const offset = raw ? Number.parseInt(raw, 10) || 0 : 0;
-      const r = await reindexSpace(env, deps.db, deps.embed, deps.gen, sr, fetchImpl, {
-        offset,
-        limit: CRON_REINDEX_PAGE,
-      });
+      const r = await reindexSpace(
+        env,
+        deps.db,
+        deps.embed,
+        deps.gen,
+        sr,
+        fetchImpl,
+        {
+          offset,
+          limit: CRON_REINDEX_PAGE,
+        },
+      );
       if (r.nextOffset === null) {
         await env.ROUTING.delete(reindexCursorKey(sr.space));
       } else {
