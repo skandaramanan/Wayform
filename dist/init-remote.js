@@ -12,14 +12,31 @@ import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { mergeClaudeSettings, mergeCursorHooks, mergeCodexHooks, mergeCursorRemoteMcp, codexRemoteConfigToml, } from "./init-configs.js";
 import { buildRemoteHookEnv, gitConfigDefault, ensureGitignore, writeSecretFile, hardenSecretFile, } from "./init-env.js";
-const defaultRunner = (cmd, args) => 
-// Bounded + non-interactive: a hanging or prompting `claude` must never freeze
-// init. On timeout/ENOENT this throws → the caller falls open to a printed
-// manual command. stdin is closed so the child cannot block waiting for input.
-void execFileSync(cmd, args, {
-    stdio: ["ignore", "ignore", "ignore"],
-    timeout: 15000,
-});
+const defaultRunner = (cmd, args) => {
+    // Bounded + non-interactive: a hanging or prompting `claude` must never freeze
+    // init. On timeout/ENOENT this throws → the caller falls open to a printed
+    // manual command. stdin is closed so the child cannot block waiting for input.
+    // Claude Code's default install is a shell-rc alias to ~/.claude/local/claude,
+    // invisible to execFileSync's PATH lookup — try that location before giving up.
+    const home = process.env.HOME ?? "";
+    const candidates = cmd === "claude" && home
+        ? [cmd, path.join(home, ".claude", "local", "claude")]
+        : [cmd];
+    let lastErr;
+    for (const bin of candidates) {
+        try {
+            execFileSync(bin, args, {
+                stdio: ["ignore", "ignore", "ignore"],
+                timeout: 15000,
+            });
+            return;
+        }
+        catch (err) {
+            lastErr = err;
+        }
+    }
+    throw lastErr;
+};
 /**
  * Register the gateway as a project-scoped (`--scope local`) HTTP MCP server for
  * Claude Code. `--scope local` stores config in ~/.claude.json (NOT the repo), so
@@ -39,7 +56,8 @@ export function registerClaudeCodeMcp(gatewayUrl, token, run = defaultRunner) {
         "--header",
         `Authorization: Bearer ${token}`,
     ];
-    const command = `claude ${args.join(" ")}`;
+    // Shell-quote the header arg so the printed fallback is copy-paste safe.
+    const command = `claude ${args.map((a) => (a.includes(" ") ? `"${a}"` : a)).join(" ")}`;
     try {
         run("claude", args);
         return { ok: true, command };
@@ -80,7 +98,7 @@ function writeText(cwd, rel, text) {
 export async function runInitRemote(args) {
     const cwd = process.cwd();
     if (!fs.existsSync(path.join(cwd, ".git"))) {
-        console.warn("! Not a git repository. Hooks are project-scoped; run this in your project root.");
+        throw new Error("Not a git repository — cd to your project's root and re-run. Nothing was written.");
     }
     const gatewayUrl = (flag(args, "gateway") ?? "").replace(/\/+$/, "");
     const token = flag(args, "token") ?? "";
@@ -141,8 +159,9 @@ export async function runInitRemote(args) {
         console.log("  registered Claude Code MCP (claude mcp add --scope local)");
     }
     else {
-        console.log("  ! Could not run the Claude CLI — register Claude Code MCP by hand:\n");
+        console.log("  ! Couldn't find the Claude Code CLI — finish setup by running this in your project root:\n");
         console.log(`    ${claude.command}\n`);
+        console.log('    then restart Claude Code and check /mcp shows "wayform" connected.\n');
     }
     console.log("  wrote .codex/config.toml (gitignored — carries the member token)");
     console.log("\nNext steps:");

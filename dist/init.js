@@ -70,7 +70,7 @@ export async function runInit(args) {
     }
     const cwd = process.cwd();
     if (!fs.existsSync(path.join(cwd, ".git"))) {
-        console.warn("! Not a git repository. Hooks are project-scoped; run this in your project root.");
+        throw new Error("Not a git repository — cd to your project's root and re-run. Nothing was written.");
     }
     // --- Project tier: hook configs (all three clients) ---
     writeJson(cwd, ".claude/settings.json", mergeClaudeSettings(readJson(path.join(cwd, ".claude/settings.json"))));
