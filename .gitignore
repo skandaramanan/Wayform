@@ -18,3 +18,4 @@ docs/
 # Codex project-scoped MCP config — regenerated per-member by `wayform init --remote`
 .codex/config.toml
 .gstack/
+docs/onboarding/pilot-onboarding.local.md
