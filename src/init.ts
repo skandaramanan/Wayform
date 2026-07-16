@@ -22,6 +22,7 @@ import {
   ensureGitignore,
   writeSecretFile,
   hardenSecretFile,
+  trustCodexHooks,
 } from "./init-env.js";
 
 const USAGE = `wayform init — wire Wayform into this project
@@ -107,11 +108,13 @@ export async function runInit(args: string[]): Promise<void> {
     ".cursor/hooks.json",
     mergeCursorHooks(readJson(path.join(cwd, ".cursor/hooks.json"))),
   );
-  writeJson(
-    cwd,
-    ".codex/hooks.json",
-    mergeCodexHooks(readJson(path.join(cwd, ".codex/hooks.json"))),
+  const codexHooks = mergeCodexHooks(
+    readJson(path.join(cwd, ".codex/hooks.json")),
   );
+  writeJson(cwd, ".codex/hooks.json", codexHooks);
+  // User tier: codex requires per-hook trust in ~/.codex/config.toml and
+  // silently skips untrusted hooks — grant it for the hooks we just wrote.
+  trustCodexHooks(cwd, codexHooks);
 
   // --- Project tier: MCP registration (Claude Code + Cursor + Codex) ---
   writeJson(

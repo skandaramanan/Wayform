@@ -29,7 +29,15 @@ function runInit(dir) {
       "--project",
       "team-app",
     ],
-    { cwd: dir, encoding: "utf8", env: { PATH: process.env.PATH ?? "" } },
+    {
+      cwd: dir,
+      encoding: "utf8",
+      // CODEX_HOME keeps the codex hook-trust write off the real ~/.codex.
+      env: {
+        PATH: process.env.PATH ?? "",
+        CODEX_HOME: path.join(dir, ".codex-home"),
+      },
+    },
   );
 }
 
@@ -49,6 +57,25 @@ test("init writes all three hook configs, both MCP files, env, and gitignore", (
     assert.match(read(".memorylayer-hook.env"), /MEMORYLAYER_AUTHOR=Ada/);
     assert.match(read(".gitignore"), /\.memorylayer-hook\.env/);
     assert.match(read(".gitignore"), /\.codex\/config\.toml/);
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("init trusts its codex hooks in CODEX_HOME/config.toml, idempotently", () => {
+  const dir = initRepo();
+  try {
+    runInit(dir);
+    runInit(dir);
+    const cfg = fs.readFileSync(
+      path.join(dir, ".codex-home", "config.toml"),
+      "utf8",
+    );
+    for (const key of ["session_start:0:0", "stop:0:0"]) {
+      const header = `.codex/hooks.json:${key}"]`;
+      assert.equal(cfg.split(header).length - 1, 1, `one entry for ${key}`);
+    }
+    assert.match(cfg, /trusted_hash = "sha256:[0-9a-f]{64}"/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
