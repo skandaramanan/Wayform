@@ -10,7 +10,7 @@ import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { mergeClaudeSettings, mergeCursorHooks, mergeCodexHooks, mergeMcpJson, CODEX_MCP_TOML, } from "./init-configs.js";
-import { buildHookEnv, gitConfigDefault, ensureGitignore, writeSecretFile, hardenSecretFile, } from "./init-env.js";
+import { buildHookEnv, gitConfigDefault, ensureGitignore, writeSecretFile, hardenSecretFile, trustCodexHooks, } from "./init-env.js";
 const USAGE = `wayform init — wire Wayform into this project
 
 Options (all optional; missing identity values are prompted for):
@@ -75,7 +75,11 @@ export async function runInit(args) {
     // --- Project tier: hook configs (all three clients) ---
     writeJson(cwd, ".claude/settings.json", mergeClaudeSettings(readJson(path.join(cwd, ".claude/settings.json"))));
     writeJson(cwd, ".cursor/hooks.json", mergeCursorHooks(readJson(path.join(cwd, ".cursor/hooks.json"))));
-    writeJson(cwd, ".codex/hooks.json", mergeCodexHooks(readJson(path.join(cwd, ".codex/hooks.json"))));
+    const codexHooks = mergeCodexHooks(readJson(path.join(cwd, ".codex/hooks.json")));
+    writeJson(cwd, ".codex/hooks.json", codexHooks);
+    // User tier: codex requires per-hook trust in ~/.codex/config.toml and
+    // silently skips untrusted hooks — grant it for the hooks we just wrote.
+    trustCodexHooks(cwd, codexHooks);
     // --- Project tier: MCP registration (Claude Code + Cursor + Codex) ---
     writeJson(cwd, ".mcp.json", mergeMcpJson(readJson(path.join(cwd, ".mcp.json"))));
     writeJson(cwd, ".cursor/mcp.json", mergeMcpJson(readJson(path.join(cwd, ".cursor/mcp.json"))));

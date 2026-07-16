@@ -23,6 +23,7 @@ import {
   ensureGitignore,
   writeSecretFile,
   hardenSecretFile,
+  trustCodexHooks,
 } from "./init-env.js";
 
 export type Runner = (cmd: string, args: string[]) => void;
@@ -168,11 +169,14 @@ export async function runInitRemote(args: string[]): Promise<void> {
     ".cursor/hooks.json",
     mergeCursorHooks(readJson(path.join(cwd, ".cursor/hooks.json")), "wayform"),
   );
-  writeJson(
-    cwd,
-    ".codex/hooks.json",
-    mergeCodexHooks(readJson(path.join(cwd, ".codex/hooks.json")), "wayform"),
+  const codexHooks = mergeCodexHooks(
+    readJson(path.join(cwd, ".codex/hooks.json")),
+    "wayform",
   );
+  writeJson(cwd, ".codex/hooks.json", codexHooks);
+  // User tier: codex requires per-hook trust in ~/.codex/config.toml and
+  // silently skips untrusted hooks — grant it for the hooks we just wrote.
+  trustCodexHooks(cwd, codexHooks);
 
   // --- Cursor native HTTP MCP (gitignored — carries the token) ---
   writeJson(

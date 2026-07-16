@@ -11,7 +11,7 @@ import path from "node:path";
 import readline from "node:readline/promises";
 import { stdin as input, stdout as output } from "node:process";
 import { mergeClaudeSettings, mergeCursorHooks, mergeCodexHooks, mergeCursorRemoteMcp, codexRemoteConfigToml, } from "./init-configs.js";
-import { buildRemoteHookEnv, gitConfigDefault, ensureGitignore, writeSecretFile, hardenSecretFile, } from "./init-env.js";
+import { buildRemoteHookEnv, gitConfigDefault, ensureGitignore, writeSecretFile, hardenSecretFile, trustCodexHooks, } from "./init-env.js";
 const defaultRunner = (cmd, args) => {
     // Bounded + non-interactive: a hanging or prompting `claude` must never freeze
     // init. On timeout/ENOENT this throws → the caller falls open to a printed
@@ -125,7 +125,11 @@ export async function runInitRemote(args) {
     // --- Project tier: session/Stop hooks calling the `wayform` binary ---
     writeJson(cwd, ".claude/settings.json", mergeClaudeSettings(readJson(path.join(cwd, ".claude/settings.json")), "wayform"));
     writeJson(cwd, ".cursor/hooks.json", mergeCursorHooks(readJson(path.join(cwd, ".cursor/hooks.json")), "wayform"));
-    writeJson(cwd, ".codex/hooks.json", mergeCodexHooks(readJson(path.join(cwd, ".codex/hooks.json")), "wayform"));
+    const codexHooks = mergeCodexHooks(readJson(path.join(cwd, ".codex/hooks.json")), "wayform");
+    writeJson(cwd, ".codex/hooks.json", codexHooks);
+    // User tier: codex requires per-hook trust in ~/.codex/config.toml and
+    // silently skips untrusted hooks — grant it for the hooks we just wrote.
+    trustCodexHooks(cwd, codexHooks);
     // --- Cursor native HTTP MCP (gitignored — carries the token) ---
     writeJson(cwd, ".cursor/mcp.json", mergeCursorRemoteMcp(readJson(path.join(cwd, ".cursor/mcp.json")), gatewayUrl, token));
     // Token-bearing: tighten to owner-only (writeJson creates at umask default).

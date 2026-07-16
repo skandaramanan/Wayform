@@ -11,6 +11,7 @@
  * NOT a bash launcher or npx. All are secret-free: `memorylayer` self-loads
  * `.memorylayer-hook.env` from the project cwd at runtime.
  */
+import { createHash } from "node:crypto";
 const asObject = (v) => v && typeof v === "object" && !Array.isArray(v) ? { ...v } : {};
 const asArray = (v) => (Array.isArray(v) ? [...v] : []);
 /**
@@ -64,6 +65,90 @@ export function mergeCodexHooks(existing, bin = "memorylayer") {
     });
     root.hooks = hooks;
     return root;
+}
+/**
+ * Trust entries for OUR hooks in a merged .codex/hooks.json.
+ *
+ * Codex grants hook trust per entry in the USER-global ~/.codex/config.toml
+ * (`[hooks.state."<abs hooks.json path>:<event>:<group>:<index>"] trusted_hash`),
+ * separate from the project `trust_level` — untrusted hooks are skipped
+ * SILENTLY, and the grant is only ever offered in the interactive Codex TUI.
+ * So without writing these, init'd Codex hooks never fire. The user running
+ * `init` is the consent step: we only trust the marker-matched hooks we
+ * ourselves wire, never pre-existing foreign entries.
+ *
+ * The hash reproduces codex's `command_hook_hash` (codex-rs
+ * hooks/src/engine/discovery.rs + config/src/fingerprint.rs): sha256 over
+ * key-sorted compact JSON of the normalized identity — event label, matcher
+ * (dropped for stop, which ignores matchers), and the handler with timeout
+ * defaulted to 600. The file path is NOT part of the hash. Verified against
+ * hashes codex 0.144 writes after a TUI trust grant.
+ * ponytail: formula is Codex-internal — if a future Codex changes it, hooks go
+ * quiet again and the one-time remedy is re-trusting in the Codex TUI.
+ */
+export function codexHookTrust(merged, hooksJsonAbsPath) {
+    const events = [
+        ["SessionStart", "session_start", true],
+        ["Stop", "stop", false],
+    ];
+    const ours = / (hook|stop-review) codex$/;
+    const out = [];
+    const hooks = asObject(merged.hooks);
+    for (const [prop, label, keepMatcher] of events) {
+        asArray(hooks[prop]).forEach((g, gi) => {
+            const group = asObject(g);
+            asArray(group.hooks).forEach((h, hi) => {
+                const handler = asObject(h);
+                const command = typeof handler.command === "string" ? handler.command : "";
+                // async hooks are skipped (unsupported) by codex before hashing.
+                if (!ours.test(command) || handler.async === true)
+                    return;
+                // Build with keys pre-sorted: codex canonicalizes by sorting keys.
+                const norm = { async: false, command };
+                if (typeof handler.statusMessage === "string")
+                    norm.statusMessage = handler.statusMessage;
+                norm.timeout = Math.max(1, typeof handler.timeout === "number" ? handler.timeout : 600);
+                norm.type = "command";
+                const identity = { event_name: label, hooks: [norm] };
+                if (keepMatcher && typeof group.matcher === "string")
+                    identity.matcher = group.matcher;
+                const hash = "sha256:" +
+                    createHash("sha256").update(JSON.stringify(identity)).digest("hex");
+                out.push({ key: `${hooksJsonAbsPath}:${label}:${gi}:${hi}`, hash });
+            });
+        });
+    }
+    return out;
+}
+const escapeTomlKey = (s) => s.replace(/\\/g, "\\\\").replace(/"/g, '\\"');
+/**
+ * Merge trust entries into the user-global codex config.toml TEXT (never
+ * parsed/rewritten — unrelated user config is untouched). Idempotent; if a
+ * table already exists its trusted_hash is refreshed in place, because a stale
+ * hash (e.g. after a hook command change) silently disables the hook again.
+ */
+export function mergeCodexTrustToml(existing, entries) {
+    let out = existing;
+    for (const { key, hash } of entries) {
+        const header = `[hooks.state."${escapeTomlKey(key)}"]`;
+        const at = out.indexOf(header);
+        if (at < 0) {
+            if (out !== "" && !out.endsWith("\n"))
+                out += "\n";
+            out += `\n${header}\ntrusted_hash = "${hash}"\n`;
+            continue;
+        }
+        const start = at + header.length;
+        const nextTable = out.indexOf("\n[", start);
+        const end = nextTable < 0 ? out.length : nextTable;
+        const section = out.slice(start, end);
+        const hashLine = /((^|\n)\s*trusted_hash\s*=\s*)"[^"]*"/;
+        const updated = hashLine.test(section)
+            ? section.replace(hashLine, `$1"${hash}"`)
+            : `\ntrusted_hash = "${hash}"` + section;
+        out = out.slice(0, start) + updated + out.slice(end);
+    }
+    return out;
 }
 export function mergeMcpJson(existing) {
     const root = asObject(existing);

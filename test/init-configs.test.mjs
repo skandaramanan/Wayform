@@ -7,6 +7,8 @@ import {
   mergeMcpJson,
   mergeCursorRemoteMcp,
   codexRemoteConfigToml,
+  codexHookTrust,
+  mergeCodexTrustToml,
   CODEX_MCP_TOML,
 } from "../dist/init-configs.js";
 
@@ -208,4 +210,63 @@ test("codexRemoteConfigToml renders a native HTTP server with a literal auth hea
   );
   assert.doesNotMatch(toml, /bearer_token_env_var/);
   assert.doesNotMatch(toml, /mcp-remote/);
+});
+
+test("codexHookTrust reproduces codex's own trusted hashes (gold values from a real TUI grant)", () => {
+  const entries = codexHookTrust(
+    mergeCodexHooks(undefined, "wayform"),
+    "/repo/.codex/hooks.json",
+  );
+  // These exact hashes were written by codex 0.144 after interactively
+  // trusting these hooks — the regression canary for the hash formula.
+  assert.deepEqual(entries, [
+    {
+      key: "/repo/.codex/hooks.json:session_start:0:0",
+      hash: "sha256:35bb314ef9d1e09ab6d27f98fdb77487a2bd85190d9ccc0c1339b996a6df922d",
+    },
+    {
+      key: "/repo/.codex/hooks.json:stop:0:0",
+      hash: "sha256:d6080e727f33c8839a1b3be164cecb1c687d8d3505ecc13c048657531c1e027d",
+    },
+  ]);
+});
+
+test("codexHookTrust ignores foreign hooks and uses real group indices", () => {
+  const merged = mergeCodexHooks(
+    {
+      hooks: {
+        SessionStart: [
+          { hooks: [{ type: "command", command: "somebody-elses-hook" }] },
+        ],
+      },
+    },
+    "wayform",
+  );
+  const entries = codexHookTrust(merged, "/repo/.codex/hooks.json");
+  assert.deepEqual(
+    entries.map((e) => e.key),
+    [
+      "/repo/.codex/hooks.json:session_start:1:0",
+      "/repo/.codex/hooks.json:stop:0:0",
+    ],
+  );
+});
+
+test("mergeCodexTrustToml appends once, preserves unrelated config, refreshes a stale hash", () => {
+  const entries = [
+    { key: "/r/.codex/hooks.json:stop:0:0", hash: "sha256:new" },
+  ];
+  const base = '[projects."/r"]\ntrust_level = "trusted"\n';
+  const once = mergeCodexTrustToml(base, entries);
+  assert.match(once, /trust_level = "trusted"/);
+  assert.match(
+    once,
+    /\[hooks\.state\."\/r\/\.codex\/hooks\.json:stop:0:0"\]\ntrusted_hash = "sha256:new"/,
+  );
+  // Idempotent on re-run.
+  assert.equal(mergeCodexTrustToml(once, entries), once);
+  // A stale hash is replaced in place, not duplicated.
+  const stale = once.replace("sha256:new", "sha256:old");
+  const fixed = mergeCodexTrustToml(stale, entries);
+  assert.equal(fixed, once);
 });
