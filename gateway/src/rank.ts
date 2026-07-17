@@ -71,8 +71,10 @@ export function bm25Rank(
 }
 
 export function cosineTopK(
-  docs: { id: string; embedding: number[] }[],
-  queryVec: number[],
+  // ArrayLike so decoded Float32Array embeddings score without being spread
+  // into boxed number[] (the pre-1102-fix hot spot).
+  docs: { id: string; embedding: ArrayLike<number> }[],
+  queryVec: ArrayLike<number>,
   topK: number = DEFAULT_TOP_K,
 ): Scored[] {
   const out: Scored[] = [];

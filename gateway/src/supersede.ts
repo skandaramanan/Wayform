@@ -21,6 +21,22 @@ export const ASYNC_CANDIDATE_K = 10;
  */
 export const SYNC_JUDGE_LIMIT = 2;
 
+/**
+ * Near-duplicate write gate: a new payload whose top cosine against any live
+ * fact clears this floor is (when enforcement is on) not committed at all —
+ * the agent is told which fact already covers it. Lets agents write liberally
+ * without pre-checking; the server arbitrates. bge-base bands: identical ≈1.0,
+ * trivial rewording ~0.96–0.99, real paraphrase ~0.88–0.95.
+ */
+export const DUP_COSINE_FLOOR = 0.95;
+/**
+ * Log-only rollout switch: while false, the gate computes and logs a
+ * `dup_gate` line (plus a supersession_log "duplicate" row when over floor)
+ * on every write but never blocks. Flip to true after ~a week of real score
+ * data from Workers Logs confirms the floor doesn't catch legit paraphrases.
+ */
+export const DUP_GATE_ENFORCE = false;
+
 export type JudgeVerdict = "replaces" | "contradicts" | "relates" | "uncertain";
 
 export interface JudgeResult {
@@ -35,6 +51,20 @@ export interface ConflictHit {
   body: string;
   reason: string;
   verdict: JudgeVerdict;
+}
+
+export interface DuplicateHit {
+  factId: string;
+  body: string;
+  score: number;
+}
+
+/** What the sync write-path check reports back to write_context. */
+export interface WriteCheck {
+  /** Set only when the dup gate is ENFORCING and a live fact clears the
+   *  floor — the caller must then skip the commit entirely. */
+  duplicate: DuplicateHit | null;
+  conflicts: ConflictHit[];
 }
 
 function sharesEntity(a: string[], b: string[]): boolean {
@@ -206,23 +236,79 @@ export async function detectWriteConflicts(
   space: string,
   project: string,
   entryBody: string,
-  opts: { skipIds?: string[]; kind?: string; timeoutMs?: number } = {},
-): Promise<ConflictHit[]> {
-  if (!embed || !gen) return [];
+  opts: {
+    skipIds?: string[];
+    kind?: string;
+    timeoutMs?: number;
+    /** false when the author passed explicit `supersedes` ids — deliberate
+     *  replacement must never be second-guessed by the dup gate (bge-base
+     *  scores small numeric edits ~0.97+, so a legit correction would
+     *  otherwise be blocked by its own predecessor). */
+    dedupe?: boolean;
+    /** Test seam; production behavior comes from DUP_GATE_ENFORCE. */
+    enforceDup?: boolean;
+  } = {},
+): Promise<WriteCheck> {
+  const none: WriteCheck = { duplicate: null, conflicts: [] };
+  if (!embed || !gen) return none;
   const kind = opts.kind ?? "decision";
   const skip = new Set(opts.skipIds ?? []);
   const live = (await db.listDocs(space, project)).filter(
     (d) => !skip.has(d.id),
   );
-  if (live.length === 0) return [];
+  if (live.length === 0) return none;
 
   let queryVec: number[];
   try {
     [queryVec] = await embed([entryBody]);
   } catch {
-    return [];
+    return none;
   }
-  if (!queryVec || queryVec.length === 0) return [];
+  if (!queryVec || queryVec.length === 0) return none;
+
+  // ── Near-duplicate gate ────────────────────────────────────────────────
+  // Full live-pool cosine (the pseudo-fact has no entities, so the conflict
+  // path below scans the same pool anyway). Every failure path above stores;
+  // a write is only ever blocked on a positive high-confidence match.
+  // ponytail: compares the raw payload embedding against extracted-fact
+  // embeddings, so a long multi-fact duplicate can score <floor and slip
+  // through — best-effort by design; async supersession catches the rest.
+  const enforceDup = opts.enforceDup ?? DUP_GATE_ENFORCE;
+  if (opts.dedupe ?? true) {
+    const [top] = cosineTopK(live, queryVec, 1);
+    const wouldBlock = top !== undefined && top.score >= DUP_COSINE_FLOOR;
+    // Calibration instrument: logged on EVERY gated write from day one.
+    console.log(
+      JSON.stringify({
+        evt: "dup_gate",
+        topScore: top ? Number(top.score.toFixed(4)) : null,
+        wouldBlock,
+        enforced: enforceDup,
+      }),
+    );
+    if (wouldBlock) {
+      const dupOf = live.find((d) => d.id === top.id);
+      await logJudgment(db, {
+        space,
+        project,
+        newFactId: enforceDup ? "(blocked)" : "(pending)",
+        oldFactId: top.id,
+        verdict: "duplicate",
+        autoLinked: false,
+        reason:
+          `cosine=${top.score.toFixed(3)}` + (enforceDup ? "" : " (log-only)"),
+        ts: new Date().toISOString(),
+      });
+      if (enforceDup && dupOf) {
+        // Skip the judge entirely — a blocked duplicate needs no conflict
+        // report, and skipping saves up to timeoutMs of user-facing latency.
+        return {
+          duplicate: { factId: top.id, body: dupOf.body, score: top.score },
+          conflicts: [],
+        };
+      }
+    }
+  }
 
   const pseudo: IndexedDoc = {
     id: "__pending__",
@@ -289,7 +375,20 @@ export async function detectWriteConflicts(
   } else {
     await judgeAll();
   }
-  return hits;
+  return { duplicate: null, conflicts: hits };
+}
+
+export function formatDuplicateResult(
+  dup: DuplicateHit,
+  project: string,
+): string {
+  const snippet =
+    dup.body.length > 120 ? `${dup.body.slice(0, 117)}...` : dup.body;
+  return (
+    `Duplicate — not re-recorded in '${project}'. Already stored as fact ` +
+    `${dup.factId}: "${snippet}" (similarity ${dup.score.toFixed(2)}). ` +
+    `To intentionally replace it, write again with supersedes: ["${dup.factId}"].`
+  );
 }
 
 export function formatWriteResult(

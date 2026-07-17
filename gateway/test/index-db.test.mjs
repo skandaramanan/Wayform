@@ -413,6 +413,8 @@ test("d1IndexDb.queryScan issues bounded SQL: embeddings-only scan, entity join,
       return {};
     },
     async first() {
+      executed.push(this);
+      if (/COUNT\(\*\)/i.test(this.sql)) return { n: 7 };
       return null;
     },
   });
@@ -421,20 +423,41 @@ test("d1IndexDb.queryScan issues bounded SQL: embeddings-only scan, entity join,
     project: "memorylayer",
     kinds: ["decision", "context"],
   });
-  assert.equal(scan.total, 2);
+  assert.equal(
+    scan.total,
+    7,
+    "total must come from COUNT, not the capped scan",
+  );
   assert.deepEqual(scan.tokenMatchIds, ["a"]);
   assert.deepEqual(scan.entitiesByDoc.get("a"), ["cursor"]);
-  assert.deepEqual(scan.embeddings[0].embedding, [0.5, 0.5]);
+  assert.ok(
+    scan.embeddings[0].embedding instanceof Float32Array,
+    "embeddings decode as Float32Array views, not boxed number[]",
+  );
+  assert.deepEqual(Array.from(scan.embeddings[0].embedding), [0.5, 0.5]);
 
   const emb = executed.find((s) => /SELECT id, embedding/i.test(s.sql));
   assert.ok(
     !/SELECT \*/.test(emb.sql),
     "embedding scan must not fetch full rows",
   );
+  assert.ok(
+    /ORDER BY source_ts DESC LIMIT \d+/i.test(emb.sql),
+    "embedding scan must be recency-capped",
+  );
   assert.deepEqual(emb.params, ["s1", "memorylayer", "decision", "context"]);
 
+  const count = executed.find((s) => /COUNT\(\*\)/i.test(s.sql));
+  assert.ok(count, "a COUNT statement must report the true corpus size");
+
+  const ent = executed.find((s) => /FROM fact_entities fe JOIN/i.test(s.sql));
+  assert.ok(/LIMIT \d+/i.test(ent.sql), "entity join must be bounded");
+
   const tok = executed.find((s) => /body LIKE/i.test(s.sql));
-  assert.ok(/LIMIT \d+/.test(tok.sql), "token prefilter must be bounded");
+  assert.ok(
+    /ORDER BY source_ts DESC LIMIT \d+/i.test(tok.sql),
+    "token prefilter must be bounded, newest first",
+  );
   assert.deepEqual(tok.params, [
     "s1",
     "memorylayer",
@@ -468,10 +491,16 @@ test("d1IndexDb.getDocsByIds chunks IN lists under the D1 bound-parameter cap", 
   const db = d1IndexDb({ prepare: (sql) => stmt(sql), batch: async () => [] });
   const ids = Array.from({ length: 150 }, (_, i) => `id${i}`);
   await db.getDocsByIds("s1", ids);
-  const docStmts = executed.filter((s) => /SELECT \* FROM docs/i.test(s.sql));
+  const docStmts = executed.filter(
+    (s) => /SELECT id, space, .*FROM docs/i.test(s.sql) && /id IN/i.test(s.sql),
+  );
   assert.equal(docStmts.length, 2); // 90 + 60
   for (const s of docStmts) {
     assert.ok(s.params.length <= 91, `too many binds: ${s.params.length}`);
     assert.ok(/superseded_by IS NULL/i.test(s.sql));
+    assert.ok(
+      !/embedding/i.test(s.sql),
+      "hydration must not fetch embeddings (double decode was half the 1102)",
+    );
   }
 });

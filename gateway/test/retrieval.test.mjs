@@ -1,6 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MemoryIndexDb } from "../dist/gateway/src/index-db.js";
+import {
+  MemoryIndexDb,
+  EMBED_SCAN_CAP,
+  TOKEN_MATCH_LIMIT,
+} from "../dist/gateway/src/index-db.js";
 import {
   retrieve,
   renderSearchResults,
@@ -248,6 +252,8 @@ test("renderSearchResults groups by kind and carries provenance", () => {
   assert.match(text, /2 of 10 indexed entries cleared the relevance bar/);
   assert.match(text, /## decision — Skanda — 2026-07-04/);
   assert.match(text, /source: context\/memorylayer\/skanda\/d1\.md/);
+  // Fact id must be visible — memory_feedback and supersedes both consume it.
+  assert.match(text, /id: d1/);
   const none = renderSearchResults("memorylayer", "xyz", [], 10);
   assert.match(none, /no stored entries cleared the relevance bar/);
 });
@@ -456,4 +462,58 @@ test("retrieve with embeddings still surfaces a paraphrase (cosine) candidate sh
   );
   assert.ok(results.length > 0);
   assert.equal(results[0].doc.id, "para");
+});
+
+// --- bounded-by-construction caps (the 1102 fix), 2026-07-17 ---
+
+test("retrieve stays bounded on a corpus far larger than every cap", async () => {
+  const db = new MemoryIndexDb();
+  const N = 3000;
+  // Every body shares the token "gateway" so the token prefilter saturates.
+  await seed(
+    db,
+    Array.from({ length: N }, (_, i) =>
+      doc(`bulk${i}`, `gateway rollout note ${i} for the hosted beta`, {
+        sourceTs: `2026-07-${String(1 + (i % 15)).padStart(2, "0")}T${String(
+          i % 24,
+        ).padStart(2, "0")}:00:00Z`,
+      }),
+    ),
+  );
+
+  const scan = await db.queryScan("s1", ["gateway"], {
+    project: "memorylayer",
+  });
+  assert.equal(scan.total, N, "total reports the true corpus size");
+  assert.ok(
+    scan.embeddings.length <= EMBED_SCAN_CAP,
+    `embedding scan must cap at ${EMBED_SCAN_CAP}, got ${scan.embeddings.length}`,
+  );
+  assert.ok(
+    scan.tokenMatchIds.length <= TOKEN_MATCH_LIMIT,
+    `token prefilter must cap at ${TOKEN_MATCH_LIMIT}, got ${scan.tokenMatchIds.length}`,
+  );
+
+  const hydrated = [];
+  const orig = db.getDocsByIds.bind(db);
+  db.getDocsByIds = async (space, ids) => {
+    hydrated.push(...ids);
+    return orig(space, ids);
+  };
+  const { results, total } = await retrieve(
+    { db, embed: fakeEmbed },
+    {
+      space: "s1",
+      query: "gateway rollout hosted beta",
+      budgetTokens: 4000,
+      trigger: "test",
+    },
+  );
+  assert.equal(total, N);
+  assert.ok(results.length > 0, "a saturating query still returns results");
+  // Hydration union: ≤ TOKEN_MATCH_LIMIT + cosine top-50 + entity cap (200).
+  assert.ok(
+    hydrated.length <= TOKEN_MATCH_LIMIT + 50 + 200,
+    `hydration must stay bounded, got ${hydrated.length} of ${N}`,
+  );
 });

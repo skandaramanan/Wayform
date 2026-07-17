@@ -24,3 +24,9 @@ test("tells the model to do nothing when nothing qualifies (anti-junk-drawer)", 
 test("instructs deduplication against already-recorded context", () => {
   assert.match(reviewInstruction("memorylayer"), /duplicat|already/i);
 });
+
+test("asks about durable agent-produced conclusions, not only user decisions", () => {
+  const text = reviewInstruction("memorylayer");
+  assert.match(text, /durable conclusion of your own/);
+  assert.match(text, /design, .*plan, or non-obvious finding/);
+});
