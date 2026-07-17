@@ -41,4 +41,7 @@ export interface Env {
   embedder?: Embedder;
   /** Test seam: injected text-gen. Production leaves it unset (uses AI). */
   genText?: (prompt: string) => Promise<string>;
+  /** Test seam: force the near-duplicate write gate on/off. Production
+   *  leaves it unset (behavior comes from DUP_GATE_ENFORCE in supersede.ts). */
+  dupGateEnforce?: boolean;
 }

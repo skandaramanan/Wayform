@@ -7,6 +7,7 @@ import {
   judgePair,
   applySupersession,
   detectWriteConflicts,
+  formatDuplicateResult,
   formatWriteResult,
 } from "../dist/gateway/src/supersede.js";
 import { MemoryIndexDb } from "../dist/gateway/src/index-db.js";
@@ -143,7 +144,7 @@ test("detectWriteConflicts surfaces contradicts", async () => {
   const gen = fakeJudge({
     "project-scoped": '{"verdict":"contradicts","reason":"now claims global"}',
   });
-  const hits = await detectWriteConflicts(
+  const { duplicate, conflicts: hits } = await detectWriteConflicts(
     db,
     embed,
     gen,
@@ -151,6 +152,7 @@ test("detectWriteConflicts surfaces contradicts", async () => {
     "memorylayer",
     "MCP is global",
   );
+  assert.equal(duplicate, null, "log-only default must never block");
   assert.equal(hits.length, 1);
   assert.equal(hits[0].verdict, "contradicts");
 });
@@ -172,7 +174,7 @@ test("detectWriteConflicts judges at most SYNC_JUDGE_LIMIT candidates on the wri
     calls++;
     return '{"verdict":"contradicts","reason":"conflict"}';
   };
-  const hits = await detectWriteConflicts(
+  const { conflicts: hits } = await detectWriteConflicts(
     db,
     embed,
     gen,
@@ -197,7 +199,7 @@ test("detectWriteConflicts fails open to hits-so-far when the judge exceeds time
     return '{"verdict":"contradicts","reason":"slow"}';
   };
   const started = Date.now();
-  const hits = await detectWriteConflicts(
+  const { conflicts: hits } = await detectWriteConflicts(
     db,
     embed,
     gen,
@@ -270,4 +272,128 @@ test("ingestEntries with authorSupersedes marks old facts", async () => {
     authorSupersedes: ["e0#0"],
   });
   assert.equal((await db.getDoc("s1", "e0#0"))?.supersededBy, "e1#0");
+});
+
+// --- near-duplicate write gate (log-only rollout), 2026-07-17 ---
+
+test("dup gate blocks an exact duplicate when enforcing, without calling the judge", async () => {
+  const db = new MemoryIndexDb();
+  const [emb] = await fakeEmbed(["MCP is project-scoped"]);
+  await db.upsertDocs([
+    liveDoc("o1", "MCP is project-scoped", ["cursor"], emb),
+  ]);
+  const embed = async () => [emb]; // identical vector => cosine 1.0
+  let judgeCalls = 0;
+  const gen = async () => {
+    judgeCalls++;
+    return '{"verdict":"relates","reason":"x"}';
+  };
+  const { duplicate, conflicts } = await detectWriteConflicts(
+    db,
+    embed,
+    gen,
+    "s1",
+    "memorylayer",
+    "MCP is project-scoped",
+    { enforceDup: true },
+  );
+  assert.ok(duplicate, "exact duplicate must be reported");
+  assert.equal(duplicate.factId, "o1");
+  assert.ok(duplicate.score >= 0.95);
+  assert.equal(conflicts.length, 0);
+  assert.equal(judgeCalls, 0, "a blocked duplicate skips the judge");
+  const dupLog = db.supersessionLogged.find((e) => e.verdict === "duplicate");
+  assert.ok(dupLog, "duplicate verdict logged for audit");
+  assert.equal(dupLog.newFactId, "(blocked)");
+});
+
+test("dup gate in log-only mode records the score but never blocks", async () => {
+  const db = new MemoryIndexDb();
+  const [emb] = await fakeEmbed(["MCP is project-scoped"]);
+  await db.upsertDocs([
+    liveDoc("o1", "MCP is project-scoped", ["cursor"], emb),
+  ]);
+  const embed = async () => [emb];
+  const gen = async () => '{"verdict":"relates","reason":"x"}';
+  const { duplicate } = await detectWriteConflicts(
+    db,
+    embed,
+    gen,
+    "s1",
+    "memorylayer",
+    "MCP is project-scoped",
+  );
+  assert.equal(duplicate, null, "log-only must not block");
+  const dupLog = db.supersessionLogged.find((e) => e.verdict === "duplicate");
+  assert.ok(dupLog, "over-floor score still logged for calibration");
+  assert.match(dupLog.reason, /log-only/);
+});
+
+test("dup gate lets a below-floor paraphrase through even when enforcing", async () => {
+  const db = new MemoryIndexDb();
+  // cosine([1,0,...],[0.8,0.6,0,...]) = 0.8 — same topic, not a duplicate
+  const stored = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  const incoming = [0.8, 0.6, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  await db.upsertDocs([liveDoc("o1", "MCP is project-scoped", [], stored)]);
+  const embed = async () => [incoming];
+  const gen = async () => '{"verdict":"relates","reason":"x"}';
+  const { duplicate } = await detectWriteConflicts(
+    db,
+    embed,
+    gen,
+    "s1",
+    "memorylayer",
+    "MCP scoping is per project",
+    { enforceDup: true },
+  );
+  assert.equal(duplicate, null);
+});
+
+test("dup gate is bypassed by dedupe:false (author supersedes) even at cosine 1.0", async () => {
+  const db = new MemoryIndexDb();
+  const [emb] = await fakeEmbed(["budget is 5k"]);
+  await db.upsertDocs([liveDoc("o1", "budget is 5k", [], emb)]);
+  const embed = async () => [emb];
+  const gen = async () => '{"verdict":"relates","reason":"x"}';
+  const { duplicate } = await detectWriteConflicts(
+    db,
+    embed,
+    gen,
+    "s1",
+    "memorylayer",
+    "budget is 6k",
+    { dedupe: false, enforceDup: true },
+  );
+  assert.equal(duplicate, null, "explicit supersedes must never be gated");
+});
+
+test("dup gate fails open to storing when the embedder throws", async () => {
+  const db = new MemoryIndexDb();
+  const [emb] = await fakeEmbed(["x"]);
+  await db.upsertDocs([liveDoc("o1", "x", [], emb)]);
+  const embed = async () => {
+    throw new Error("AI down");
+  };
+  const gen = async () => '{"verdict":"relates","reason":"x"}';
+  const check = await detectWriteConflicts(
+    db,
+    embed,
+    gen,
+    "s1",
+    "memorylayer",
+    "x",
+    { enforceDup: true },
+  );
+  assert.deepEqual(check, { duplicate: null, conflicts: [] });
+});
+
+test("formatDuplicateResult names the fact and the supersedes escape hatch", () => {
+  const text = formatDuplicateResult(
+    { factId: "o1", body: "MCP is project-scoped", score: 0.97 },
+    "memorylayer",
+  );
+  assert.match(text, /not re-recorded/);
+  assert.match(text, /o1/);
+  assert.match(text, /similarity 0\.97/);
+  assert.match(text, /supersedes: \["o1"\]/);
 });

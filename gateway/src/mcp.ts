@@ -13,7 +13,12 @@ import type { EntryType } from "../../src/frontmatter.js";
 import { indexDeps } from "./deps.js";
 import { retrieve, renderSearchResults } from "./retrieval.js";
 import { ingestEntries } from "./ingest.js";
-import { detectWriteConflicts, formatWriteResult } from "./supersede.js";
+import {
+  detectWriteConflicts,
+  formatDuplicateResult,
+  formatWriteResult,
+  type WriteCheck,
+} from "./supersede.js";
 
 /**
  * Stateless MCP over Streamable HTTP: every request is one JSON-RPC message
@@ -72,7 +77,7 @@ const TOOLS = [
     name: "write_context",
     title: "Write a shared planning decision",
     description:
-      "Append a DELIBERATE decision or established context to the shared project space and commit it, so collaborators' sessions see it. Write decisions ('we decided X because Y') and durable context — NOT a firehose of every reasoning step. When the user says 'record this', 'remember this', 'save this decision' (or runs the /remember command), treat it as an EXPLICIT instruction to call this tool right away.",
+      "Append a DELIBERATE decision or established context to the shared project space and commit it, so collaborators' sessions see it. Write decisions ('we decided X because Y') and durable context — NOT a firehose of every reasoning step. To UPDATE or CORRECT an already-recorded decision, write the new version and pass `supersedes` with the old fact id (from search results) — do not write an unlinked near-duplicate. When the user says 'record this', 'remember this', 'save this decision' (or runs the /remember command), treat it as an EXPLICIT instruction to call this tool right away.",
     inputSchema: {
       type: "object",
       properties: {
@@ -101,7 +106,7 @@ const TOOLS = [
           type: "array",
           items: { type: "string" },
           description:
-            "Optional live fact ids this entry replaces. Skips conflict checks for those ids; links after ingest without judge.",
+            "Live fact ids this entry replaces or corrects (shown as `id:` in search results). Use whenever updating/amending a recorded decision. Skips conflict checks for those ids; links after ingest without judge.",
         },
       },
       required: ["project", "payload"],
@@ -213,7 +218,7 @@ export async function handleMcp(
         protocolVersion: PROTOCOL_VERSION,
         capabilities: { tools: {} },
         serverInfo: { name: "memorylayer", version: "0.1.0" },
-        instructions: mcpInstructions(member.space),
+        instructions: mcpInstructions(member.space, { supersedes: true }),
       });
     case "notifications/initialized":
       return new Response(null, { status: 202 });
@@ -302,20 +307,50 @@ async function toolsCall(
         const kinds = Array.isArray(args.kinds)
           ? args.kinds.filter((k): k is string => typeof k === "string")
           : undefined;
-        const { results, total } = await retrieve(deps, {
-          space: member.space,
-          project: project ? slug(project) : undefined,
-          query,
-          budgetTokens: DEFAULT_BUDGET_TOKENS,
-          kinds,
-          trigger: "search_memory",
-        });
-        return rpcResult(
-          msg.id,
-          toolText(
-            renderSearchResults(project || undefined, query, results, total),
-          ),
-        );
+        try {
+          const { results, total } = await retrieve(deps, {
+            space: member.space,
+            project: project ? slug(project) : undefined,
+            query,
+            budgetTokens: DEFAULT_BUDGET_TOKENS,
+            kinds,
+            trigger: "search_memory",
+          });
+          return rpcResult(
+            msg.id,
+            toolText(
+              renderSearchResults(project || undefined, query, results, total),
+            ),
+          );
+        } catch {
+          // Degrade parity with read_context: a transient index/AI failure
+          // returns a useful non-error result instead of isError (one hard
+          // failure teaches agents the tool is unreliable and they stop
+          // calling it). With a project we can serve the recency read; the
+          // whole-space form has no recency equivalent, so say so plainly.
+          if (project) {
+            const { entries, total } = await readEntriesCached(
+              env,
+              member,
+              project,
+              DEFAULT_BUDGET_TOKENS,
+              fetchImpl,
+            );
+            return rpcResult(
+              msg.id,
+              toolText(
+                `_Semantic search is temporarily unavailable — showing the most recent entries for "${project}" instead._\n\n` +
+                  projectContext(project, entries, total),
+              ),
+            );
+          }
+          return rpcResult(
+            msg.id,
+            toolText(
+              "Memory search is temporarily unavailable. Retry shortly, or call read_context with a project name for its recent entries.",
+            ),
+          );
+        }
       }
       case "write_context": {
         const type: EntryType =
@@ -326,6 +361,44 @@ async function toolsCall(
             msg.id,
             toolText("missing required argument: payload", true),
           );
+        const authorSupersedes = Array.isArray(args.supersedes)
+          ? args.supersedes.filter((x): x is string => typeof x === "string")
+          : [];
+        const deps = indexDeps(env);
+        // Conflict + duplicate check runs BEFORE the commit: it reads only
+        // the index and the payload, so ordering it first costs nothing and
+        // lets an enforced duplicate skip the commit entirely. Fail-open —
+        // any check failure stores the write as if the check found nothing.
+        let check: WriteCheck = { duplicate: null, conflicts: [] };
+        if (deps) {
+          try {
+            check = await detectWriteConflicts(
+              deps.db,
+              deps.embed,
+              deps.gen,
+              member.space,
+              project,
+              payload,
+              {
+                skipIds: authorSupersedes,
+                kind: type,
+                timeoutMs: 2000,
+                // Explicit supersedes = deliberate replacement; never
+                // second-guess it with the dup gate.
+                dedupe: authorSupersedes.length === 0,
+                enforceDup: env.dupGateEnforce,
+              },
+            );
+          } catch {
+            // fail-open: store the write
+          }
+        }
+        if (check.duplicate) {
+          return rpcResult(
+            msg.id,
+            toolText(formatDuplicateResult(check.duplicate, project)),
+          );
+        }
         const entry = await writeEntry(
           env,
           member,
@@ -342,26 +415,6 @@ async function toolsCall(
           await env.ROUTING.delete(recencyCacheKey(member.space, project));
         } catch {
           // swallow: stale cache expires via TTL
-        }
-        const authorSupersedes = Array.isArray(args.supersedes)
-          ? args.supersedes.filter((x): x is string => typeof x === "string")
-          : [];
-        const deps = indexDeps(env);
-        let conflicts: Awaited<ReturnType<typeof detectWriteConflicts>> = [];
-        if (deps) {
-          try {
-            conflicts = await detectWriteConflicts(
-              deps.db,
-              deps.embed,
-              deps.gen,
-              member.space,
-              project,
-              payload,
-              { skipIds: authorSupersedes, kind: type, timeoutMs: 2000 },
-            );
-          } catch {
-            // fail-open: write already committed
-          }
         }
         // Index ingest runs async (ctx.waitUntil): LLM fact extraction would
         // add ~1-3s to the write, and the ledger entry is already committed and
@@ -400,7 +453,7 @@ async function toolsCall(
                 file: entry.file,
               },
               project,
-              conflicts,
+              check.conflicts,
               authorSupersedes,
             ),
           ),

@@ -86,7 +86,10 @@ export async function handleHookRead(
         new Date(),
         conflicts,
       );
-      if (briefing) text = composeSessionStartText(project, briefing);
+      if (briefing)
+        text = composeSessionStartText(project, briefing, {
+          supersedes: true,
+        });
     }
   } catch {
     // fall through to the recency dump
@@ -106,6 +109,7 @@ export async function handleHookRead(
         : composeSessionStartText(
             project,
             projectContext(project, entries, total),
+            { supersedes: true },
           );
   }
 

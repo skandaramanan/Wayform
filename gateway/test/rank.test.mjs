@@ -193,3 +193,29 @@ test("entityRank returns [] when the query names no known entity", () => {
     [],
   );
 });
+
+test("cosineTopK ranks Float32Array embeddings identically to number[]", () => {
+  const vecs = [
+    [0.9, 0.1, 0.05],
+    [0.1, 0.9, 0.2],
+    [0.5, 0.5, 0.5],
+  ];
+  const asArrays = vecs.map((v, i) => ({ id: `d${i}`, embedding: v }));
+  const asF32 = vecs.map((v, i) => ({
+    id: `d${i}`,
+    embedding: new Float32Array(v),
+  }));
+  const query = [0.8, 0.2, 0.1];
+  const a = cosineTopK(asArrays, query);
+  const b = cosineTopK(asF32, new Float32Array(query));
+  assert.deepEqual(
+    b.map((s) => s.id),
+    a.map((s) => s.id),
+  );
+  for (let i = 0; i < a.length; i++) {
+    assert.ok(
+      Math.abs(a[i].score - b[i].score) < 1e-6,
+      `score drift at rank ${i}: ${a[i].score} vs ${b[i].score}`,
+    );
+  }
+});

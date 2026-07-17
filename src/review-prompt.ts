@@ -9,8 +9,10 @@
 export function reviewInstruction(project: string): string {
   return (
     `Wayform end-of-turn review for project "${project}". ` +
-    `Before finishing: did THIS turn settle a deliberate decision, or establish ` +
-    `durable context, that is not already recorded in the shared store? A settled ` +
+    `Before finishing: did THIS turn settle a deliberate decision, establish ` +
+    `durable context, or produce a durable conclusion of your own (a design, ` +
+    `plan, or non-obvious finding), that is not already recorded in the shared ` +
+    `store? A settled ` +
     `decision is "we decided X because Y" — not an open question, an option still ` +
     `under discussion, or an intermediate reasoning step. ` +
     `If yes, call the write_context tool now (project: "${project}", ` +
