@@ -21,6 +21,7 @@ import { loadConfig, defaultProject } from "./config.js";
 import { ContextStore } from "./store.js";
 import { remoteHookRead } from "./remote-read.js";
 import { projectContext } from "./context-format.js";
+import { composeSessionStartText } from "./session-prompt.js";
 import { recordMetric } from "./metrics.js";
 import {
   resolveClient,
@@ -90,11 +91,7 @@ export async function runHook(): Promise<void> {
     if (total === 0) emitEmpty();
 
     const body = projectContext(project, entries, total);
-    const text =
-      `The following is shared planning memory (Wayform) for project ` +
-      `"${project}", loaded automatically at session start. Treat these recorded ` +
-      `decisions and context as already-known; do not ask the user to re-explain ` +
-      `them.\n\n${body}`;
+    const text = composeSessionStartText(project, body);
 
     process.stdout.write(renderContext(client, text));
     process.exit(0);

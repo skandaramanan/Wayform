@@ -1,0 +1,90 @@
+/**
+ * Session-start + MCP invocation copy.
+ *
+ * Lives in one place so the always-on session-start injection and the MCP
+ * `initialize.instructions` field stay in lockstep. Pattern notes (why this
+ * shape, not a vaguer "use memory when helpful"):
+ * - Tool-FORCING language for private/collaborative facts (training data is stale).
+ * - Explicit when / when-not + negatives to stop wrong-tool and no-tool failures.
+ * - Order constraint: search/read before re-deciding; write only after settled.
+ * - Separate policy (this block) from data (briefing / recency dump).
+ * - Keep under ~300 words so it competes for attention, not context budget.
+ */
+
+/** Data-side framing for the briefing / recency dump that follows the playbook. */
+export function sessionPreamble(project: string): string {
+  return (
+    `The following is shared planning memory (MemoryLayer) for project ` +
+    `"${project}", loaded automatically at session start. Treat these recorded ` +
+    `decisions and context as already-known; do not ask the user to re-explain ` +
+    `them.`
+  );
+}
+
+/**
+ * Operating rules injected at session start (before the data briefing).
+ * This is the mid-session pull lever — the briefing alone makes models assume
+ * they "already have memory" and never call tools again.
+ */
+export function invocationPlaybook(project: string): string {
+  return [
+    `## MemoryLayer — required tool policy (project "${project}")`,
+    ``,
+    `The briefing below is a SELECTIVE snapshot, not the full store. Collaborator ` +
+      `decisions live in MemoryLayer tools — not in your training data. Prefer ` +
+      `these tools over guessing or asking the user to re-explain recorded work.`,
+    ``,
+    `### MUST call`,
+    `- \`search_memory(query)\` BEFORE contradicting, reversing, or re-deciding ` +
+      `anything that might already be settled — and whenever the topic is absent ` +
+      `or unclear in "memory covers", Open questions, or Recent decisions.`,
+    `- \`read_context(project="${project}", query=…)\` for depth on ONE topic ` +
+      `(after search, or when Open questions / Unresolved conflicts touch the work).`,
+    `- \`write_context(project="${project}", type, payload)\` when THIS turn ` +
+      `settles "we decided X because Y" or durable background not already stored. ` +
+      `Not for open options or intermediate reasoning.`,
+    `- \`memory_feedback(fact_id, useful|wrong|stale)\` after a retrieved fact ` +
+      `clearly helped or misled (use the fact id from tool results).`,
+    ``,
+    `### MUST NOT`,
+    `- Re-call queryless \`read_context\` just to "refresh" — session-start already ` +
+      `injected canon/recency.`,
+    `- Invent prior decisions, silently pick a side on Unresolved conflicts, or ` +
+      `treat the briefing as exhaustive.`,
+    `- Skip search because the briefing "looks related" — if you would change a ` +
+      `settled call, search first.`,
+    ``,
+    `### Order`,
+    `search_memory (or read_context with query) → then decide/advise → ` +
+      `write_context only if settled. Empty/irrelevant results: say so; do not ` +
+      `fill gaps from memory. Tool errors: retry once with fixed args, then report ` +
+      `— never invent a result.`,
+  ].join("\n");
+}
+
+/** Full session-start payload: policy first, then data framing + body. */
+export function composeSessionStartText(project: string, body: string): string {
+  return (
+    `${invocationPlaybook(project)}\n\n---\n\n` +
+    `${sessionPreamble(project)}\n\n${body}`
+  );
+}
+
+/**
+ * Shorter twin for MCP `initialize.instructions` (no briefing present there).
+ * Same forcing rules; names the default project when the agent is unsure.
+ */
+export function mcpInstructions(defaultProject: string): string {
+  return (
+    `This server holds shared planning memory (decisions and durable context) ` +
+    `for collaborators. Default project if unsure: "${defaultProject}". ` +
+    `MUST: call search_memory before contradicting or re-deciding settled work; ` +
+    `call read_context(project, query=…) for topic depth (if a session-start ` +
+    `briefing was already injected, do NOT queryless re-read just to refresh); ` +
+    `call write_context only for deliberate "we decided X because Y" or durable ` +
+    `background — not every reasoning step; ` +
+    `call memory_feedback(fact_id, useful|wrong|stale) when a retrieved fact ` +
+    `helped or misled. Prefer these tools over guessing or asking the user to ` +
+    `re-explain recorded decisions.`
+  );
+}
