@@ -92,6 +92,57 @@ export async function listSpaceRepos(env: Env): Promise<SpaceRepo[]> {
   return raw ? Object.values(JSON.parse(raw) as Record<string, SpaceRepo>) : [];
 }
 
+/** Product-repo registry: maps a team's PRODUCT repo ("owner/repo") to the
+ *  space+project its merged-PR summaries are recorded into. Distinct from
+ *  spaces:registry (context repos). Same single-blob pattern — fine at pilot
+ *  scale. Filled by POST /admin/product-repos at team provisioning. */
+const PRODUCT_REPOS_KEY = "product-repos:registry";
+
+export interface ProductRepo {
+  space: string;
+  project: string;
+}
+
+export async function getProductRepo(
+  env: Env,
+  fullName: string,
+): Promise<ProductRepo | null> {
+  const raw = await env.ROUTING.get(PRODUCT_REPOS_KEY);
+  if (!raw) return null;
+  return (JSON.parse(raw) as Record<string, ProductRepo>)[fullName] ?? null;
+}
+
+/**
+ * POST /admin/product-repos — register a product repo for merged-PR
+ * recording. Body: { owner, repo, space, project }. Re-POST overwrites;
+ * removal is a manual KV edit at pilot scale.
+ */
+export async function handleAdminAddProductRepo(
+  req: Request,
+  env: Env,
+): Promise<Response> {
+  if (req.headers.get("x-admin-secret") !== env.ADMIN_SECRET) {
+    return new Response("forbidden", { status: 403 });
+  }
+  let body: { owner?: string; repo?: string; space?: string; project?: string };
+  try {
+    body = (await req.json()) as typeof body;
+  } catch {
+    return Response.json({ error: "invalid json" }, { status: 400 });
+  }
+  for (const key of ["owner", "repo", "space", "project"] as const) {
+    if (!body[key]) {
+      return Response.json({ error: `missing ${key}` }, { status: 400 });
+    }
+  }
+  const fullName = `${body.owner}/${body.repo}`;
+  const raw = await env.ROUTING.get(PRODUCT_REPOS_KEY);
+  const reg = raw ? (JSON.parse(raw) as Record<string, ProductRepo>) : {};
+  reg[fullName] = { space: body.space!, project: body.project! };
+  await env.ROUTING.put(PRODUCT_REPOS_KEY, JSON.stringify(reg));
+  return Response.json({ repo: fullName, ...reg[fullName] });
+}
+
 const REQUIRED: (keyof SpaceMember)[] = [
   "space",
   "installationId",
