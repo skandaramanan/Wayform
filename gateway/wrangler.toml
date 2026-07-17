@@ -24,3 +24,9 @@ binding = "AI"
 # indexed sha lags the ledger HEAD.
 [triggers]
 crons = ["*/15 * * * *"]
+
+# Workers Logs (free tier): per-invocation CPU time is the ground truth for
+# the retrieval pipeline's 10ms budget — the in-code retrieval_timing line
+# only sees wall time across awaits (clocks freeze during sync execution).
+[observability]
+enabled = true

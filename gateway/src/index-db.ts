@@ -69,8 +69,10 @@ export interface GoldenCandidate {
  *  docs in scope — WITHOUT fetching every body/full row (read-path hardening:
  *  per-query work must not grow with the whole corpus). */
 export interface QueryScan {
-  /** id + embedding for every live doc in scope — cosine's full scan. */
-  embeddings: { id: string; embedding: number[] }[];
+  /** id + embedding for the newest live docs in scope (recency-capped at
+   *  EMBED_SCAN_CAP) — cosine's scan. ArrayLike so the D1 impl can hand back
+   *  Float32Array views without boxing 768 floats per doc. */
+  embeddings: { id: string; embedding: ArrayLike<number> }[];
   /** entity tags per live doc id in scope (docs with no tags omitted). */
   entitiesByDoc: Map<string, string[]>;
   /** ids of docs whose body contains any query token — a superset of the
@@ -188,20 +190,33 @@ export class MemoryIndexDb implements IndexDb {
     if (opts.kinds && opts.kinds.length > 0) {
       docs = docs.filter((d) => opts.kinds!.includes(d.kind));
     }
+    // Mirror the D1 impl: recency order, then the same caps, so tests
+    // exercise production truncation semantics.
+    const sorted = [...docs].sort((a, b) =>
+      a.sourceTs < b.sourceTs ? 1 : a.sourceTs > b.sourceTs ? -1 : 0,
+    );
+    const entitiesByDoc = new Map<string, string[]>();
+    let entityRows = 0;
+    for (const d of sorted) {
+      const ents = d.entities ?? [];
+      if (ents.length === 0) continue;
+      if (entityRows + ents.length > ENTITY_SCAN_ROW_LIMIT) break;
+      entitiesByDoc.set(d.id, ents);
+      entityRows += ents.length;
+    }
     // Substring match mirrors the D1 impl's LIKE '%token%' semantics.
     const lowered = tokens.map((t) => t.toLowerCase());
     return {
-      embeddings: docs.map((d) => ({ id: d.id, embedding: d.embedding })),
-      entitiesByDoc: new Map(
-        docs
-          .filter((d) => (d.entities ?? []).length > 0)
-          .map((d) => [d.id, d.entities]),
-      ),
-      tokenMatchIds: docs
+      embeddings: sorted
+        .slice(0, EMBED_SCAN_CAP)
+        .map((d) => ({ id: d.id, embedding: d.embedding })),
+      entitiesByDoc,
+      tokenMatchIds: sorted
         .filter((d) => {
           const body = d.body.toLowerCase();
           return lowered.some((t) => body.includes(t));
         })
+        .slice(0, TOKEN_MATCH_LIMIT)
         .map((d) => d.id),
       total: docs.length,
     };
@@ -363,9 +378,25 @@ export function decodeEmbedding(b: ArrayBuffer | null): number[] {
   return [...new Float32Array(b)];
 }
 
-/** Safety valve on the token-candidate prefilter: at pilot corpus sizes this
- *  is never hit; it exists so a pathological common-token query stays bounded. */
-const TOKEN_MATCH_LIMIT = 500;
+/** Zero-copy decode for the query path: a Float32Array view instead of a
+ *  boxed number[]. Spreading 768 floats per doc (decodeEmbedding) was a
+ *  material share of the free-plan 10ms CPU budget at ~131 docs (the 1102). */
+export function decodeEmbeddingF32(b: ArrayBuffer | null): Float32Array {
+  if (!b || b.byteLength === 0) return new Float32Array(0);
+  return new Float32Array(b);
+}
+
+/** Recency cap on cosine's embedding scan — bounds the query path's largest
+ *  cost by construction (2000 × 768 F32 cosine ≈ 1–2ms CPU).
+ *  ponytail: recency-capped brute-force scan; docs older than the newest
+ *  EMBED_SCAN_CAP lose semantic candidacy (BM25/entity paths still see them).
+ *  Move to Vectorize (free tier) when a space approaches this cap. */
+export const EMBED_SCAN_CAP = 2000;
+/** Safety valve on the token-candidate prefilter: bounds hydration and BM25
+ *  tokenization; ORDER BY recency so truncation keeps the newest matches. */
+export const TOKEN_MATCH_LIMIT = 200;
+/** Bounds the entity-tag rows loaded per query (a few rows per doc). */
+export const ENTITY_SCAN_ROW_LIMIT = 4000;
 /** D1 caps bound parameters per statement (~100), so IN-list queries chunk. */
 const ID_CHUNK = 90;
 
@@ -437,13 +468,21 @@ export function d1IndexDb(db: D1Like): IndexDb {
         ...(opts.kinds && opts.kinds.length > 0 ? opts.kinds : []),
       ];
       const embStmt = db
-        .prepare(`SELECT id, embedding FROM docs WHERE ${scope()}`)
+        .prepare(
+          `SELECT id, embedding FROM docs WHERE ${scope()} ` +
+            `ORDER BY source_ts DESC LIMIT ${EMBED_SCAN_CAP}`,
+        )
+        .bind(...scopeBinds);
+      // Capped scan means embeddings.length no longer equals the corpus size;
+      // COUNT keeps `total` (and bm25's idf N) honest.
+      const countStmt = db
+        .prepare(`SELECT COUNT(*) AS n FROM docs WHERE ${scope()}`)
         .bind(...scopeBinds);
       const entStmt = db
         .prepare(
           "SELECT fe.fact_id AS fact_id, fe.entity AS entity " +
             "FROM fact_entities fe JOIN docs d ON d.space = fe.space AND d.id = fe.fact_id " +
-            `WHERE ${scope("d.")}`,
+            `WHERE ${scope("d.")} ORDER BY d.source_ts DESC LIMIT ${ENTITY_SCAN_ROW_LIMIT}`,
         )
         .bind(...scopeBinds);
       // Tokens come from tokenize(): lowercase [a-z0-9]+, so they are safe
@@ -455,12 +494,13 @@ export function d1IndexDb(db: D1Like): IndexDb {
               .prepare(
                 `SELECT id FROM docs WHERE ${scope()} AND (` +
                   tokens.map(() => "body LIKE ?").join(" OR ") +
-                  `) LIMIT ${TOKEN_MATCH_LIMIT}`,
+                  `) ORDER BY source_ts DESC LIMIT ${TOKEN_MATCH_LIMIT}`,
               )
               .bind(...scopeBinds, ...tokens.map((t) => `%${t}%`))
           : null;
-      const [embRes, entRes, tokRes] = await Promise.all([
+      const [embRes, countRes, entRes, tokRes] = await Promise.all([
         embStmt.all(),
+        countStmt.first(),
         entStmt.all(),
         tokStmt ? tokStmt.all() : Promise.resolve({ results: [] }),
       ]);
@@ -473,13 +513,13 @@ export function d1IndexDb(db: D1Like): IndexDb {
       }
       const embeddings = embRes.results.map((r) => ({
         id: r.id as string,
-        embedding: decodeEmbedding(r.embedding as ArrayBuffer | null),
+        embedding: decodeEmbeddingF32(r.embedding as ArrayBuffer | null),
       }));
       return {
         embeddings,
         entitiesByDoc,
         tokenMatchIds: tokRes.results.map((r) => r.id as string),
-        total: embeddings.length,
+        total: Number(countRes?.n ?? embeddings.length),
       };
     },
     async getDocsByIds(space, ids) {
@@ -490,7 +530,13 @@ export function d1IndexDb(db: D1Like): IndexDb {
         const [docRes, tagRes] = await Promise.all([
           db
             .prepare(
-              `SELECT * FROM docs WHERE space = ? AND superseded_by IS NULL AND id IN (${ph})`,
+              // Explicit column list WITHOUT embedding: hydration feeds
+              // bm25/render, which never touch vectors — fetching them here
+              // decoded every candidate's 768 floats a second time (the other
+              // half of the 1102 CPU blowup).
+              "SELECT id, space, project, kind, tier, body, source_file, " +
+                "source_author, source_ts, superseded_by, created_at, source_id " +
+                `FROM docs WHERE space = ? AND superseded_by IS NULL AND id IN (${ph})`,
             )
             .bind(space, ...chunk)
             .all(),
@@ -591,7 +637,7 @@ export function d1IndexDb(db: D1Like): IndexDb {
       const { results } = await db
         .prepare(
           "SELECT fact_id, SUM(CASE WHEN verdict = 'useful' THEN -1 ELSE 1 END) AS net " +
-            "FROM memory_feedback WHERE space = ? GROUP BY fact_id HAVING net > 0",
+            "FROM memory_feedback WHERE space = ? GROUP BY fact_id HAVING net > 0 LIMIT 500",
         )
         .bind(space)
         .all();

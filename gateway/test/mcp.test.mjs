@@ -681,3 +681,197 @@ test("memory_feedback fails open on a write error", async () => {
   assert.equal(out.isError, true);
   assert.match(out.content[0].text, /couldn't record feedback/);
 });
+
+test("search_memory fails open when the index throws: recency read with project, plain notice without", async () => {
+  const md =
+    "---\nauthor: Ada\ntype: decision\ntimestamp: 2026-07-01T00:00:00.000Z\nid: x1\nproject: memorylayer\n---\n\nships";
+  const indexDb = new MemoryIndexDb();
+  indexDb.queryScan = async () => {
+    throw new Error("D1 hiccup");
+  };
+  const { env, tokens } = await setup(
+    [
+      ...TOKEN_ROUTES,
+      [
+        "/git/trees/",
+        () =>
+          Response.json({
+            tree: [
+              {
+                path: "context/memorylayer/ada/2026-07-01T00-00-00-000Z-x1.md",
+                type: "blob",
+              },
+            ],
+          }),
+      ],
+      ["x1.md", () => new Response(md)],
+    ],
+    { indexDb, embedder: fakeEmbed },
+  );
+
+  const withProject = await handleRequest(
+    rpc(tokens["team-a"], {
+      jsonrpc: "2.0",
+      id: 40,
+      method: "tools/call",
+      params: {
+        name: "search_memory",
+        arguments: { query: "cursor config", project: "memorylayer" },
+      },
+    }),
+    env,
+  );
+  const wp = (await withProject.json()).result;
+  assert.notEqual(wp.isError, true, "degrade must not be an error result");
+  assert.match(wp.content[0].text, /temporarily unavailable/);
+  assert.match(wp.content[0].text, /ships/);
+
+  const noProject = await handleRequest(
+    rpc(tokens["team-a"], {
+      jsonrpc: "2.0",
+      id: 41,
+      method: "tools/call",
+      params: { name: "search_memory", arguments: { query: "cursor config" } },
+    }),
+    env,
+  );
+  const np = (await noProject.json()).result;
+  assert.notEqual(np.isError, true, "degrade must not be an error result");
+  assert.match(np.content[0].text, /temporarily unavailable/);
+  assert.match(np.content[0].text, /read_context/);
+});
+
+test("write_context with the dup gate ENFORCED blocks an exact duplicate and never commits", async () => {
+  const payload = "Cursor MCP config is project-scoped, not global.";
+  const indexDb = new MemoryIndexDb();
+  const [vec] = await fakeEmbed([payload]);
+  await indexDb.upsertDocs([
+    docFor("team-a", "memorylayer", "dup1", payload, vec),
+  ]);
+  const { env, calls, tokens } = await setup(
+    [
+      ...TOKEN_ROUTES,
+      ["/contents/", () => Response.json({ ok: true }, { status: 201 })],
+    ],
+    {
+      indexDb,
+      embedder: fakeEmbed,
+      genText: async () => '{"verdict":"relates","reason":"x"}',
+      dupGateEnforce: true,
+    },
+  );
+  const res = await handleRequest(
+    rpc(tokens["team-a"], {
+      jsonrpc: "2.0",
+      id: 50,
+      method: "tools/call",
+      params: {
+        name: "write_context",
+        arguments: { project: "memorylayer", payload },
+      },
+    }),
+    env,
+  );
+  const body = (await res.json()).result;
+  assert.notEqual(body.isError, true, "a blocked duplicate is not an error");
+  assert.match(body.content[0].text, /not re-recorded/);
+  assert.match(body.content[0].text, /dup1/);
+  assert.ok(
+    !calls.some((c) => c.url.includes("/contents/")),
+    "no ledger commit for a blocked duplicate",
+  );
+});
+
+test("write_context with explicit supersedes bypasses the enforced dup gate and commits", async () => {
+  const payload = "Cursor MCP config is project-scoped, not global.";
+  const indexDb = new MemoryIndexDb();
+  const [vec] = await fakeEmbed([payload]);
+  await indexDb.upsertDocs([
+    docFor("team-a", "memorylayer", "dup1", payload, vec),
+  ]);
+  const { env, calls, tokens } = await setup(
+    [
+      ...TOKEN_ROUTES,
+      ["/contents/", () => Response.json({ ok: true }, { status: 201 })],
+    ],
+    {
+      indexDb,
+      embedder: fakeEmbed,
+      genText: async () => '{"verdict":"relates","reason":"x"}',
+      dupGateEnforce: true,
+    },
+  );
+  const res = await handleRequest(
+    rpc(tokens["team-a"], {
+      jsonrpc: "2.0",
+      id: 51,
+      method: "tools/call",
+      params: {
+        name: "write_context",
+        arguments: { project: "memorylayer", payload, supersedes: ["dup1"] },
+      },
+    }),
+    env,
+  );
+  const body = (await res.json()).result;
+  assert.match(body.content[0].text, /Recorded/);
+  assert.match(body.content[0].text, /Supersedes: dup1/);
+  assert.ok(
+    calls.some((c) => c.url.includes("/contents/")),
+    "explicit supersedes must commit",
+  );
+});
+
+test("write_context still commits when the embedder throws (gate fails open)", async () => {
+  const indexDb = new MemoryIndexDb();
+  const [vec] = await fakeEmbed(["existing fact"]);
+  await indexDb.upsertDocs([
+    docFor("team-a", "memorylayer", "dup1", "existing fact", vec),
+  ]);
+  const { env, calls, tokens } = await setup(
+    [
+      ...TOKEN_ROUTES,
+      ["/contents/", () => Response.json({ ok: true }, { status: 201 })],
+    ],
+    {
+      indexDb,
+      embedder: async () => {
+        throw new Error("AI down");
+      },
+      genText: async () => '{"verdict":"relates","reason":"x"}',
+      dupGateEnforce: true,
+    },
+  );
+  const res = await handleRequest(
+    rpc(tokens["team-a"], {
+      jsonrpc: "2.0",
+      id: 52,
+      method: "tools/call",
+      params: {
+        name: "write_context",
+        arguments: { project: "memorylayer", payload: "existing fact" },
+      },
+    }),
+    env,
+  );
+  assert.match((await res.json()).result.content[0].text, /Recorded/);
+  assert.ok(
+    calls.some((c) => c.url.includes("/contents/")),
+    "embed failure must never lose a write",
+  );
+});
+
+test("write_context schema teaches amend-via-supersedes", async () => {
+  const { env, tokens } = await setup(TOKEN_ROUTES);
+  const list = await handleRequest(
+    rpc(tokens["team-a"], { jsonrpc: "2.0", id: 60, method: "tools/list" }),
+    env,
+  );
+  const tools = (await list.json()).result.tools;
+  const wc = tools.find((t) => t.name === "write_context");
+  assert.match(wc.description, /UPDATE or CORRECT/);
+  assert.match(
+    wc.inputSchema.properties.supersedes.description,
+    /updating\/amending a recorded decision/,
+  );
+});

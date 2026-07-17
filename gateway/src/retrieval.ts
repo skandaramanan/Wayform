@@ -9,9 +9,14 @@
  * full doc row. queryScan fetches only what the candidate generators need
  * (id+embedding for cosine, entity tags, token-match ids); full rows are
  * hydrated for the bounded candidate union only, so per-query body/metadata
- * work stops growing with the whole corpus. The embedding scan stays
- * O(corpus) — irreducible without a vector index, and single-digit ms at
- * pilot scale.
+ * work stops growing with the whole corpus.
+ *
+ * Bounded-by-construction (2026-07-17, the actual 1102 fix): 1102 is an
+ * uncatchable isolate kill, so every stage now has a hard cap — the embedding
+ * scan is recency-capped (EMBED_SCAN_CAP) and decoded as Float32Array views
+ * (no per-float boxing), hydration excludes embeddings (no double decode),
+ * and BM25 tokenizes only token-matched candidates (≤ TOKEN_MATCH_LIMIT
+ * bodies). Worst-case CPU per query is fixed regardless of corpus size.
  */
 import type { IndexDb, IndexedDoc } from "./index-db.js";
 import {
@@ -61,11 +66,13 @@ export async function retrieve(
   deps: RetrieveDeps,
   opts: RetrieveOpts,
 ): Promise<{ results: Retrieved[]; total: number }> {
+  const t0 = performance.now();
   const qTokens = [...new Set(tokenize(opts.query))].slice(0, MAX_QUERY_TOKENS);
   const scan = await deps.db.queryScan(opts.space, qTokens, {
     project: opts.project,
     kinds: opts.kinds && opts.kinds.length > 0 ? opts.kinds : undefined,
   });
+  const tScan = performance.now();
   if (scan.total === 0) return { results: [], total: 0 };
 
   let cosine: Scored[] = [];
@@ -77,6 +84,7 @@ export async function retrieve(
       // fail-open: BM25 alone still rescues exact-term matches (§5.1)
     }
   }
+  const tEmbed = performance.now();
   // Third candidate generator (§5.1): entity-tag overlap rescues canonical
   // topics that paraphrase-embeddings blur and multi-word tags BM25 splits.
   const entityCands = entityRank(
@@ -97,9 +105,19 @@ export async function retrieve(
     candidateIds.length > 0
       ? await deps.db.getDocsByIds(opts.space, candidateIds)
       : [];
+  const tHydrate = performance.now();
 
+  // BM25 only over token-matched candidates: docs surfaced solely by cosine
+  // or entity overlap contain no query token, so their BM25 score is 0 —
+  // tokenizing their bodies was pure waste (and unbounded pre-1102-fix).
+  const tokSet = new Set(scan.tokenMatchIds);
   const lists: Scored[][] = [
-    bm25Rank(docs, opts.query, undefined, scan.total),
+    bm25Rank(
+      docs.filter((d) => tokSet.has(d.id)),
+      opts.query,
+      undefined,
+      scan.total,
+    ),
     cosine,
     entityCands,
   ];
@@ -142,6 +160,25 @@ export async function retrieve(
     // logging must never break a read
   }
 
+  // Stage counts are the CPU proxy (Workers freezes clocks during sync
+  // execution, so ms deltas only capture the awaited I/O between stages);
+  // ground truth is the per-invocation CPU time in Workers Logs.
+  console.log(
+    JSON.stringify({
+      evt: "retrieval_timing",
+      trigger: opts.trigger,
+      nEmb: scan.embeddings.length,
+      nTokenMatch: scan.tokenMatchIds.length,
+      nEntityDocs: scan.entitiesByDoc.size,
+      nHydrated: docs.length,
+      nReturned: results.length,
+      msScan: Math.round(tScan - t0),
+      msEmbed: Math.round(tEmbed - tScan),
+      msHydrate: Math.round(tHydrate - tEmbed),
+      msTotal: Math.round(performance.now() - t0),
+    }),
+  );
+
   return { results, total: scan.total };
 }
 
@@ -174,7 +211,10 @@ export function renderSearchResults(
       .map(
         (r) =>
           `## ${kind} — ${r.doc.sourceAuthor} — ${r.doc.sourceTs.slice(0, 10)}\n\n` +
-          `${r.doc.body}\n\n_(source: ${r.doc.sourceFile})_`,
+          // The fact id is load-bearing: memory_feedback and write_context's
+          // supersedes both take "the fact id from search results" — without
+          // it here, agents pass file paths and both calls fail.
+          `${r.doc.body}\n\n_(id: ${r.doc.id} · source: ${r.doc.sourceFile})_`,
       );
     return blocks.join("\n\n");
   });

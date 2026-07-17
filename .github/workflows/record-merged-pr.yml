@@ -1,0 +1,90 @@
+# MemoryLayer — record merged PRs into the shared memory store.
+#
+# Every merged PR becomes a durable memory entry your team's agents can
+# recall: title, number, author, merger, branches, description excerpt, and
+# commit subjects. A zero-model, 100%-reliable write path — no agent has to
+# remember to record shipped work.
+#
+# Setup (per repo):
+#   1. Copy this file to .github/workflows/record-merged-pr.yml
+#   2. Set MEMORYLAYER_PROJECT below to your MemoryLayer project name.
+#   3. Add two repository secrets (Settings → Secrets → Actions):
+#        MEMORYLAYER_MCP_URL — your gateway MCP endpoint,
+#                              e.g. https://your-gateway.workers.dev/mcp
+#        MEMORYLAYER_TOKEN   — a member token (mlk_…) for this team's space
+#   4. Test with the "Run workflow" button (workflow_dispatch), then confirm
+#      the entry via search_memory or the context repo.
+#
+# Volume note: this records EVERY merged PR. High-traffic repos can gate it,
+# e.g. add `&& contains(github.event.pull_request.labels.*.name, 'memory')`
+# to the job `if:` to record only labeled PRs.
+
+name: Record merged PR to MemoryLayer
+
+on:
+  pull_request:
+    types: [closed]
+  workflow_dispatch: {}
+
+env:
+  MEMORYLAYER_PROJECT: memorylayer
+
+jobs:
+  record:
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.merged == true
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - name: Write PR summary to MemoryLayer
+        env:
+          GH_TOKEN: ${{ github.token }}
+          MCP_URL: ${{ secrets.MEMORYLAYER_MCP_URL }}
+          ML_TOKEN: ${{ secrets.MEMORYLAYER_TOKEN }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_BODY: ${{ github.event.pull_request.body }}
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_AUTHOR: ${{ github.event.pull_request.user.login }}
+          PR_MERGED_BY: ${{ github.event.pull_request.merged_by.login }}
+          PR_HEAD: ${{ github.event.pull_request.head.ref }}
+          PR_BASE: ${{ github.event.pull_request.base.ref }}
+          REPO: ${{ github.repository }}
+        # A memory write must never fail the merge pipeline: missing secrets
+        # skip quietly, and every failure path exits 0.
+        run: |
+          set +e
+          if [ -z "$MCP_URL" ] || [ -z "$ML_TOKEN" ]; then
+            echo "MEMORYLAYER_MCP_URL / MEMORYLAYER_TOKEN not set — skipping."
+            exit 0
+          fi
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            PR_TITLE="workflow_dispatch smoke test"
+            PR_NUMBER="0"
+            PR_AUTHOR="$GITHUB_ACTOR"
+            PR_MERGED_BY="$GITHUB_ACTOR"
+            PR_HEAD="test"
+            PR_BASE="main"
+            PR_BODY="Manual test of the MemoryLayer merged-PR recorder."
+          fi
+          COMMITS=""
+          if [ "$PR_NUMBER" != "0" ]; then
+            COMMITS=$(gh api "repos/$REPO/pulls/$PR_NUMBER/commits" \
+              --jq '.[].commit.message | split("\n")[0]' 2>/dev/null | head -10)
+          fi
+          PAYLOAD=$(jq -n \
+            --arg title "$PR_TITLE" --arg repo "$REPO" --arg n "$PR_NUMBER" \
+            --arg author "$PR_AUTHOR" --arg merger "$PR_MERGED_BY" \
+            --arg head "$PR_HEAD" --arg base "$PR_BASE" \
+            --arg body "$(printf '%s' "$PR_BODY" | head -c 600)" \
+            --arg commits "$COMMITS" \
+            '"PR merged: \($title) (\($repo)#\($n)) | author \($author), merged by \($merger) | \($base)←\($head)"
+             + (if $body != "" then " | " + $body else "" end)
+             + (if $commits != "" then " | commits: " + ($commits | split("\n") | join("; ")) else "" end)')
+          jq -n --arg project "$MEMORYLAYER_PROJECT" --argjson payload "$PAYLOAD" \
+            '{jsonrpc:"2.0",id:1,method:"tools/call",params:{name:"write_context",arguments:{project:$project,type:"context",payload:$payload}}}' \
+          | curl -sS --max-time 30 -X POST "$MCP_URL" \
+              -H "Authorization: Bearer $ML_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data-binary @- | head -c 2000
+          exit 0

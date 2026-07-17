@@ -3,3 +3,5 @@ node_modules/
 package-lock.json
 # Docs are hand-formatted prose; keep them out of the code formatter.
 *.md
+# Vendored reference copy of a reviewed OSS project — never format, never commit (also gitignored).
+second-brain-cloudflare-main/

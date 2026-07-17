@@ -44,3 +44,41 @@ test("mcpInstructions mirrors the forcing rules for initialize", () => {
   assert.match(text, /team-a/);
   assert.match(text, /MUST:/);
 });
+
+test("playbook forces search before clarifying questions and recommendations, and stores agent conclusions", () => {
+  const text = invocationPlaybook("memorylayer");
+  assert.match(text, /BEFORE asking the user a clarifying question/);
+  assert.match(text, /never ask for information you could have retrieved/i);
+  assert.match(text, /BEFORE recommending an action/);
+  assert.match(text, /already recommended or already done/);
+  assert.match(text, /conclusions YOU produced/);
+  assert.match(text, /condensed summary/);
+});
+
+test("mcpInstructions mirrors the new invocation rules", () => {
+  const text = mcpInstructions("memorylayer");
+  assert.match(text, /before asking the user a clarifying question/);
+  assert.match(text, /before recommending an action/);
+  assert.match(text, /durable conclusion you produced/);
+});
+
+test("supersedes amend guidance appears only when the plane supports it", () => {
+  const withIt = invocationPlaybook("memorylayer", { supersedes: true });
+  assert.match(withIt, /UPDATE or CORRECT a recorded decision/);
+  assert.match(withIt, /supersedes: \[<old fact id from search results>\]/);
+  const without = invocationPlaybook("memorylayer");
+  assert.ok(
+    !/supersedes/.test(without),
+    "local playbook must not name supersedes",
+  );
+
+  const mcpWith = mcpInstructions("memorylayer", { supersedes: true });
+  assert.match(mcpWith, /supersedes:\[old fact id from search results\]/);
+  const mcpWithout = mcpInstructions("memorylayer");
+  assert.ok(!/supersedes/.test(mcpWithout));
+
+  const composed = composeSessionStartText("memorylayer", "body", {
+    supersedes: true,
+  });
+  assert.match(composed, /UPDATE or CORRECT a recorded decision/);
+});
