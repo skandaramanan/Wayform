@@ -16,6 +16,7 @@
     "../src/slug.ts",
     "../src/frontmatter.ts",
     "../src/context-format.ts",
-    "../src/token-budget.ts"
+    "../src/token-budget.ts",
+    "../src/session-prompt.ts"
   ]
 }

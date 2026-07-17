@@ -6,6 +6,7 @@ import { loadConfig, defaultProject } from "./config.js";
 import { ContextStore } from "./store.js";
 import { remoteApiRead } from "./remote-read.js";
 import { projectContext } from "./context-format.js";
+import { mcpInstructions } from "./session-prompt.js";
 import { recordMetric } from "./metrics.js";
 import { isMain } from "./is-main.js";
 
@@ -18,10 +19,13 @@ export async function runServer(): Promise<void> {
   const store = cfg.repoUrl ? new ContextStore(cfg) : null;
   if (store) await store.ensure();
 
-  const server = new McpServer({
-    name: "memorylayer",
-    version: "0.1.0",
-  });
+  const server = new McpServer(
+    {
+      name: "memorylayer",
+      version: "0.1.0",
+    },
+    { instructions: mcpInstructions(defaultProject()) },
+  );
 
   server.registerTool(
     "read_context",

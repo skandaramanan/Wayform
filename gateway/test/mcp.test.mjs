@@ -86,6 +86,10 @@ test("initialize and tools/list expose the stdio-identical contract", async () =
   const initBody = await init.json();
   assert.equal(initBody.result.serverInfo.name, "memorylayer");
   assert.ok(initBody.result.capabilities.tools);
+  assert.match(initBody.result.instructions, /search_memory/);
+  assert.match(initBody.result.instructions, /write_context/);
+  assert.match(initBody.result.instructions, /memory_feedback/);
+  assert.match(initBody.result.instructions, /MUST:/);
 
   const list = await handleRequest(
     rpc(tokens["team-a"], { jsonrpc: "2.0", id: 2, method: "tools/list" }),
