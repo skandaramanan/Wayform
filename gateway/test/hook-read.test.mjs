@@ -55,15 +55,19 @@ function get(token, qs = "project=roadmap") {
   });
 }
 
-test("hook read returns injectable plain text with the session-start preamble", async () => {
+test("hook read returns injectable plain text with playbook + preamble", async () => {
   const { env, token } = await setup(ROUTES);
   const res = await handleRequest(get(token), env);
   assert.equal(res.status, 200);
   assert.match(res.headers.get("content-type"), /text\/plain/);
   const text = await res.text();
+  assert.match(text, /^## MemoryLayer — required tool policy/);
+  assert.match(text, /search_memory/);
+  assert.match(text, /write_context/);
+  assert.match(text, /memory_feedback/);
   assert.match(
     text,
-    /^The following is shared planning memory \(MemoryLayer\) for project "roadmap"/,
+    /The following is shared planning memory \(MemoryLayer\) for project "roadmap"/,
   );
   assert.match(text, /# Shared context: roadmap/);
 });
@@ -159,9 +163,11 @@ test("/hook/read serves the index briefing when facts exist", async () => {
   const { env, token } = await setup(ROUTES, { indexDb });
   const res = await handleRequest(get(token), env);
   const text = await res.text();
+  assert.match(text, /required tool policy/); // playbook first
   assert.match(text, /loaded automatically at session start/); // preamble kept
   assert.match(text, /Infra cost must stay \$0/);
   assert.match(text, /memory covers:/);
+  assert.match(text, /search_memory/);
 });
 
 test("/hook/read falls back to the recency dump when the index is unconfigured", async () => {

@@ -153,6 +153,8 @@ test("remote-first: an unreachable gateway falls back to the local clone read", 
       },
     });
     assert.match(out, /Local fallback decision\./);
+    assert.match(out, /required tool policy/);
+    assert.match(out, /search_memory/);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

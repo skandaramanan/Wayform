@@ -5,6 +5,7 @@ import { hookCacheKey } from "./mcp.js";
 import { indexDeps } from "./deps.js";
 import { renderBriefing } from "./retrieval.js";
 import { projectContext } from "../../src/context-format.js";
+import { composeSessionStartText } from "../../src/session-prompt.js";
 import { slug } from "../../src/slug.js";
 import { DEFAULT_BUDGET_TOKENS } from "../../src/token-budget.js";
 
@@ -45,15 +46,11 @@ export async function handleHookRead(
       ? budgetParam
       : DEFAULT_BUDGET_TOKENS;
 
-  const preamble =
-    `The following is shared planning memory (MemoryLayer) for project ` +
-    `"${project}", loaded automatically at session start. Treat these recorded ` +
-    `decisions and context as already-known; do not ask the user to re-explain ` +
-    `them.\n\n`;
-
   // Prefer the index briefing (canon + open questions + recent decisions +
   // topic manifest). Fail-open to the Phase A recency dump when the index is
   // unconfigured, empty, or throws — a broken index must never break a session.
+  // composeSessionStartText prefixes the tool-invocation playbook so mid-session
+  // MCP pulls stay forced even after the selective briefing is injected.
   let text = "";
   try {
     const deps = indexDeps(env);
@@ -89,7 +86,7 @@ export async function handleHookRead(
         new Date(),
         conflicts,
       );
-      if (briefing) text = preamble + briefing;
+      if (briefing) text = composeSessionStartText(project, briefing);
     }
   } catch {
     // fall through to the recency dump
@@ -104,7 +101,12 @@ export async function handleHookRead(
       env.githubFetch ?? fetch,
     );
     text =
-      total === 0 ? "" : preamble + projectContext(project, entries, total);
+      total === 0
+        ? ""
+        : composeSessionStartText(
+            project,
+            projectContext(project, entries, total),
+          );
   }
 
   await env.ROUTING.put(cacheKey, text, { expirationTtl: CACHE_TTL_SECONDS });

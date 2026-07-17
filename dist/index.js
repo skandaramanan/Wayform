@@ -6,6 +6,7 @@ import { loadConfig, defaultProject } from "./config.js";
 import { ContextStore } from "./store.js";
 import { remoteApiRead } from "./remote-read.js";
 import { projectContext } from "./context-format.js";
+import { mcpInstructions } from "./session-prompt.js";
 import { recordMetric } from "./metrics.js";
 import { isMain } from "./is-main.js";
 export async function runServer() {
@@ -20,7 +21,7 @@ export async function runServer() {
     const server = new McpServer({
         name: "memorylayer",
         version: "0.1.0",
-    });
+    }, { instructions: mcpInstructions(defaultProject()) });
     server.registerTool("read_context", {
         title: "Read shared planning context",
         description: "Pull the latest shared planning context for a project and return the current projected state (all recorded decisions and context, in write order). Call this at the START of a planning turn so decisions written by collaborators are already present without anyone pasting them.",
