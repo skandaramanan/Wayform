@@ -495,7 +495,10 @@ async function toolsCall(
               `Recorded '${verdict}' feedback on ${factId}. This will adjust its future ranking.`,
             ),
           );
-        } catch {
+        } catch (e) {
+          console.warn(
+            `[feedback] record failed for ${factId}: ${(e as Error).message}`,
+          );
           return rpcResult(
             msg.id,
             toolText(

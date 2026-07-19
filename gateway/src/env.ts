@@ -19,7 +19,10 @@ import type { Embedder } from "./retrieval.js";
 /** Minimal Workers AI surface: embeddings and text generation. */
 export interface AiBinding {
   run(model: string, input: { text: string[] }): Promise<{ data: number[][] }>;
-  run(model: string, input: { prompt: string }): Promise<{ response: string }>;
+  run(
+    model: string,
+    input: { prompt: string; max_tokens?: number },
+  ): Promise<{ response: string }>;
 }
 
 export interface Env {
