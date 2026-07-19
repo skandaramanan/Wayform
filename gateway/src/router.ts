@@ -1,6 +1,7 @@
 import type { Env } from "./env.js";
 import {
   handleAdminAddMember,
+  handleAdminAddProductRepo,
   handleAdminListInstallations,
 } from "./tenancy.js";
 import { handleMcp } from "./mcp.js";
@@ -72,6 +73,10 @@ async function route(
 
   if (url.pathname === "/admin/installations" && req.method === "GET") {
     return handleAdminListInstallations(req, env);
+  }
+
+  if (url.pathname === "/admin/product-repos" && req.method === "POST") {
+    return handleAdminAddProductRepo(req, env);
   }
 
   if (url.pathname === "/admin/reindex" && req.method === "POST") {

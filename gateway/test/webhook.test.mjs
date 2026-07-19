@@ -6,7 +6,10 @@ import {
   verifyGithubSignature,
   handleWebhook,
 } from "../dist/gateway/src/webhook.js";
-import { registerSpaceRepo } from "../dist/gateway/src/tenancy.js";
+import {
+  registerSpaceRepo,
+  handleAdminAddProductRepo,
+} from "../dist/gateway/src/tenancy.js";
 import { makeEnv, ghFetch, fakeEmbed } from "./helpers.mjs";
 
 const SECRET = "hooksecret";
@@ -85,6 +88,161 @@ test("push webhook ingests new ledger files for a registered repo", async () => 
   assert.equal(docs.length, 1);
   assert.equal(docs[0].body, "webhook-ingested decision");
   assert.equal(await db.getLastIndexedSha("s1"), "pushsha");
+});
+
+// --- merged-PR recorder (pull_request events from product repos) ---
+
+const PR_PAYLOAD = {
+  action: "closed",
+  repository: { full_name: "acme/webapp" },
+  pull_request: {
+    merged: true,
+    number: 12,
+    title: "Ship feature",
+    body: "Adds the feature.\n\nDetails here.",
+    user: { login: "alice" },
+    merged_by: { login: "bob" },
+    head: { ref: "feat" },
+    base: { ref: "main" },
+  },
+};
+
+function prEnv() {
+  const calls = [];
+  const env = makeEnv(
+    ghFetch(calls, [
+      [
+        "/app/installations/",
+        () =>
+          Response.json({
+            token: "ghs_test",
+            expires_at: "2099-01-01T00:00:00Z",
+          }),
+      ],
+      ["/contents/context/webapp/github/", () => Response.json({ ok: true })],
+    ]),
+    { WEBHOOK_SECRET: SECRET },
+  );
+  return { env, calls };
+}
+
+async function mapProductRepo(env) {
+  await registerSpaceRepo(env, {
+    space: "s1",
+    installationId: 7,
+    owner: "o",
+    repo: "ctx",
+    branch: "main",
+  });
+  const res = await handleAdminAddProductRepo(
+    new Request("https://gw/admin/product-repos", {
+      method: "POST",
+      headers: { "x-admin-secret": "test-admin-secret" },
+      body: JSON.stringify({
+        owner: "acme",
+        repo: "webapp",
+        space: "s1",
+        project: "webapp",
+      }),
+    }),
+    env,
+  );
+  assert.equal(res.status, 200);
+}
+
+test("merged PR on a mapped product repo writes a bot summary entry to the space's context repo", async () => {
+  const { env, calls } = prEnv();
+  await mapProductRepo(env);
+  const res = await handleWebhook(
+    pushReq(PR_PAYLOAD, { event: "pull_request" }),
+    env,
+  );
+  assert.equal(res.status, 200);
+  const put = calls.find(
+    (c) =>
+      c.init.method === "PUT" &&
+      c.url.includes("/repos/o/ctx/contents/context/webapp/github/"),
+  );
+  assert.ok(put, "expected a Contents PUT to the context repo");
+  const committed = Buffer.from(
+    JSON.parse(put.init.body).content,
+    "base64",
+  ).toString();
+  assert.match(
+    committed,
+    /PR merged: Ship feature \(acme\/webapp#12\) \| author alice, merged by bob \| main←feat \| Adds the feature\./,
+  );
+  assert.match(committed, /type: context/);
+  assert.match(committed, /author: GitHub/);
+});
+
+test("pull_request events that are not merges, or from unmapped repos, write nothing", async () => {
+  const { env, calls } = prEnv();
+  await mapProductRepo(env);
+  const closedUnmerged = {
+    ...PR_PAYLOAD,
+    pull_request: { ...PR_PAYLOAD.pull_request, merged: false },
+  };
+  assert.equal(
+    (
+      await handleWebhook(
+        pushReq(closedUnmerged, { event: "pull_request" }),
+        env,
+      )
+    ).status,
+    200,
+  );
+  const unmapped = { ...PR_PAYLOAD, repository: { full_name: "acme/other" } };
+  assert.equal(
+    (await handleWebhook(pushReq(unmapped, { event: "pull_request" }), env))
+      .status,
+    200,
+  );
+  assert.equal(
+    calls.filter((c) => c.init.method === "PUT").length,
+    0,
+    "no writes for ignored events",
+  );
+});
+
+test("admin product-repos endpoint enforces secret and required fields", async () => {
+  const { env } = prEnv();
+  const post = (headers, body) =>
+    handleAdminAddProductRepo(
+      new Request("https://gw/admin/product-repos", {
+        method: "POST",
+        headers,
+        body: JSON.stringify(body),
+      }),
+      env,
+    );
+  assert.equal(
+    (
+      await post(
+        { "x-admin-secret": "wrong" },
+        {
+          owner: "a",
+          repo: "b",
+          space: "s",
+          project: "p",
+        },
+      )
+    ).status,
+    403,
+  );
+  assert.equal(
+    (
+      await post(
+        { "x-admin-secret": "test-admin-secret" },
+        {
+          owner: "a",
+          repo: "b",
+          space: "s",
+        },
+      )
+    ).status,
+    400,
+  );
 });
 
 test("webhook rejects bad signatures; ignores non-push, unknown repos, other branches", async () => {
