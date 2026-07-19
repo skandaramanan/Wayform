@@ -10,7 +10,13 @@ import {
 } from "./config.js";
 
 const execFileAsync = promisify(execFile);
-const REQUIRED_ENV_KEYS = ["CONTEXT_REPO_URL", "MEMORYLAYER_AUTHOR"];
+const GATEWAY_PROBE_TIMEOUT_MS = 4000;
+/** Files init writes with a member credential inside — must stay 0600. */
+const SECRET_FILES = [
+  ".memorylayer-hook.env",
+  ".cursor/mcp.json",
+  ".codex/config.toml",
+];
 
 export type CheckStatus = "ok" | "warn" | "fail";
 
@@ -30,6 +36,7 @@ interface DoctorOptions {
   env?: NodeJS.ProcessEnv;
   config?: Config;
   gitRunner?: GitRunner;
+  fetchImpl?: typeof fetch;
   write?: (line: string) => void;
   setExitCode?: boolean;
 }
@@ -62,9 +69,21 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<number> {
     return 1;
   }
 
-  results.push(await checkClone(cfg, gitRunner));
-  results.push(await checkRemote(cfg, gitRunner));
-  results.push(await checkSync(cfg, gitRunner));
+  results.push(...checkSecretPerms(cwd));
+
+  // Hosted (gateway) members have repoUrl="" — the git checks would run
+  // against an empty URL and fail a perfectly healthy setup. Probe the
+  // gateway instead; run the git checks only when a clone is configured.
+  if (cfg.gatewayUrl && cfg.gatewayToken) {
+    results.push(
+      await checkGateway(cfg, cwd, options.fetchImpl ?? fetch),
+    );
+  }
+  if (cfg.repoUrl) {
+    results.push(await checkClone(cfg, gitRunner));
+    results.push(await checkRemote(cfg, gitRunner));
+    results.push(await checkSync(cfg, gitRunner));
+  }
   results.push(checkProject(cwd));
 
   printResults(results, write);
@@ -92,9 +111,15 @@ export function checkEnvFile(cwd: string, env: NodeJS.ProcessEnv): CheckResult {
       .map((line) => line.slice(0, line.indexOf("=")).trim())
       .filter(Boolean),
   );
-  const missing = REQUIRED_ENV_KEYS.filter(
-    (key) => !keys.has(key) && !env[key]?.trim(),
-  );
+  const has = (key: string) => keys.has(key) || Boolean(env[key]?.trim());
+  // Hosted members get a gateway-only env (init --remote writes no
+  // CONTEXT_REPO_URL); local members need the repo URL instead.
+  const hosted =
+    has("MEMORYLAYER_GATEWAY_URL") || has("MEMORYLAYER_GATEWAY_TOKEN");
+  const required = hosted
+    ? ["MEMORYLAYER_GATEWAY_URL", "MEMORYLAYER_GATEWAY_TOKEN", "MEMORYLAYER_AUTHOR"]
+    : ["CONTEXT_REPO_URL", "MEMORYLAYER_AUTHOR"];
+  const missing = required.filter((key) => !has(key));
   if (missing.length > 0) {
     return {
       status: "fail",
@@ -105,8 +130,81 @@ export function checkEnvFile(cwd: string, env: NodeJS.ProcessEnv): CheckResult {
   return {
     status: "ok",
     name: "env file",
-    message: "required keys are present",
+    message: `required keys are present (${hosted ? "hosted" : "local"} mode)`,
   };
+}
+
+/**
+ * Warn on secret-bearing files readable by other local users. init writes
+ * them 0600 (see init-env.ts); a loose copy usually predates that hardening.
+ * No-op check on Windows, where POSIX mode bits are not meaningful.
+ */
+export function checkSecretPerms(cwd: string): CheckResult[] {
+  if (process.platform === "win32") return [];
+  const loose: string[] = [];
+  for (const rel of SECRET_FILES) {
+    const file = path.join(cwd, rel);
+    if (!fs.existsSync(file)) continue;
+    if ((fs.statSync(file).mode & 0o077) !== 0) loose.push(rel);
+  }
+  if (loose.length === 0) {
+    return [
+      { status: "ok", name: "perms", message: "secret files are owner-only" },
+    ];
+  }
+  return [
+    {
+      status: "warn",
+      name: "perms",
+      message: `${loose.join(", ")} readable by other users — run: chmod 600 ${loose.join(" ")}`,
+    },
+  ];
+}
+
+/**
+ * One authed GET /hook/read proves reachability AND that the member token is
+ * accepted — the same call the session hook makes, so an [ok] here means the
+ * hooks will actually get context.
+ */
+export async function checkGateway(
+  cfg: Config,
+  cwd: string,
+  fetchImpl: typeof fetch,
+): Promise<CheckResult> {
+  const url = new URL(`${cfg.gatewayUrl}/hook/read`);
+  url.searchParams.set("project", defaultProject(cwd));
+  url.searchParams.set("budget", "1");
+  try {
+    const res = await fetchImpl(url.toString(), {
+      headers: { authorization: `Bearer ${cfg.gatewayToken}` },
+      signal: AbortSignal.timeout(GATEWAY_PROBE_TIMEOUT_MS),
+    });
+    if (res.ok) {
+      return {
+        status: "ok",
+        name: "gateway",
+        message: `reachable and token accepted (${cfg.gatewayUrl})`,
+      };
+    }
+    if (res.status === 401 || res.status === 403) {
+      return {
+        status: "fail",
+        name: "gateway",
+        message: "token rejected — ask your admin for a new member token",
+      };
+    }
+    return {
+      status: "fail",
+      name: "gateway",
+      message: `unexpected HTTP ${res.status} from ${cfg.gatewayUrl}`,
+    };
+  } catch (err) {
+    return {
+      status: "fail",
+      name: "gateway",
+      message: `unreachable: ${redactSecrets(err instanceof Error ? err.message : String(err))}`,
+    };
+  }
 }
 
 export async function checkClone(
