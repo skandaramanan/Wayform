@@ -7,9 +7,11 @@
  * (the cron reconciler catches them via last_indexed_sha drift).
  */
 import type { Env } from "./env.js";
-import { getSpaceRepo } from "./tenancy.js";
+import { getSpaceRepo, getProductRepo, listSpaceRepos } from "./tenancy.js";
 import { indexDeps } from "./deps.js";
-import { ingestFiles } from "./ingest.js";
+import { ingestFiles, ingestEntries } from "./ingest.js";
+import { writeEntry, recencyCacheKey } from "./github-store.js";
+import { hookCacheKey } from "./mcp.js";
 
 export async function verifyGithubSignature(
   secret: string,
@@ -48,6 +50,109 @@ interface PushPayload {
   commits?: { added?: string[]; modified?: string[] }[];
 }
 
+interface PrPayload {
+  action?: string;
+  repository?: { full_name?: string };
+  pull_request?: {
+    merged?: boolean;
+    number?: number;
+    title?: string;
+    body?: string | null;
+    user?: { login?: string };
+    merged_by?: { login?: string } | null;
+    head?: { ref?: string };
+    base?: { ref?: string };
+  };
+}
+
+/** Store identity for App-recorded entries — a bot author, never a member. */
+const RECORDER_AUTHOR = "GitHub";
+const RECORDER_EMAIL = "github-app[bot]@users.noreply.github.com";
+const PR_BODY_EXCERPT_MAX = 600;
+
+/**
+ * `pull_request` events from PRODUCT repos the App is installed on: a merged
+ * PR becomes one `context` entry in the mapped space+project — the App-based
+ * successor to integrations/github-actions/record-merged-pr.yml. Same
+ * fail-open contract as push: every non-error outcome is 2xx, the write runs
+ * in waitUntil, and failures are swallowed (a missed PR record is tolerable;
+ * a retry-storm or blocked webhook queue is not).
+ */
+async function handleMergedPr(
+  body: string,
+  env: Env,
+  ctx?: { waitUntil(p: Promise<unknown>): void },
+): Promise<Response> {
+  let payload: PrPayload;
+  try {
+    payload = JSON.parse(body) as PrPayload;
+  } catch {
+    return new Response("bad payload", { status: 400 });
+  }
+  const pr = payload.pull_request;
+  if (payload.action !== "closed" || !pr?.merged) {
+    return new Response("ignored pr event", { status: 200 });
+  }
+  const fullName = payload.repository?.full_name ?? "";
+  const mapping = await getProductRepo(env, fullName);
+  if (!mapping) return new Response("unmapped repo", { status: 200 });
+  const sr = (await listSpaceRepos(env)).find((r) => r.space === mapping.space);
+  if (!sr) return new Response("space has no context repo", { status: 200 });
+
+  const author = pr.user?.login ?? "unknown";
+  const merger = pr.merged_by?.login ?? author;
+  // ponytail: no commit-subject fetch (title+body carry the value); add via
+  // the product repo's installation token if trial teams miss it.
+  let summary =
+    `PR merged: ${pr.title ?? ""} (${fullName}#${pr.number ?? "?"})` +
+    ` | author ${author}, merged by ${merger}` +
+    ` | ${pr.base?.ref ?? "?"}←${pr.head?.ref ?? "?"}`;
+  const excerpt = (pr.body ?? "").trim().slice(0, PR_BODY_EXCERPT_MAX);
+  if (excerpt) summary += ` | ${excerpt}`;
+
+  const member = {
+    ...sr,
+    author: RECORDER_AUTHOR,
+    authorEmail: RECORDER_EMAIL,
+  };
+  const work = (async () => {
+    const entry = await writeEntry(
+      env,
+      member,
+      mapping.project,
+      { type: "context", payload: summary },
+      env.githubFetch ?? fetch,
+    );
+    // Mirrors write_context: best-effort cache invalidation, then async
+    // ingest; both failure-tolerant (TTL self-heal / reconcile cron).
+    try {
+      await env.ROUTING.delete(hookCacheKey(sr.space, mapping.project));
+      await env.ROUTING.delete(recencyCacheKey(sr.space, mapping.project));
+    } catch {
+      // swallow: stale cache expires via TTL
+    }
+    const deps = indexDeps(env);
+    if (deps) {
+      await ingestEntries(
+        deps.db,
+        deps.embed,
+        deps.gen,
+        sr.space,
+        mapping.project,
+        [entry],
+      );
+    }
+  })().catch(() => {
+    // swallowed: a missed PR record is tolerable; never 5xx GitHub
+  });
+  if (ctx) {
+    ctx.waitUntil(work);
+    return new Response("accepted", { status: 202 });
+  }
+  await work;
+  return new Response("ok", { status: 200 });
+}
+
 export async function handleWebhook(
   req: Request,
   env: Env,
@@ -64,7 +169,9 @@ export async function handleWebhook(
   ) {
     return new Response("bad signature", { status: 401 });
   }
-  if (req.headers.get("x-github-event") !== "push") {
+  const event = req.headers.get("x-github-event");
+  if (event === "pull_request") return handleMergedPr(body, env, ctx);
+  if (event !== "push") {
     return new Response("ignored event", { status: 200 });
   }
 
