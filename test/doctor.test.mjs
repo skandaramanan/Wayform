@@ -93,6 +93,112 @@ test("runDoctor reports healthy config without leaking tokens", async () => {
   }
 });
 
+function remoteCfg(gatewayUrl = "https://gw.example.com") {
+  return {
+    repoUrl: "",
+    repoPath: "",
+    author: "Alice",
+    authorEmail: "alice@memorylayer.local",
+    autoPush: true,
+    readBudgetTokens: 4000,
+    gatewayUrl,
+    gatewayToken: "mlk_test_token",
+  };
+}
+
+function writeRemoteEnv(cwd) {
+  fs.writeFileSync(
+    path.join(cwd, ".memorylayer-hook.env"),
+    [
+      "MEMORYLAYER_GATEWAY_URL=https://gw.example.com",
+      "MEMORYLAYER_GATEWAY_TOKEN=mlk_test_token",
+      "MEMORYLAYER_AUTHOR=Alice",
+      "",
+    ].join("\n"),
+    { mode: 0o600 },
+  );
+}
+
+test("checkEnvFile accepts a hosted env without CONTEXT_REPO_URL", () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ml-doc-"));
+  try {
+    writeRemoteEnv(tmp);
+    const result = checkEnvFile(tmp, {});
+    assert.equal(result.status, "ok");
+    assert.match(result.message, /hosted/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("runDoctor passes for a healthy hosted member and skips git checks", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ml-doc-"));
+  try {
+    writeRemoteEnv(tmp);
+    const lines = [];
+    const code = await runDoctor({
+      cwd: tmp,
+      config: remoteCfg(),
+      gitRunner: async () => {
+        throw new Error("git must not run in gateway-only mode");
+      },
+      fetchImpl: async (url, init) => {
+        assert.match(String(url), /\/hook\/read\?/);
+        assert.equal(init.headers.authorization, "Bearer mlk_test_token");
+        return new Response("briefing", { status: 200 });
+      },
+      write: (line) => lines.push(line),
+      setExitCode: false,
+    });
+    const out = lines.join("\n");
+    assert.equal(code, 0);
+    assert.match(out, /\[ok\] gateway/);
+    assert.match(out, /\[ok\] perms/);
+    assert.doesNotMatch(out, /clone|remote:|sync/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("runDoctor fails when the gateway rejects the token", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ml-doc-"));
+  try {
+    writeRemoteEnv(tmp);
+    const lines = [];
+    const code = await runDoctor({
+      cwd: tmp,
+      config: remoteCfg(),
+      fetchImpl: async () => new Response("nope", { status: 401 }),
+      write: (line) => lines.push(line),
+      setExitCode: false,
+    });
+    assert.equal(code, 1);
+    assert.match(lines.join("\n"), /token rejected/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("runDoctor warns on loose secret-file perms", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ml-doc-"));
+  try {
+    writeRemoteEnv(tmp);
+    fs.chmodSync(path.join(tmp, ".memorylayer-hook.env"), 0o644);
+    const lines = [];
+    const code = await runDoctor({
+      cwd: tmp,
+      config: remoteCfg(),
+      fetchImpl: async () => new Response("ok", { status: 200 }),
+      write: (line) => lines.push(line),
+      setExitCode: false,
+    });
+    assert.equal(code, 0); // warn, not fail
+    assert.match(lines.join("\n"), /\[warn\] perms.*chmod 600/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
 test("runDoctor fails when clone origin does not match config", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ml-doc-"));
   try {

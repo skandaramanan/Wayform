@@ -167,12 +167,15 @@ export async function runInitRemote(args) {
         console.log(`    ${claude.command}\n`);
         console.log('    then restart Claude Code and check /mcp shows "wayform" connected.\n');
     }
-    console.log("  wrote .codex/config.toml (gitignored — carries the member token)");
     console.log("\nNext steps:");
-    console.log("  1. Commit the project hook configs so teammates inherit them:");
+    console.log("  1. Verify the round trip:");
+    console.log("       wayform doctor        (gateway reachable + token accepted)");
+    console.log('     then restart your agent and ask it to "read the shared context" —');
+    console.log("     you should see your team's entries. (Claude Code: /mcp shows wayform connected.)");
+    console.log("  2. Commit the project hook configs so teammates inherit them:");
     console.log("       git add .claude .cursor/hooks.json .codex/hooks.json .gitignore && git commit -m 'chore: wire Wayform (remote)'");
     console.log("     (.cursor/mcp.json, .codex/config.toml and .memorylayer-hook.env are gitignored — each member runs init --remote.)");
-    console.log("  2. Codex users: mark the project trusted (Codex only loads project-scoped");
+    console.log("  3. Codex users: mark the project trusted (Codex only loads project-scoped");
     console.log("     config for trusted repos) — then wayform tools appear on next launch.");
 }
 //# sourceMappingURL=init-remote.js.map
