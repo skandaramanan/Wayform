@@ -57,8 +57,11 @@ export async function handleHookRead(
     if (deps) {
       const docs = await deps.db.listDocs(member.space, slug(project));
       const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
-      const conflicts: { oldFactId: string; oldBody: string; reason: string }[] =
-        [];
+      const conflicts: {
+        oldFactId: string;
+        oldBody: string;
+        reason: string;
+      }[] = [];
       try {
         const logs = await deps.db.recentConflictLogs(
           member.space,
