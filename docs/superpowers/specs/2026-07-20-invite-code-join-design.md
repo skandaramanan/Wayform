@@ -69,8 +69,10 @@ applies to it.
 
 `wayform space create` also mints and prints an invite code in its teammate
 handoff. Playbook Checklist B step 1 collapses to "dev runs the init line
-with the team invite." Token ledger gains `/join` rows (author from the join
-body), same append discipline.
+with the team invite." Because the operator does not witness `/join` mints,
+the endpoint logs one structured line per successful join (`space`, `author`,
+token **hash** — the revoke handle; never the raw token) so ledger rows can
+be appended from Workers logs.
 
 ## Testing
 
