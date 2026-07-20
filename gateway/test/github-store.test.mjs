@@ -68,6 +68,70 @@ test("writeEntry PUTs a byte-compatible entry to the member repo", async () => {
   assert.equal(parsed.timestamp, out.timestamp);
 });
 
+test("writeEntry retries the PUT on transient GitHub 5xx and succeeds", async () => {
+  let puts = 0;
+  const fetchImpl = ghFetch([], [
+    TOKEN_ROUTE,
+    [
+      "/contents/",
+      () =>
+        ++puts < 3
+          ? Response.json({ message: "No server is currently available" }, { status: 503 })
+          : Response.json({ ok: true }, { status: 201 }),
+    ],
+  ]);
+  const out = await writeEntry(
+    makeEnv(fetchImpl),
+    MEMBER,
+    "roadmap",
+    { type: "decision", payload: "survives a GitHub blip" },
+    fetchImpl,
+    [0, 0],
+  );
+  assert.equal(puts, 3);
+  assert.equal(out.payload, "survives a GitHub blip");
+});
+
+test("writeEntry gives up after retries on a persistent 5xx, and never retries 4xx", async () => {
+  let puts5xx = 0;
+  const always503 = ghFetch([], [
+    TOKEN_ROUTE,
+    ["/contents/", () => (puts5xx++, Response.json({ message: "down" }, { status: 503 }))],
+  ]);
+  await assert.rejects(
+    () =>
+      writeEntry(
+        makeEnv(always503),
+        MEMBER,
+        "roadmap",
+        { type: "decision", payload: "p" },
+        always503,
+        [0, 0],
+      ),
+    /write failed: 503/,
+  );
+  assert.equal(puts5xx, 3); // 1 attempt + 2 retries
+
+  let puts4xx = 0;
+  const always422 = ghFetch([], [
+    TOKEN_ROUTE,
+    ["/contents/", () => (puts4xx++, Response.json({ message: "422" }, { status: 422 }))],
+  ]);
+  await assert.rejects(
+    () =>
+      writeEntry(
+        makeEnv(always422),
+        MEMBER,
+        "roadmap",
+        { type: "decision", payload: "p" },
+        always422,
+        [0, 0],
+      ),
+    /write failed: 422/,
+  );
+  assert.equal(puts4xx, 1); // deterministic failure — no retry
+});
+
 test("readEntries: tree + raw fetch, sorted by timestamp, budget-packed, total preserved", async () => {
   const tree = {
     tree: [
