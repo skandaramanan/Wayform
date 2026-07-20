@@ -95,15 +95,35 @@ function writeText(cwd, rel, text) {
     fs.writeFileSync(file, text);
     console.log(`  wrote ${rel}`);
 }
+/**
+ * Exchange a team invite for this member's own personal token via the
+ * gateway's public /join. The token is minted server-side and returned
+ * exactly once — it exists nowhere but this process until init writes it
+ * to the 0600 secret files.
+ */
+export async function joinGateway(gatewayUrl, invite, author, email, fetchImpl = fetch) {
+    const res = await fetchImpl(`${gatewayUrl}/join`, {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ invite, author, authorEmail: email }),
+    });
+    if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(`invite join failed (${res.status}): ${detail}`);
+    }
+    const { token } = (await res.json());
+    return token;
+}
 export async function runInitRemote(args) {
     const cwd = process.cwd();
     if (!fs.existsSync(path.join(cwd, ".git"))) {
         throw new Error("Not a git repository — cd to your project's root and re-run. Nothing was written.");
     }
     const gatewayUrl = (flag(args, "gateway") ?? "").replace(/\/+$/, "");
-    const token = flag(args, "token") ?? "";
-    if (!gatewayUrl || !token) {
-        throw new Error("wayform init --remote requires --gateway <url> and --token <mlk_...>");
+    let token = flag(args, "token") ?? "";
+    const inviteCode = flag(args, "invite") ?? "";
+    if (!gatewayUrl || (!token && !inviteCode)) {
+        throw new Error("wayform init --remote requires --gateway <url> and --token <mlk_...> or --invite <wfi_...>");
     }
     // Identity (attribution/display; the gateway is authoritative on write).
     const useDefaults = has(args, "yes");
@@ -122,6 +142,10 @@ export async function runInitRemote(args) {
         (await ask("Author email", gitConfigDefault("user.email")));
     const project = flag(args, "project") ?? path.basename(cwd);
     rl?.close();
+    if (!token) {
+        token = await joinGateway(gatewayUrl, inviteCode, author, email);
+        console.log("  joined via invite — minted your personal member token");
+    }
     // --- Project tier: session/Stop hooks calling the `wayform` binary ---
     writeJson(cwd, ".claude/settings.json", mergeClaudeSettings(readJson(path.join(cwd, ".claude/settings.json")), "wayform"));
     writeJson(cwd, ".cursor/hooks.json", mergeCursorHooks(readJson(path.join(cwd, ".cursor/hooks.json")), "wayform"));

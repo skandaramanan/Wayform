@@ -14,6 +14,7 @@ import {
   handleAdminSupersessionAudit,
 } from "./admin-supersession.js";
 import { handleApiRead } from "./api-read.js";
+import { handleAdminCreateInvite, handleJoin } from "./invites.js";
 import {
   handleAdminGoldenCandidate,
   handleAdminRetrievalLog,
@@ -77,6 +78,14 @@ async function route(
 
   if (url.pathname === "/admin/product-repos" && req.method === "POST") {
     return handleAdminAddProductRepo(req, env);
+  }
+
+  if (url.pathname === "/admin/invites" && req.method === "POST") {
+    return handleAdminCreateInvite(req, env);
+  }
+
+  if (url.pathname === "/join" && req.method === "POST") {
+    return handleJoin(req, env);
   }
 
   if (url.pathname === "/admin/reindex" && req.method === "POST") {
