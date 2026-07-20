@@ -8,6 +8,7 @@ import {
   createRepoWithPat,
   pollInstallation,
   mintMemberToken,
+  createTeamInvite,
   runSpaceCreate,
 } from "../dist/space-create.js";
 
@@ -357,6 +358,13 @@ test("runSpaceCreate: end-to-end happy path via gh, prints the handoff command",
               member: { space: "team-a" },
             });
           }
+          if (String(url).includes("/admin/invites")) {
+            return Response.json({
+              invite: "wfi_team",
+              expiresAt: 1,
+              usesLeft: 25,
+            });
+          }
           throw new Error(`unexpected fetch: ${url}`);
         },
         sleep: async () => {},
@@ -382,9 +390,14 @@ test("runSpaceCreate: end-to-end happy path via gh, prints the handoff command",
   assert.ok(
     logs.some((l) =>
       l.includes(
-        "wayform init --remote --gateway https://gw.example.com --token mlk_handoff",
+        "wayform init --remote --gateway https://gw.example.com --invite wfi_team",
       ),
     ),
+    "handoff must carry the team invite, never the leader's token",
+  );
+  assert.ok(
+    !logs.some((l) => l.includes("--token mlk_handoff")),
+    "teammates must not be handed the leader's own token",
   );
 });
 
@@ -424,6 +437,9 @@ test("runSpaceCreate: falls back to the PAT prompt when gh is unavailable", asyn
           if (String(url).includes("/admin/members")) {
             return Response.json({ token: "mlk_y", member: {} });
           }
+          if (String(url).includes("/admin/invites")) {
+            return Response.json({ invite: "wfi_z", expiresAt: 1, usesLeft: 25 });
+          }
           throw new Error(`unexpected fetch: ${url}`);
         },
         sleep: async () => {},
@@ -438,4 +454,29 @@ test("runSpaceCreate: falls back to the PAT prompt when gh is unavailable", asyn
       u.includes("https://api.github.com/orgs/acme/repos"),
     ),
   );
+});
+
+test("createTeamInvite posts to /admin/invites and returns the code", async () => {
+  let captured;
+  const fetchImpl = async (url, init) => {
+    captured = {
+      url: String(url),
+      secret: init.headers["x-admin-secret"],
+      body: JSON.parse(init.body),
+    };
+    return new Response(
+      JSON.stringify({ invite: "wfi_team", expiresAt: 1, usesLeft: 25 }),
+      { status: 200 },
+    );
+  };
+  const code = await createTeamInvite(
+    "https://gw.test",
+    "sekret",
+    { space: "team-a", installationId: 777, owner: "acme", repo: "team-a-memory" },
+    fetchImpl,
+  );
+  assert.equal(code, "wfi_team");
+  assert.equal(captured.url, "https://gw.test/admin/invites");
+  assert.equal(captured.secret, "sekret");
+  assert.equal(captured.body.space, "team-a");
 });

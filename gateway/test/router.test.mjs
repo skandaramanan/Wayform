@@ -111,3 +111,40 @@ test("POST /admin/clear-supersession clears edges", async () => {
   assert.equal(body.cleared, 1);
   assert.equal((await db.listDocs("s1")).length, 2);
 });
+
+test("routes POST /admin/invites and POST /join", async () => {
+  const env = makeEnv();
+  const inviteRes = await handleRequest(
+    new Request("https://gw.test/admin/invites", {
+      method: "POST",
+      headers: {
+        "x-admin-secret": "test-admin-secret",
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        space: "team-a",
+        owner: "acme",
+        repo: "team-a-memory",
+        installationId: 777,
+      }),
+    }),
+    env,
+  );
+  assert.equal(inviteRes.status, 200);
+  const { invite } = await inviteRes.json();
+
+  const joinRes = await handleRequest(
+    new Request("https://gw.test/join", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({
+        invite,
+        author: "David",
+        authorEmail: "d@spear.ai",
+      }),
+    }),
+    env,
+  );
+  assert.equal(joinRes.status, 200);
+  assert.match((await joinRes.json()).token, /^mlk_/);
+});
