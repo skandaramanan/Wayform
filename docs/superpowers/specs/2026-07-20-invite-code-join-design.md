@@ -76,7 +76,7 @@ be appended from Workers logs.
 
 ## Testing
 
-- Gateway vitest, beside existing tenancy tests: invite mint; join happy
+- Gateway `node --test` suite, beside existing tenancy tests: invite mint; join happy
   path; expired; exhausted; bad code; use-count decrement.
 - CLI test: `--invite` exchange against a mocked gateway.
 - Cold-onboard rehearsal exercises the real flow end to end.
