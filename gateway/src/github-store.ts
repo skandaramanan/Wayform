@@ -38,12 +38,18 @@ function b64encodeUtf8(s: string): string {
  * vice versa. Timestamp is gateway server time — hosted writes are immune to
  * client clock skew by construction.
  */
+/** GitHub blips (observed live 2026-07-20: API partial outage → 503 on the
+ *  Contents PUT) must not lose a write — the entry has no other durable home
+ *  at this point. Retry 5xx only; 4xx are deterministic. */
+const WRITE_RETRY_DELAYS_MS = [500, 1500];
+
 export async function writeEntry(
   env: Env,
   member: SpaceMember,
   project: string,
   entry: { type: EntryType; payload: string },
   fetchImpl: typeof fetch = fetch,
+  retryDelaysMs: number[] = WRITE_RETRY_DELAYS_MS,
 ): Promise<ParsedEntry> {
   const token = await installationToken(env, member.installationId, fetchImpl);
   const timestamp = new Date().toISOString();
@@ -58,9 +64,8 @@ export async function writeEntry(
     .split("\n")[0]
     .slice(0, COMMIT_SUBJECT_MAX);
 
-  const res = await fetchImpl(
-    `${GH}/repos/${member.owner}/${member.repo}/contents/${file}`,
-    {
+  const put = () =>
+    fetchImpl(`${GH}/repos/${member.owner}/${member.repo}/contents/${file}`, {
       method: "PUT",
       headers: ghHeaders(token),
       body: JSON.stringify({
@@ -70,8 +75,14 @@ export async function writeEntry(
         committer: { name: member.author, email: member.authorEmail },
         author: { name: member.author, email: member.authorEmail },
       }),
-    },
-  );
+    });
+
+  let res = await put();
+  for (const delay of retryDelaysMs) {
+    if (res.status < 500) break;
+    await new Promise((resolve) => setTimeout(resolve, delay));
+    res = await put();
+  }
   if (!res.ok) {
     throw new Error(
       `write failed: ${res.status} ${(await res.text()).slice(0, 200)}`,
