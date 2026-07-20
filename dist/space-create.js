@@ -141,6 +141,22 @@ export async function mintMemberToken(gatewayUrl, adminSecret, body, fetchImpl =
     }
     return (await res.json());
 }
+export async function createTeamInvite(gatewayUrl, adminSecret, body, fetchImpl = fetch) {
+    const res = await fetchImpl(`${gatewayUrl}/admin/invites`, {
+        method: "POST",
+        headers: {
+            "x-admin-secret": adminSecret,
+            "content-type": "application/json",
+        },
+        body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+        const detail = await res.text();
+        throw new Error(`invite mint failed (${res.status}): ${detail}`);
+    }
+    const { invite } = (await res.json());
+    return invite;
+}
 export async function promptForPat() {
     const rl = readline.createInterface({ input, output });
     const pat = await rl.question("gh not found or not authenticated. Paste a GitHub PAT with repo-creation scope: ");
@@ -185,11 +201,19 @@ export async function runSpaceCreate(args, deps = {}) {
         author,
         authorEmail,
     }, d.fetchImpl);
+    const invite = await createTeamInvite(gatewayUrl, adminSecret, {
+        space: parsed.space,
+        installationId,
+        owner: parsed.owner,
+        repo: parsed.repo,
+    }, d.fetchImpl);
     d.log("");
     d.log(`Space "${parsed.space}" created.`);
-    d.log(`Token (shown once): ${minted.token}`);
+    d.log(`Your token (shown once): ${minted.token}`);
     d.log("");
-    d.log("Hand this to each teammate:");
-    d.log(`  wayform init --remote --gateway ${gatewayUrl} --token ${minted.token}`);
+    d.log("Hand this ONE line to each teammate — each mints their own token");
+    d.log("(invite expires in 14 days / 25 uses; send via email or a Slack");
+    d.log("code block, never iMessage — it mangles the dashes):");
+    d.log(`  wayform init --remote --gateway ${gatewayUrl} --invite ${invite}`);
 }
 //# sourceMappingURL=space-create.js.map
