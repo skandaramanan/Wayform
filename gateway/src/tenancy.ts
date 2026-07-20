@@ -153,6 +153,30 @@ const REQUIRED: (keyof SpaceMember)[] = [
 ];
 
 /**
+ * Shared member-creation core (admin mint and public /join both land here):
+ * store the member under the token's hash, register the space repo, return
+ * the raw token — shown exactly once by the caller. Callers validate input.
+ */
+export async function mintMember(
+  env: Env,
+  member: SpaceMember,
+): Promise<string> {
+  const token = newToken();
+  await env.ROUTING.put(
+    `member:${await sha256Hex(token)}`,
+    JSON.stringify(member),
+  );
+  await registerSpaceRepo(env, {
+    space: member.space,
+    installationId: member.installationId,
+    owner: member.owner,
+    repo: member.repo,
+    branch: member.branch,
+  });
+  return token;
+}
+
+/**
  * POST /admin/members — mint a member token for a space. Pilot-scale
  * provisioning: guarded by the ADMIN_SECRET Worker secret; the CLI onboarding
  * flow (Plan C) wraps this endpoint. Returns the raw token exactly once.
@@ -176,18 +200,7 @@ export async function handleAdminAddMember(
     }
   }
   const member = { branch: "main", ...body } as SpaceMember;
-  const token = newToken();
-  await env.ROUTING.put(
-    `member:${await sha256Hex(token)}`,
-    JSON.stringify(member),
-  );
-  await registerSpaceRepo(env, {
-    space: member.space,
-    installationId: member.installationId,
-    owner: member.owner,
-    repo: member.repo,
-    branch: member.branch,
-  });
+  const token = await mintMember(env, member);
   return Response.json({ token, member });
 }
 
