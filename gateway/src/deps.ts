@@ -7,6 +7,7 @@ import type { Env } from "./env.js";
 import { d1IndexDb, type IndexDb } from "./index-db.js";
 import type { Embedder } from "./retrieval.js";
 import type { GenText } from "./extract.js";
+import { reserveNeurons, EXTRACT_NEURON_COST } from "./neuron-budget.js";
 
 export const EMBED_MODEL = "@cf/baai/bge-base-en-v1.5";
 // Non-deprecated as of 2026-07; the bare @cf/meta/llama-3.1-8b-instruct was
@@ -41,13 +42,17 @@ export function indexDeps(
   const gen: GenText | null =
     env.genText ??
     (env.AI
-      ? async (prompt: string) =>
-          (
+      ? async (prompt: string) => {
+          if (!(await reserveNeurons(env, EXTRACT_NEURON_COST))) {
+            throw new Error("neuron budget exhausted for today");
+          }
+          return (
             await env.AI!.run(EXTRACT_MODEL, {
               prompt,
               max_tokens: EXTRACT_MAX_TOKENS,
             })
-          ).response
+          ).response;
+        }
       : null);
   return { db, embed, gen };
 }

@@ -70,16 +70,22 @@ test("writeEntry PUTs a byte-compatible entry to the member repo", async () => {
 
 test("writeEntry retries the PUT on transient GitHub 5xx and succeeds", async () => {
   let puts = 0;
-  const fetchImpl = ghFetch([], [
-    TOKEN_ROUTE,
+  const fetchImpl = ghFetch(
+    [],
     [
-      "/contents/",
-      () =>
-        ++puts < 3
-          ? Response.json({ message: "No server is currently available" }, { status: 503 })
-          : Response.json({ ok: true }, { status: 201 }),
+      TOKEN_ROUTE,
+      [
+        "/contents/",
+        () =>
+          ++puts < 3
+            ? Response.json(
+                { message: "No server is currently available" },
+                { status: 503 },
+              )
+            : Response.json({ ok: true }, { status: 201 }),
+      ],
     ],
-  ]);
+  );
   const out = await writeEntry(
     makeEnv(fetchImpl),
     MEMBER,
@@ -94,10 +100,16 @@ test("writeEntry retries the PUT on transient GitHub 5xx and succeeds", async ()
 
 test("writeEntry gives up after retries on a persistent 5xx, and never retries 4xx", async () => {
   let puts5xx = 0;
-  const always503 = ghFetch([], [
-    TOKEN_ROUTE,
-    ["/contents/", () => (puts5xx++, Response.json({ message: "down" }, { status: 503 }))],
-  ]);
+  const always503 = ghFetch(
+    [],
+    [
+      TOKEN_ROUTE,
+      [
+        "/contents/",
+        () => (puts5xx++, Response.json({ message: "down" }, { status: 503 })),
+      ],
+    ],
+  );
   await assert.rejects(
     () =>
       writeEntry(
@@ -113,10 +125,16 @@ test("writeEntry gives up after retries on a persistent 5xx, and never retries 4
   assert.equal(puts5xx, 3); // 1 attempt + 2 retries
 
   let puts4xx = 0;
-  const always422 = ghFetch([], [
-    TOKEN_ROUTE,
-    ["/contents/", () => (puts4xx++, Response.json({ message: "422" }, { status: 422 }))],
-  ]);
+  const always422 = ghFetch(
+    [],
+    [
+      TOKEN_ROUTE,
+      [
+        "/contents/",
+        () => (puts4xx++, Response.json({ message: "422" }, { status: 422 })),
+      ],
+    ],
+  );
   await assert.rejects(
     () =>
       writeEntry(
