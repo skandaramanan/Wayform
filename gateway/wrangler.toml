@@ -30,3 +30,10 @@ crons = ["*/15 * * * *"]
 # only sees wall time across awaits (clocks freeze during sync execution).
 [observability]
 enabled = true
+
+# Workers Paid defaults to 30s CPU per invocation and bills $0.02 per additional
+# million CPU-ms past the 30M included. Warm retrieval measures 42-69ms, so 5s
+# is ~70x headroom while capping what a runaway loop could bill. Raise it if a
+# legitimate reindex page ever trips it (visible as exceededCpu in Workers Logs).
+[limits]
+cpu_ms = 5000

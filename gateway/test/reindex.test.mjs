@@ -4,6 +4,7 @@ import { MemoryIndexDb } from "../dist/gateway/src/index-db.js";
 import {
   handleAdminReindex,
   reconcileAll,
+  CRON_REINDEX_PAGE,
 } from "../dist/gateway/src/reindex.js";
 import { registerSpaceRepo } from "../dist/gateway/src/tenancy.js";
 import { makeEnv, ghFetch, fakeEmbed } from "./helpers.mjs";
@@ -131,7 +132,11 @@ function envWithManyEntries(indexDb, fileCount) {
 
 test("reconcileAll heals a large drifted space one bounded page per tick via a KV cursor", async () => {
   const db = new MemoryIndexDb();
-  const env = envWithManyEntries(db, 25);
+  // Sized off the page constant so retuning the page size doesn't break this
+  // test: two full pages plus a short final one still exercises resume + finish.
+  const page = CRON_REINDEX_PAGE;
+  const total = page * 2 + 5;
+  const env = envWithManyEntries(db, total);
   await registerSpaceRepo(env, {
     space: "s1",
     installationId: 7,
@@ -142,22 +147,22 @@ test("reconcileAll heals a large drifted space one bounded page per tick via a K
   // simulate the incident: no indexed sha at all (wiped space) → drift
   // tick 1: wipes (offset 0) and ingests the first page only
   await reconcileAll(env);
-  assert.equal((await db.listDocs("s1")).length, 10);
-  assert.equal(await env.ROUTING.get("reindex-cursor:s1"), "10");
+  assert.equal((await db.listDocs("s1")).length, page);
+  assert.equal(await env.ROUTING.get("reindex-cursor:s1"), String(page));
   assert.equal(await db.getLastIndexedSha("s1"), null); // not done → still drifts
 
   // tick 2: resumes from the cursor without re-wiping
   await reconcileAll(env);
-  assert.equal((await db.listDocs("s1")).length, 20);
-  assert.equal(await env.ROUTING.get("reindex-cursor:s1"), "20");
+  assert.equal((await db.listDocs("s1")).length, page * 2);
+  assert.equal(await env.ROUTING.get("reindex-cursor:s1"), String(page * 2));
 
   // tick 3: final page — sha advances, cursor cleared
   await reconcileAll(env);
-  assert.equal((await db.listDocs("s1")).length, 25);
+  assert.equal((await db.listDocs("s1")).length, total);
   assert.equal(await env.ROUTING.get("reindex-cursor:s1"), null);
   assert.equal(await db.getLastIndexedSha("s1"), "headsha");
 
   // tick 4: no drift → untouched
   await reconcileAll(env);
-  assert.equal((await db.listDocs("s1")).length, 25);
+  assert.equal((await db.listDocs("s1")).length, total);
 });
