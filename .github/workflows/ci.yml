@@ -5,37 +5,42 @@ on:
     branches: [main]
   pull_request:
 
-# Cancel superseded pushes on the same PR/branch so rebased commits do not
-# stack full matrices against the monthly Actions allowance.
+# Cancel superseded pushes on the same PR/branch so rebases do not stack
+# full matrices against the monthly Actions allowance.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 jobs:
-  # Linux covers the Node LTS matrix. macOS is 10× included minutes, so keep
-  # a single smoke (Node 22) and only on pull_request — post-merge main pushes
-  # already passed that smoke on the PR and should not burn another 10× slot.
+  # Linux covers the Node LTS matrix on every PR and every main push.
   test:
-    runs-on: ${{ matrix.os }}
+    runs-on: ubuntu-latest
     strategy:
       fail-fast: false
       matrix:
-        include:
-          - os: ubuntu-latest
-            node: 18
-          - os: ubuntu-latest
-            node: 20
-          - os: ubuntu-latest
-            node: 22
-          - os: macos-latest
-            node: 22
-            pr_only: true
-    if: ${{ !(matrix.pr_only && github.event_name != 'pull_request') }}
+        node: [18, 20, 22]
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
         with:
           node-version: ${{ matrix.node }}
+          cache: npm
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run typecheck
+      - run: npm run format:check
+      - run: npm test
+
+  # macOS is 10× included minutes. One smoke on PRs only — main already
+  # passed this on the PR and should not burn another 10× slot after merge.
+  test-macos:
+    if: github.event_name == 'pull_request'
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
           cache: npm
       - run: npm ci
       - run: npm run lint
