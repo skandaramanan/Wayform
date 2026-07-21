@@ -106,9 +106,14 @@ async function headSha(
 }
 
 /** Entries per cron reindex page. Ingest costs ~3 subrequests/entry plus
- *  token/head/tree/D1 overhead; 10 was proven live under the 50-cap
- *  (2026-07-13 manual limit=10 backfill) where 40 was fatally over. */
-const CRON_REINDEX_PAGE = 10;
+ *  token/head/tree/D1 overhead; 10 was proven live under the Free plan's
+ *  50-subrequest cap (2026-07-13 manual limit=10 backfill) where 40 was fatally
+ *  over. The Paid plan raises that cap to 10,000, so the binding constraint is
+ *  now the per-invocation CPU limit, not subrequests: 50 entries (~150
+ *  subrequests) converges a full rebuild in ~3 ticks instead of ~13, shrinking
+ *  the window where a space serves a half-built index. Total neuron spend is
+ *  unchanged — the same entries get extracted either way, just sooner. */
+export const CRON_REINDEX_PAGE = 50;
 
 const reindexCursorKey = (space: string) => `reindex-cursor:${space}`;
 

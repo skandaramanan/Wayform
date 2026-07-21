@@ -393,8 +393,11 @@ export function decodeEmbeddingF32(b: ArrayBuffer | null): Float32Array {
  *  Move to Vectorize (free tier) when a space approaches this cap. */
 export const EMBED_SCAN_CAP = 2000;
 /** Safety valve on the token-candidate prefilter: bounds hydration and BM25
- *  tokenization; ORDER BY recency so truncation keeps the newest matches. */
-export const TOKEN_MATCH_LIMIT = 200;
+ *  tokenization; ORDER BY recency so truncation keeps the newest matches.
+ *  Was 200 to fit the Free plan's 10ms CPU cap, which silently dropped older
+ *  BM25 candidates; the Paid plan's per-invocation budget makes 1000 (~11ms
+ *  measured at 1000 docs) cost nothing worth counting. */
+export const TOKEN_MATCH_LIMIT = 1000;
 /** Bounds the entity-tag rows loaded per query (a few rows per doc). */
 export const ENTITY_SCAN_ROW_LIMIT = 4000;
 /** D1 caps bound parameters per statement (~100), so IN-list queries chunk. */

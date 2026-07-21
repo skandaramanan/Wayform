@@ -1,0 +1,25 @@
+#!/usr/bin/env bash
+# wayform pre-commit guard. Two checks, fail-fast:
+#   1. Nothing under docs/ may be committed (it holds onboarding playbooks with
+#      live credentials — the 2026-07-15 leak). docs/ is gitignored, so this
+#      only fires on `git add -f`.
+#   2. gitleaks scans the staged diff for tokens/secrets.
+# Local fast-feedback only; the secret-scan CI job is the real enforcement.
+set -euo pipefail
+
+staged=$(git diff --cached --name-only --diff-filter=ACM)
+
+docs_staged=$(printf '%s\n' "$staged" | grep -E '^docs/' || true)
+if [ -n "$docs_staged" ]; then
+  echo "pre-commit: refusing to commit files under docs/ (they carry live credentials):" >&2
+  printf '  %s\n' $docs_staged >&2
+  echo "docs/ is gitignored on purpose. If this is truly safe, override with: git commit --no-verify" >&2
+  exit 1
+fi
+
+if command -v gitleaks >/dev/null 2>&1; then
+  gitleaks protect --staged --redact --config .gitleaks.toml
+else
+  echo "pre-commit: gitleaks not installed — skipping local secret scan (CI still enforces it)." >&2
+  echo "  install: brew install gitleaks" >&2
+fi

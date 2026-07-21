@@ -36,3 +36,19 @@ jobs:
           cache-dependency-path: gateway/package-lock.json
       - run: cd gateway && npm ci
       - run: npm run test:gateway
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install gitleaks
+        run: |
+          ver=$(curl -sSfL https://api.github.com/repos/gitleaks/gitleaks/releases/latest \
+            | grep -oE '"tag_name": *"v[^"]+"' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${ver}/gitleaks_${ver}_linux_x64.tar.gz" \
+            | tar -xz gitleaks
+          sudo mv gitleaks /usr/local/bin/gitleaks
+      # Scan the working tree (not history): the rotated 2026-07-15 leaks live
+      # only in old commits and are dead, so a history scan would fail forever.
+      # This catches any NEW secret that reaches a committed file.
+      - run: gitleaks dir . --redact --verbose --config .gitleaks.toml

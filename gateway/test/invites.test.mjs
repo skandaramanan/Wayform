@@ -23,7 +23,11 @@ function post(url, body, headers = {}) {
   });
 }
 
-async function createInvite(env, body = INVITE_BODY, secret = "test-admin-secret") {
+async function createInvite(
+  env,
+  body = INVITE_BODY,
+  secret = "test-admin-secret",
+) {
   return handleAdminCreateInvite(
     post("https://gw.test/admin/invites", body, { "x-admin-secret": secret }),
     env,
@@ -42,7 +46,10 @@ test("admin invite mint: returns a wfi_ code once; only the hash lands in KV", a
   assert.match(invite, /^wfi_/);
   assert.equal(usesLeft, INVITE_MAX_USES);
   for (const key of env.ROUTING.map.keys()) {
-    assert.ok(!key.includes(invite), "raw invite code must not appear in KV keys");
+    assert.ok(
+      !key.includes(invite),
+      "raw invite code must not appear in KV keys",
+    );
   }
 });
 
@@ -94,7 +101,10 @@ test("join: unknown, expired, and exhausted invites all fail with the same gener
   const key = `invite:${await sha256Hex(invite)}`;
 
   const live = JSON.parse(await env.ROUTING.get(key));
-  await env.ROUTING.put(key, JSON.stringify({ ...live, expiresAt: Date.now() - 1 }));
+  await env.ROUTING.put(
+    key,
+    JSON.stringify({ ...live, expiresAt: Date.now() - 1 }),
+  );
   const expired = await join(env, { invite, ...who });
   assert.equal(expired.status, 400);
   assert.equal((await expired.json()).error, "invalid or expired invite");
