@@ -22,7 +22,8 @@ export const DAILY_NEURON_BUDGET = 9500;
  *  early rather than into an overage. */
 export const EXTRACT_NEURON_COST = 100;
 
-const budgetKey = () => `neuron-budget:${new Date().toISOString().slice(0, 10)}`;
+const budgetKey = () =>
+  `neuron-budget:${new Date().toISOString().slice(0, 10)}`;
 
 /**
  * Reserve `cost` neurons against today's budget. Returns false when the day's

@@ -438,7 +438,11 @@ test("runSpaceCreate: falls back to the PAT prompt when gh is unavailable", asyn
             return Response.json({ token: "mlk_y", member: {} });
           }
           if (String(url).includes("/admin/invites")) {
-            return Response.json({ invite: "wfi_z", expiresAt: 1, usesLeft: 25 });
+            return Response.json({
+              invite: "wfi_z",
+              expiresAt: 1,
+              usesLeft: 25,
+            });
           }
           throw new Error(`unexpected fetch: ${url}`);
         },
@@ -472,7 +476,12 @@ test("createTeamInvite posts to /admin/invites and returns the code", async () =
   const code = await createTeamInvite(
     "https://gw.test",
     "sekret",
-    { space: "team-a", installationId: 777, owner: "acme", repo: "team-a-memory" },
+    {
+      space: "team-a",
+      installationId: 777,
+      owner: "acme",
+      repo: "team-a-memory",
+    },
     fetchImpl,
   );
   assert.equal(code, "wfi_team");

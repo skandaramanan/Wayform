@@ -75,9 +75,7 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<number> {
   // against an empty URL and fail a perfectly healthy setup. Probe the
   // gateway instead; run the git checks only when a clone is configured.
   if (cfg.gatewayUrl && cfg.gatewayToken) {
-    results.push(
-      await checkGateway(cfg, cwd, options.fetchImpl ?? fetch),
-    );
+    results.push(await checkGateway(cfg, cwd, options.fetchImpl ?? fetch));
   }
   if (cfg.repoUrl) {
     results.push(await checkClone(cfg, gitRunner));
@@ -117,7 +115,11 @@ export function checkEnvFile(cwd: string, env: NodeJS.ProcessEnv): CheckResult {
   const hosted =
     has("MEMORYLAYER_GATEWAY_URL") || has("MEMORYLAYER_GATEWAY_TOKEN");
   const required = hosted
-    ? ["MEMORYLAYER_GATEWAY_URL", "MEMORYLAYER_GATEWAY_TOKEN", "MEMORYLAYER_AUTHOR"]
+    ? [
+        "MEMORYLAYER_GATEWAY_URL",
+        "MEMORYLAYER_GATEWAY_TOKEN",
+        "MEMORYLAYER_AUTHOR",
+      ]
     : ["CONTEXT_REPO_URL", "MEMORYLAYER_AUTHOR"];
   const missing = required.filter((key) => !has(key));
   if (missing.length > 0) {

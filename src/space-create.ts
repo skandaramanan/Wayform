@@ -354,7 +354,5 @@ export async function runSpaceCreate(
   d.log("Hand this ONE line to each teammate — each mints their own token");
   d.log("(invite expires in 14 days / 25 uses; send via email or a Slack");
   d.log("code block, never iMessage — it mangles the dashes):");
-  d.log(
-    `  wayform init --remote --gateway ${gatewayUrl} --invite ${invite}`,
-  );
+  d.log(`  wayform init --remote --gateway ${gatewayUrl} --invite ${invite}`);
 }

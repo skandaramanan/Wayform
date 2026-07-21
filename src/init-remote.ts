@@ -276,7 +276,9 @@ export async function runInitRemote(args: string[]): Promise<void> {
 
   console.log("\nNext steps:");
   console.log("  1. Verify the round trip:");
-  console.log("       wayform doctor        (gateway reachable + token accepted)");
+  console.log(
+    "       wayform doctor        (gateway reachable + token accepted)",
+  );
   console.log(
     '     then restart your agent and ask it to "read the shared context" —',
   );
