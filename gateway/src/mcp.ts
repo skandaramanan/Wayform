@@ -232,7 +232,7 @@ export async function handleMcp(
       return rpcResult(msg.id, {
         protocolVersion: PROTOCOL_VERSION,
         capabilities: { tools: {} },
-        serverInfo: { name: "memorylayer", version: "0.1.0" },
+        serverInfo: { name: "memorylayer", version: "0.1.8" },
         instructions: mcpInstructions(member.space, { supersedes: true }),
       });
     case "notifications/initialized":
