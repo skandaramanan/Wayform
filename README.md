@@ -125,7 +125,8 @@ via a GitHub App — so joining a team space becomes *paste a URL and a token*.
 
 Endpoints, tenancy model, limits, and the deploy runbook live in
 [gateway/README.md](gateway/README.md). Client-side hook shims for the gateway
-(`init --remote`) are the next planned increment.
+ship today: `wayform init --remote --gateway <url> --invite <code>` wires an
+agent to a hosted space, and `wayform doctor` verifies the round trip.
 
 ---
 
