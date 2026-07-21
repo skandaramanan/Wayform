@@ -40,9 +40,10 @@ export function invocationPlaybook(
   return [
     `## MemoryLayer — required tool policy (project "${project}")`,
     ``,
-    `The briefing below is a SELECTIVE snapshot, not the full store. Collaborator ` +
-      `decisions live in MemoryLayer tools — not in your training data. Prefer ` +
-      `these tools over guessing or asking the user to re-explain recorded work.`,
+    `Product plane: remote MCP (hosted gateway) only. The briefing below is a ` +
+      `SELECTIVE snapshot, not the full store. Collaborator decisions live in ` +
+      `MemoryLayer tools — not in your training data. Prefer these tools over ` +
+      `guessing or asking the user to re-explain recorded work.`,
     ``,
     `### MUST call`,
     `- \`search_memory(query)\` BEFORE contradicting, reversing, or re-deciding ` +
@@ -58,9 +59,9 @@ export function invocationPlaybook(
       `(after search, or when Open questions / Unresolved conflicts touch the work).`,
     `- \`write_context(project="${project}", type, payload)\` when THIS turn ` +
       `settles "we decided X because Y" or durable background not already stored — ` +
-      `including durable conclusions YOU produced (a design, plan, or non-obvious ` +
-      `finding), written as a condensed summary. Not for open options or ` +
-      `intermediate reasoning.`,
+      `including soft asks ("log this for the team", "remember we…", "note that…", ` +
+      `"/remember") and durable conclusions YOU produced (condensed). Not for open ` +
+      `options or intermediate reasoning.`,
     ...(opts.supersedes
       ? [
           `- To UPDATE or CORRECT a recorded decision: \`write_context\` the new ` +
@@ -78,6 +79,7 @@ export function invocationPlaybook(
       `treat the briefing as exhaustive.`,
     `- Skip search because the briefing "looks related" — if you would change a ` +
       `settled call, search first.`,
+    `- Skip \`write_context\` on soft team-log phrasing — if they want it remembered, write it.`,
     ``,
     `### Order`,
     `search_memory (or read_context with query) → then decide/advise → ` +
@@ -109,15 +111,16 @@ export function mcpInstructions(
 ): string {
   return (
     `This server holds shared planning memory (decisions and durable context) ` +
-    `for collaborators. Default project if unsure: "${defaultProject}". ` +
+    `for collaborators over remote MCP (hosted gateway only). Default project ` +
+    `if unsure: "${defaultProject}". ` +
     `MUST: call search_memory before contradicting or re-deciding settled work, ` +
     `before asking the user a clarifying question memory might answer, and ` +
     `before recommending an action that may already be recommended or done; ` +
     `call read_context(project, query=…) for topic depth (if a session-start ` +
     `briefing was already injected, do NOT queryless re-read just to refresh); ` +
-    `call write_context only for deliberate "we decided X because Y", durable ` +
-    `background, or a condensed durable conclusion you produced — not every ` +
-    `reasoning step; ` +
+    `call write_context for deliberate "we decided X because Y", durable ` +
+    `background, soft team-log phrasing ("log this for the team", "remember we…"), ` +
+    `or a condensed durable conclusion you produced — not every reasoning step; ` +
     (opts.supersedes
       ? `to update or correct a recorded decision, write_context the new ` +
         `version with supersedes:[old fact id from search results] instead of ` +

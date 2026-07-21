@@ -4,6 +4,7 @@ import {
   writeEntry,
   readEntries,
   readEntriesCached,
+  warmRecencyCache,
   recencyCacheKey,
   MAX_ENTRY_FETCH,
 } from "../dist/gateway/src/github-store.js";
@@ -397,6 +398,44 @@ test("readEntriesCached falls through to GitHub when KV is unavailable", async (
   );
   assert.equal(total, 1);
   assert.equal(entries[0].payload, "first");
+});
+
+test("warmRecencyCache seeds KV so the next readEntriesCached makes zero GitHub calls", async () => {
+  const calls = [];
+  const fetchImpl = ghFetch(calls, [TOKEN_ROUTE]);
+  const env = makeEnv(fetchImpl);
+  const newest = {
+    author: "Ada",
+    type: "decision",
+    timestamp: "2026-07-21T00:00:00.000Z",
+    id: "abcd1234",
+    payload: "we decided warm cache because cold GitHub is slow",
+    file: "context/roadmap/ada/2026-07-21T00-00-00-000Z-abcd1234.md",
+  };
+  const { refresh } = await warmRecencyCache(
+    env,
+    MEMBER,
+    "roadmap",
+    newest,
+    fetchImpl,
+  );
+  // Seeded path kicks off a background GitHub refresh; ignore its failure
+  // (no tree route) so this test stays about the seed line.
+  await refresh.catch(() => {});
+  const cached = JSON.parse(
+    await env.ROUTING.get(recencyCacheKey("team-a", "roadmap")),
+  );
+  assert.equal(cached.entries[0].payload, newest.payload);
+  const before = calls.length;
+  const { entries } = await readEntriesCached(
+    env,
+    MEMBER,
+    "roadmap",
+    0,
+    fetchImpl,
+  );
+  assert.equal(calls.length, before, "warm seed must avoid GitHub on hit");
+  assert.equal(entries[0].payload, newest.payload);
 });
 
 test("readEntries returns empty on 404/409 tree (empty repo or missing branch)", async () => {

@@ -6,6 +6,7 @@
 import type { Embedder } from "./retrieval.js";
 import type { GenText } from "./extract.js";
 import type { IndexDb, IndexedDoc, SupersessionLogEntry } from "./index-db.js";
+import { EMBED_SCAN_CAP } from "./index-db.js";
 import { cosineTopK } from "./rank.js";
 
 export const SYNC_COSINE_FLOOR = 0.7;
@@ -253,9 +254,12 @@ export async function detectWriteConflicts(
   if (!embed || !gen) return none;
   const kind = opts.kind ?? "decision";
   const skip = new Set(opts.skipIds ?? []);
-  const live = (await db.listDocs(space, project)).filter(
-    (d) => !skip.has(d.id),
-  );
+  // Cap like retrieval's embedding scan — full-pool listDocs grows with the
+  // corpus and burns write-path CPU/latency for dup + conflict scoring.
+  const live = (await db.listDocs(space, project))
+    .filter((d) => !skip.has(d.id))
+    .sort((a, b) => (a.sourceTs < b.sourceTs ? 1 : -1))
+    .slice(0, EMBED_SCAN_CAP);
   if (live.length === 0) return none;
 
   let queryVec: number[];
@@ -338,28 +342,32 @@ export async function detectWriteConflicts(
   const hits: ConflictHit[] = [];
   const ts = new Date().toISOString();
 
-  const judgeAll = async () => {
-    for (const old of cands) {
-      const result = await judgePair(gen, { body: entryBody, kind }, old);
-      await logJudgment(db, {
-        space,
-        project,
-        newFactId: "(pending)",
-        oldFactId: old.id,
-        verdict: result.verdict,
-        autoLinked: false,
+  const judgeOne = async (old: IndexedDoc): Promise<void> => {
+    const result = await judgePair(gen, { body: entryBody, kind }, old);
+    await logJudgment(db, {
+      space,
+      project,
+      newFactId: "(pending)",
+      oldFactId: old.id,
+      verdict: result.verdict,
+      autoLinked: false,
+      reason: result.reason,
+      ts,
+    });
+    if (result.verdict === "contradicts" || result.verdict === "uncertain") {
+      hits.push({
+        factId: old.id,
+        body: old.body,
         reason: result.reason,
-        ts,
+        verdict: result.verdict,
       });
-      if (result.verdict === "contradicts" || result.verdict === "uncertain") {
-        hits.push({
-          factId: old.id,
-          body: old.body,
-          reason: result.reason,
-          verdict: result.verdict,
-        });
-      }
     }
+  };
+
+  // Parallelize the (≤ SYNC_JUDGE_LIMIT) judges — wall clock ≈ slowest judge,
+  // not the sum, under the same timeoutMs race.
+  const judgeAll = async () => {
+    await Promise.all(cands.map((old) => judgeOne(old)));
   };
 
   // Hard wall-clock bound: if the judge stalls, surface whatever conflicts were

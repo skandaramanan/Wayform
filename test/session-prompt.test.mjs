@@ -52,14 +52,20 @@ test("playbook forces search before clarifying questions and recommendations, an
   assert.match(text, /BEFORE recommending an action/);
   assert.match(text, /already recommended or already done/);
   assert.match(text, /conclusions YOU produced/);
-  assert.match(text, /condensed summary/);
+  assert.match(text, /condensed/);
 });
 
-test("mcpInstructions mirrors the new invocation rules", () => {
+test("playbook forces soft-write phrasing and remote MCP plane", () => {
+  const text = invocationPlaybook("memorylayer");
+  assert.match(text, /log this for the team/);
+  assert.match(text, /remote MCP/);
+  assert.match(text, /soft team-log phrasing/);
+});
+
+test("mcpInstructions mirrors soft-write and remote-only rules", () => {
   const text = mcpInstructions("memorylayer");
-  assert.match(text, /before asking the user a clarifying question/);
-  assert.match(text, /before recommending an action/);
-  assert.match(text, /durable conclusion you produced/);
+  assert.match(text, /remote MCP/);
+  assert.match(text, /log this for the team/);
 });
 
 test("supersedes amend guidance appears only when the plane supports it", () => {

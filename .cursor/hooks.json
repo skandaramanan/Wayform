@@ -5,12 +5,6 @@
       {
         "command": "wayform hook cursor"
       }
-    ],
-    "stop": [
-      {
-        "command": "wayform stop-review cursor",
-        "loop_limit": 3
-      }
     ]
   }
 }

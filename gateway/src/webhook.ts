@@ -10,7 +10,7 @@ import type { Env } from "./env.js";
 import { getSpaceRepo, getProductRepo, listSpaceRepos } from "./tenancy.js";
 import { indexDeps } from "./deps.js";
 import { ingestFiles, ingestEntries } from "./ingest.js";
-import { writeEntry, recencyCacheKey } from "./github-store.js";
+import { writeEntry, warmRecencyCache } from "./github-store.js";
 import { hookCacheKey } from "./mcp.js";
 
 export async function verifyGithubSignature(
@@ -123,11 +123,18 @@ async function handleMergedPr(
       { type: "context", payload: summary },
       env.githubFetch ?? fetch,
     );
-    // Mirrors write_context: best-effort cache invalidation, then async
-    // ingest; both failure-tolerant (TTL self-heal / reconcile cron).
+    // Mirrors write_context: rebuild hook projection; warm recency so the
+    // next queryless read avoids a cold GitHub fan-out.
     try {
       await env.ROUTING.delete(hookCacheKey(sr.space, mapping.project));
-      await env.ROUTING.delete(recencyCacheKey(sr.space, mapping.project));
+      const { refresh } = await warmRecencyCache(
+        env,
+        member,
+        mapping.project,
+        entry,
+        env.githubFetch ?? fetch,
+      );
+      await refresh;
     } catch {
       // swallow: stale cache expires via TTL
     }

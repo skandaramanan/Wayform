@@ -6,6 +6,7 @@ import {
   renderEmpty,
   renderStopReview,
   renderStopNoop,
+  renderPromptContext,
 } from "../dist/hook-clients.js";
 
 test("resolveClient defaults to cursor for unset/blank/unknown", () => {
@@ -87,4 +88,12 @@ test("codex empty and Stop no-ops are valid {} JSON", () => {
   assert.equal(renderEmpty("codex"), "{}");
   assert.equal(renderStopNoop("codex"), "{}");
   assert.deepEqual(JSON.parse(renderStopNoop("codex")), {});
+});
+
+test("renderPromptContext injects UserPromptSubmit context for claude-code only", () => {
+  const out = JSON.parse(renderPromptContext("claude-code", "relevant memory"));
+  assert.equal(out.hookSpecificOutput.hookEventName, "UserPromptSubmit");
+  assert.equal(out.hookSpecificOutput.additionalContext, "relevant memory");
+  assert.equal(renderPromptContext("cursor", "x").trim(), "{}");
+  assert.equal(renderPromptContext("raw", "x"), "");
 });
