@@ -78,7 +78,11 @@ export function checkEnvFile(cwd, env) {
     // CONTEXT_REPO_URL); local members need the repo URL instead.
     const hosted = has("MEMORYLAYER_GATEWAY_URL") || has("MEMORYLAYER_GATEWAY_TOKEN");
     const required = hosted
-        ? ["MEMORYLAYER_GATEWAY_URL", "MEMORYLAYER_GATEWAY_TOKEN", "MEMORYLAYER_AUTHOR"]
+        ? [
+            "MEMORYLAYER_GATEWAY_URL",
+            "MEMORYLAYER_GATEWAY_TOKEN",
+            "MEMORYLAYER_AUTHOR",
+        ]
         : ["CONTEXT_REPO_URL", "MEMORYLAYER_AUTHOR"];
     const missing = required.filter((key) => !has(key));
     if (missing.length > 0) {
