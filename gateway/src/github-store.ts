@@ -186,9 +186,9 @@ export async function readEntries(
 }
 
 /** Seconds a recency read may be served stale (mirrors /hook/read's cache).
- *  Writes through the gateway invalidate immediately; local writers pushing
- *  straight to GitHub are healed by the TTL. */
-const RECENCY_CACHE_TTL_SECONDS = 60;
+ *  Gateway writes warm this key immediately (see warmRecencyCache); external
+ *  GitHub pushes are healed by the TTL / webhook. */
+export const RECENCY_CACHE_TTL_SECONDS = 300;
 
 /** Cache key for the per-space+project recency entry cache. write_context
  *  deletes it alongside hookCacheKey. */
@@ -238,6 +238,73 @@ export async function readEntriesCached(
     // best-effort: a missed put just means the next read fetches again
   }
   return { entries: packToBudget(entries, budgetTokens), total };
+}
+
+/**
+ * Keep the queryless recency KV line warm so the next read_context never pays
+ * the GitHub blob fan-out. Prefer merging `newest` into an existing cache line;
+ * if cold, seed with [newest] immediately and optionally refresh from GitHub in
+ * the background via the returned promise (callers attach waitUntil).
+ */
+export async function warmRecencyCache(
+  env: Env,
+  member: SpaceMember,
+  project: string,
+  newest?: ParsedEntry,
+  fetchImpl: typeof fetch = fetch,
+): Promise<{ refresh: Promise<void> }> {
+  const key = recencyCacheKey(member.space, project);
+  let seeded = false;
+  try {
+    const cached = await env.ROUTING.get(key);
+    let entries: ParsedEntry[] = [];
+    let total = 0;
+    if (cached !== null) {
+      ({ entries, total } = JSON.parse(cached) as {
+        entries: ParsedEntry[];
+        total: number;
+      });
+    } else if (newest) {
+      entries = [newest];
+      total = 1;
+      seeded = true;
+    }
+    if (newest && !entries.some((e) => e.file === newest.file)) {
+      entries = [newest, ...entries].slice(0, MAX_ENTRY_FETCH);
+      total = Math.max(total, entries.length);
+    }
+    if (entries.length > 0) {
+      await env.ROUTING.put(key, JSON.stringify({ entries, total }), {
+        expirationTtl: RECENCY_CACHE_TTL_SECONDS,
+      });
+    }
+  } catch {
+    // best-effort
+  }
+
+  const refresh = (async () => {
+    // Always refresh after a seed (incomplete list) or when no newest was
+    // provided (webhook / external push). Skip when we only prepended onto a
+    // warm line — next write or TTL will keep it honest enough.
+    if (!seeded && newest) return;
+    try {
+      const { entries, total } = await fetchRecentEntries(
+        env,
+        member,
+        project,
+        fetchImpl,
+      );
+      // Never clobber a seeded/pre-warmed line with an empty GitHub miss.
+      if (entries.length === 0 && newest) return;
+      await env.ROUTING.put(key, JSON.stringify({ entries, total }), {
+        expirationTtl: RECENCY_CACHE_TTL_SECONDS,
+      });
+    } catch {
+      // leave whatever we seeded
+    }
+  })();
+
+  return { refresh };
 }
 
 function basename(p: string): string {

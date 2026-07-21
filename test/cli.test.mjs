@@ -29,14 +29,13 @@ test("`hook <client>` routes to the read hook (fail-open {})", () => {
   assert.equal(run(["hook", "cursor"]).trim(), "{}");
 });
 
-test("`stop-review <client>` routes to the Stop hook; the positional arg sets the client", () => {
-  // Empty stdin = a fresh turn, so the Stop hook injects the review (it does not
-  // call loadConfig, so nothing fails-open here). The cursor-specific
-  // followup_message envelope proves both routing and that the arg set the client.
-  const out = JSON.parse(run(["stop-review", "cursor"]));
-  assert.match(out.followup_message, /write_context/);
+test("`stop-review <client>` routes to the Stop no-op (re-engagement removed)", () => {
+  assert.equal(run(["stop-review", "cursor"]).trim(), "{}");
 });
 
+test("`prompt-hook <client>` fail-opens to {} without a gateway", () => {
+  assert.equal(run(["prompt-hook", "claude-code"], "claude-code").trim(), "{}");
+});
 test("hook subcommand arg sets the client (raw emits nothing)", () => {
   assert.equal(run(["hook", "raw"]), "");
 });

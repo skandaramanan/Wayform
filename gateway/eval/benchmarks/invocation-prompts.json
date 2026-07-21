@@ -1,0 +1,47 @@
+{
+  "description": "Invocation-rate fixtures for headless remote MCP (method: 16fa6187 / 7ddffd5f). Run each prompt ≥3 times; report trigger rate, not single-shot pass/fail. Soft-write misses were the only failure class at 63.9%.",
+  "should_trigger": [
+    {
+      "id": "soft-write-log-team",
+      "expect": ["write_context"],
+      "prompt": "We settled on remote MCP only for Wayform. Log this for the team so collaborators see it."
+    },
+    {
+      "id": "soft-write-remember-we",
+      "expect": ["write_context"],
+      "prompt": "Remember we decided KV hook/recency TTL is 5 minutes because writes already invalidate."
+    },
+    {
+      "id": "soft-write-note-that",
+      "expect": ["write_context"],
+      "prompt": "Note that Stop-hook re-engagement is removed; Claude uses UserPromptSubmit instead."
+    },
+    {
+      "id": "explicit-record",
+      "expect": ["write_context"],
+      "prompt": "Record this decision: we use hosted gateway MCP only because local stdio is out of product scope."
+    },
+    {
+      "id": "search-before-redecide",
+      "expect": ["search_memory"],
+      "prompt": "Should we switch back to local stdio MCP for latency? Check memory before answering."
+    },
+    {
+      "id": "clarifying-question",
+      "expect": ["search_memory"],
+      "prompt": "What did we decide about queryless read caching? Don't ask me — check shared memory."
+    }
+  ],
+  "should_not_trigger": [
+    {
+      "id": "generic-coding",
+      "expect_none_of": ["write_context", "search_memory", "read_context"],
+      "prompt": "Refactor this TypeScript function to use early returns and add a unit test."
+    },
+    {
+      "id": "syntax-help",
+      "expect_none_of": ["write_context"],
+      "prompt": "How do I sort an array of objects by date in JavaScript?"
+    }
+  ]
+}

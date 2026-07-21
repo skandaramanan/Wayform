@@ -12,7 +12,7 @@ import { DEFAULT_BUDGET_TOKENS } from "../../src/token-budget.js";
 /** Seconds a rendered projection may be served stale to keep the per-turn
  *  hook round-trip at one edge hit (~50-150ms) instead of chained GitHub
  *  calls (~200-600ms). Writes through the gateway invalidate immediately. */
-const CACHE_TTL_SECONDS = 60;
+const CACHE_TTL_SECONDS = 300;
 
 /**
  * GET /hook/read?project=<name>[&budget=<n>] — the session-start hook's

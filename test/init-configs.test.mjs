@@ -12,11 +12,13 @@ import {
   CODEX_MCP_TOML,
 } from "../dist/init-configs.js";
 
-test("mergeClaudeSettings creates SessionStart + Stop from empty", () => {
+test("mergeClaudeSettings creates SessionStart + UserPromptSubmit (no Stop)", () => {
   const out = mergeClaudeSettings(undefined);
   const cmds = JSON.stringify(out);
   assert.match(cmds, /memorylayer hook claude-code/);
-  assert.match(cmds, /memorylayer stop-review claude-code/);
+  assert.match(cmds, /memorylayer prompt-hook claude-code/);
+  assert.equal(out.hooks.Stop, undefined);
+  assert.ok(out.hooks.UserPromptSubmit?.length >= 1);
 });
 
 test("mergeClaudeSettings preserves unrelated existing hooks and is idempotent", () => {
@@ -33,22 +35,20 @@ test("mergeClaudeSettings preserves unrelated existing hooks and is idempotent",
   assert.equal(count, 1);
 });
 
-test("mergeCursorHooks sets version 1, loop_limit 3, both events", () => {
+test("mergeCursorHooks sets version 1 and sessionStart only (no stop)", () => {
   const out = mergeCursorHooks(undefined);
   assert.equal(out.version, 1);
   assert.match(
     JSON.stringify(out.hooks.sessionStart),
     /memorylayer hook cursor/,
   );
-  const stop = out.hooks.stop[0];
-  assert.equal(stop.loop_limit, 3);
-  assert.match(stop.command, /memorylayer stop-review cursor/);
+  assert.equal(out.hooks.stop, undefined);
 });
 
-test("mergeCodexHooks uses the startup|resume matcher on SessionStart", () => {
+test("mergeCodexHooks uses the startup|resume matcher on SessionStart (no Stop)", () => {
   const out = mergeCodexHooks(undefined);
   assert.equal(out.hooks.SessionStart[0].matcher, "startup|resume");
-  assert.match(JSON.stringify(out.hooks.Stop), /memorylayer stop-review codex/);
+  assert.equal(out.hooks.Stop, undefined);
 });
 
 test("mergeCursorHooks does NOT duplicate when an equivalent dist-path hook exists (F1)", () => {
@@ -63,7 +63,7 @@ test("mergeCursorHooks does NOT duplicate when an equivalent dist-path hook exis
   };
   const out = mergeCursorHooks(existing);
   assert.equal(out.hooks.sessionStart.length, 1);
-  assert.equal(out.hooks.stop.length, 1);
+  assert.equal(out.hooks.stop, undefined);
   assert.match(out.hooks.sessionStart[0].command, /dist\/cli\.js hook cursor/);
 });
 
@@ -96,7 +96,8 @@ test("mergeClaudeSettings does NOT duplicate an equivalent dist-path hook (F1)",
   };
   const out = mergeClaudeSettings(existing);
   assert.equal(out.hooks.SessionStart.length, 1);
-  assert.equal(out.hooks.Stop.length, 1);
+  assert.equal(out.hooks.Stop, undefined);
+  assert.ok(out.hooks.UserPromptSubmit?.length >= 1);
 });
 
 test("mergeCodexHooks does NOT duplicate an equivalent dist-path hook (F1)", () => {
@@ -124,7 +125,7 @@ test("mergeCodexHooks does NOT duplicate an equivalent dist-path hook (F1)", () 
   };
   const out = mergeCodexHooks(existing);
   assert.equal(out.hooks.SessionStart.length, 1);
-  assert.equal(out.hooks.Stop.length, 1);
+  assert.equal(out.hooks.Stop, undefined);
 });
 
 test("mergeMcpJson adds a secret-free memorylayer server, preserving others", () => {
@@ -146,8 +147,8 @@ test("mergeClaudeSettings emits the given binary name in hook commands", () => {
   const out = mergeClaudeSettings(undefined, "wayform");
   const cmds = out.hooks.SessionStart[0].hooks.map((h) => h.command);
   assert.ok(cmds.includes("wayform hook claude-code"));
-  const stop = out.hooks.Stop[0].hooks.map((h) => h.command);
-  assert.ok(stop.includes("wayform stop-review claude-code"));
+  const prompt = out.hooks.UserPromptSubmit[0].hooks.map((h) => h.command);
+  assert.ok(prompt.includes("wayform prompt-hook claude-code"));
 });
 
 test("mergeClaudeSettings defaults to the memorylayer binary", () => {
@@ -217,16 +218,11 @@ test("codexHookTrust reproduces codex's own trusted hashes (gold values from a r
     mergeCodexHooks(undefined, "wayform"),
     "/repo/.codex/hooks.json",
   );
-  // These exact hashes were written by codex 0.144 after interactively
-  // trusting these hooks — the regression canary for the hash formula.
+  // SessionStart hash from codex 0.144 TUI grant; Stop wiring removed.
   assert.deepEqual(entries, [
     {
       key: "/repo/.codex/hooks.json:session_start:0:0",
       hash: "sha256:35bb314ef9d1e09ab6d27f98fdb77487a2bd85190d9ccc0c1339b996a6df922d",
-    },
-    {
-      key: "/repo/.codex/hooks.json:stop:0:0",
-      hash: "sha256:d6080e727f33c8839a1b3be164cecb1c687d8d3505ecc13c048657531c1e027d",
     },
   ]);
 });
@@ -245,10 +241,7 @@ test("codexHookTrust ignores foreign hooks and uses real group indices", () => {
   const entries = codexHookTrust(merged, "/repo/.codex/hooks.json");
   assert.deepEqual(
     entries.map((e) => e.key),
-    [
-      "/repo/.codex/hooks.json:session_start:1:0",
-      "/repo/.codex/hooks.json:stop:0:0",
-    ],
+    ["/repo/.codex/hooks.json:session_start:1:0"],
   );
 });
 

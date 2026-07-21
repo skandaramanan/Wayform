@@ -80,3 +80,29 @@ export async function remoteHookRead(
     return null;
   }
 }
+
+/** POST /hook/prompt — returns inject text or "" (nothing to inject) or null (gateway unusable). */
+export async function remoteHookPrompt(
+  cfg: GatewayCfg,
+  project: string,
+  prompt: string,
+  budgetTokens: number,
+  fetchImpl: typeof fetch = fetch,
+): Promise<string | null> {
+  if (!configured(cfg)) return null;
+  try {
+    const res = await fetchImpl(`${cfg.gatewayUrl}/hook/prompt`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${cfg.gatewayToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ project, prompt, budget: budgetTokens }),
+      signal: AbortSignal.timeout(REMOTE_TIMEOUT_MS),
+    });
+    if (!res.ok) return null;
+    return await res.text();
+  } catch {
+    return null;
+  }
+}

@@ -48,8 +48,12 @@ test("init writes all three hook configs, both MCP files, env, and gitignore", (
     const read = (p) => fs.readFileSync(path.join(dir, p), "utf8");
 
     assert.match(read(".claude/settings.json"), /memorylayer hook claude-code/);
-    assert.match(read(".cursor/hooks.json"), /memorylayer stop-review cursor/);
+    assert.match(read(".claude/settings.json"), /prompt-hook claude-code/);
+    assert.doesNotMatch(read(".claude/settings.json"), /stop-review/);
+    assert.match(read(".cursor/hooks.json"), /memorylayer hook cursor/);
+    assert.doesNotMatch(read(".cursor/hooks.json"), /stop-review/);
     assert.match(read(".codex/hooks.json"), /startup\|resume/);
+    assert.doesNotMatch(read(".codex/hooks.json"), /stop-review/);
     assert.match(read(".mcp.json"), /"memorylayer"/);
     assert.match(read(".cursor/mcp.json"), /"memorylayer"/);
     // Codex MCP is now an auto-written, project-scoped, gitignored file.
@@ -71,10 +75,11 @@ test("init trusts its codex hooks in CODEX_HOME/config.toml, idempotently", () =
       path.join(dir, ".codex-home", "config.toml"),
       "utf8",
     );
-    for (const key of ["session_start:0:0", "stop:0:0"]) {
+    for (const key of ["session_start:0:0"]) {
       const header = `.codex/hooks.json:${key}"]`;
       assert.equal(cfg.split(header).length - 1, 1, `one entry for ${key}`);
     }
+    assert.doesNotMatch(cfg, /hooks\.json:stop:/);
     assert.match(cfg, /trusted_hash = "sha256:[0-9a-f]{64}"/);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });

@@ -62,15 +62,8 @@ export function renderEmpty(client: HookClient): string {
 }
 
 /**
- * Stop-hook envelope that ASKS the model to self-review (write-trigger Path C).
- *
- * Unlike SessionStart, the Stop event can re-engage the model: Claude Code accepts
- * `hookSpecificOutput.additionalContext` on Stop as non-error feedback that continues
- * the conversation. `raw` emits the text verbatim.
- *
- * Cursor and Codex are now supported: Cursor re-engages via followup_message,
- * Codex uses decision:block with reason to trigger a re-engagement. Self-review
- * is available to all three tools; raw still emits verbatim.
+ * Stop-hook envelope that ASKS the model to self-review (legacy Path C).
+ * Prefer renderStopNoop — Stop re-engagement is retired (da491a7d).
  */
 export function renderStopReview(client: HookClient, text: string): string {
   switch (client) {
@@ -84,14 +77,24 @@ export function renderStopReview(client: HookClient, text: string): string {
         },
       });
     case "codex":
-      // Codex Stop re-engages differently from Claude Code: decision:block makes
-      // `reason` the next user prompt.
       return JSON.stringify({ decision: "block", reason: text });
     case "cursor":
-      // Cursor Stop re-engages via followup_message (auto-submitted as next user
-      // message); loop protection is loop_count/loop_limit (see stop-hook + config).
       return JSON.stringify({ followup_message: text });
   }
+}
+
+/**
+ * UserPromptSubmit envelope (Claude Code) — hidden additionalContext beside
+ * the submitted prompt. Other clients return empty no-op JSON.
+ */
+export function renderPromptContext(client: HookClient, text: string): string {
+  if (client !== "claude-code") return renderEmpty(client);
+  return JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: "UserPromptSubmit",
+      additionalContext: text,
+    },
+  });
 }
 
 /**

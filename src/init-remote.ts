@@ -187,7 +187,7 @@ export async function runInitRemote(args: string[]): Promise<void> {
     console.log("  joined via invite — minted your personal member token");
   }
 
-  // --- Project tier: session/Stop hooks calling the `wayform` binary ---
+  // --- Project tier: session + (Claude) UserPromptSubmit hooks ---
   writeJson(
     cwd,
     ".claude/settings.json",

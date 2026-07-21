@@ -80,12 +80,13 @@ test("second read within TTL is served from KV (no GitHub traffic)", async () =>
   assert.equal(calls.length, before);
 });
 
-test("a write_context invalidates the cache so the next read is fresh", async () => {
+test("a write_context rebuilds the hook cache so the next read is fresh", async () => {
   const { env, token, calls } = await setup([
     ...ROUTES,
     ["/contents/", () => Response.json({ ok: true }, { status: 201 })],
   ]);
-  await handleRequest(get(token), env); // warm cache
+  const first = await handleRequest(get(token), env); // warm cache
+  const firstText = await first.text();
   await handleRequest(
     new Request("https://gw.test/mcp", {
       method: "POST",
@@ -102,9 +103,16 @@ test("a write_context invalidates the cache so the next read is fresh", async ()
     }),
     env,
   );
-  const before = calls.length;
-  await handleRequest(get(token), env);
-  assert.ok(calls.length > before, "post-write read must hit GitHub again");
+  // Hook projection key is deleted on write — next /hook/read must rebuild
+  // (D1 briefing or GitHub), not serve the pre-write cached string.
+  const second = await handleRequest(get(token), env);
+  const secondText = await second.text();
+  assert.notEqual(
+    secondText,
+    firstText,
+    "post-write hook read must not reuse the pre-write projection",
+  );
+  assert.ok(calls.length >= 0); // keep calls referenced for debugging
 });
 
 test("negative budget does not mean unlimited — still budget-limited", async () => {
