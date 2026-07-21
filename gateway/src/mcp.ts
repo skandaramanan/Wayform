@@ -2,7 +2,7 @@ import type { Env } from "./env.js";
 import { resolveMember, type SpaceMember } from "./tenancy.js";
 import {
   readEntriesCached,
-  recencyCacheKey,
+  warmRecencyCache,
   writeEntry,
 } from "./github-store.js";
 import { projectContext } from "../../src/context-format.js";
@@ -47,7 +47,12 @@ const TOOLS = [
     name: "read_context",
     title: "Read shared planning context",
     description:
-      "Pull the latest shared planning context for a project and return the current projected state (all recorded decisions and context, in write order). Call this at the START of a planning turn so decisions written by collaborators are already present without anyone pasting them.",
+      "Use this when you need shared planning memory for a project: either a " +
+      "queryless recency snapshot (after session-start, prefer NOT re-calling " +
+      "queryless — use a query instead) or depth on ONE topic via query=. " +
+      "Use query= when looking for a specific past decision or topic across " +
+      "the whole indexed history. Do NOT use this to invent decisions, to " +
+      "refresh after every turn, or when search_memory already answered.",
     inputSchema: {
       type: "object",
       properties: {
@@ -77,7 +82,16 @@ const TOOLS = [
     name: "write_context",
     title: "Write a shared planning decision",
     description:
-      "Append a DELIBERATE decision or established context to the shared project space and commit it, so collaborators' sessions see it. Write decisions ('we decided X because Y') and durable context — NOT a firehose of every reasoning step. To UPDATE or CORRECT an already-recorded decision, write the new version and pass `supersedes` with the old fact id (from search results) — do not write an unlinked near-duplicate. When the user says 'record this', 'remember this', 'save this decision' (or runs the /remember command), treat it as an EXPLICIT instruction to call this tool right away.",
+      "Use this when THIS turn settles a decision or durable background the " +
+      "team should keep — including soft phrasing like 'log this for the team', " +
+      "'note that we decided…', 'remember we…', 'save this', or '/remember'. " +
+      "Also use it for condensed durable conclusions YOU produced (a design, " +
+      "plan, or non-obvious finding). Write 'we decided X because Y' (or clear " +
+      "context), not open options or intermediate reasoning. To UPDATE or " +
+      "CORRECT an already-recorded decision, write the new version with " +
+      "supersedes: [old fact id from search results] — never an unlinked " +
+      "near-duplicate. Do NOT use this for every reasoning step, speculative " +
+      "ideas, or restating what is already stored.",
     inputSchema: {
       type: "object",
       properties: {
@@ -116,10 +130,12 @@ const TOOLS = [
     name: "search_memory",
     title: "Search the shared memory",
     description:
-      "Relevance-ranked search over ALL recorded decisions and context in this " +
-      "space (keyword + semantic, whole history — not just recent entries). " +
-      "Use it BEFORE contradicting or re-deciding anything that may already be " +
-      "settled, and when the user references prior work or decisions.",
+      "Use this BEFORE contradicting, reversing, or re-deciding anything that " +
+      "may already be settled; BEFORE asking the user a clarifying question " +
+      "memory might answer; and BEFORE recommending an action that may already " +
+      "be recommended or done. Searches ALL recorded decisions/context " +
+      "(keyword + semantic), not just recent entries. Do NOT skip this because " +
+      "the session briefing 'looks related'.",
     inputSchema: {
       type: "object",
       properties: {
@@ -145,10 +161,9 @@ const TOOLS = [
     name: "memory_feedback",
     title: "Rate a retrieved memory fact",
     description:
-      "Give feedback on a specific memory fact you retrieved: 'useful' if it " +
-      "helped, 'wrong' if it was incorrect, 'stale' if it's outdated. This " +
-      "gently lowers or restores how that fact ranks in future retrievals. " +
-      "Pass the fact id shown in search results.",
+      "Use this after a retrieved fact clearly helped or misled: 'useful', " +
+      "'wrong', or 'stale'. Pass the fact id shown in search/read results. " +
+      "Do NOT call on every result — only when the verdict is clear.",
     inputSchema: {
       type: "object",
       properties: {
@@ -247,10 +262,23 @@ async function toolsCall(
   const args = msg.params?.arguments ?? {};
   const project = typeof args.project === "string" ? args.project : "";
   const toolName = msg.params?.name;
+  const started = Date.now();
+  const finish = (res: Response): Response => {
+    console.log(
+      JSON.stringify({
+        evt: "mcp_tool",
+        tool: toolName ?? "(none)",
+        project: project || null,
+        space: member.space,
+        ms: Date.now() - started,
+        status: res.status,
+      }),
+    );
+    return res;
+  };
   if ((toolName === "read_context" || toolName === "write_context") && !project)
-    return rpcResult(
-      msg.id,
-      toolText("missing required argument: project", true),
+    return finish(
+      rpcResult(msg.id, toolText("missing required argument: project", true)),
     );
 
   try {
@@ -271,9 +299,11 @@ async function toolsCall(
               budgetTokens: budget,
               trigger: "mcp_read",
             });
-            return rpcResult(
-              msg.id,
-              toolText(renderSearchResults(project, query, results, total)),
+            return finish(
+              rpcResult(
+                msg.id,
+                toolText(renderSearchResults(project, query, results, total)),
+              ),
             );
           } catch {
             // fail-open to the recency read below
@@ -286,23 +316,26 @@ async function toolsCall(
           budget,
           fetchImpl,
         );
-        return rpcResult(
-          msg.id,
-          toolText(projectContext(project, entries, total)),
+        return finish(
+          rpcResult(msg.id, toolText(projectContext(project, entries, total))),
         );
       }
       case "search_memory": {
         const query = typeof args.query === "string" ? args.query.trim() : "";
         if (!query)
-          return rpcResult(
-            msg.id,
-            toolText("missing required argument: query", true),
+          return finish(
+            rpcResult(
+              msg.id,
+              toolText("missing required argument: query", true),
+            ),
           );
         const deps = indexDeps(env);
         if (!deps)
-          return rpcResult(
-            msg.id,
-            toolText("memory search is not enabled on this gateway", true),
+          return finish(
+            rpcResult(
+              msg.id,
+              toolText("memory search is not enabled on this gateway", true),
+            ),
           );
         const kinds = Array.isArray(args.kinds)
           ? args.kinds.filter((k): k is string => typeof k === "string")
@@ -316,10 +349,17 @@ async function toolsCall(
             kinds,
             trigger: "search_memory",
           });
-          return rpcResult(
-            msg.id,
-            toolText(
-              renderSearchResults(project || undefined, query, results, total),
+          return finish(
+            rpcResult(
+              msg.id,
+              toolText(
+                renderSearchResults(
+                  project || undefined,
+                  query,
+                  results,
+                  total,
+                ),
+              ),
             ),
           );
         } catch {
@@ -336,18 +376,22 @@ async function toolsCall(
               DEFAULT_BUDGET_TOKENS,
               fetchImpl,
             );
-            return rpcResult(
-              msg.id,
-              toolText(
-                `_Semantic search is temporarily unavailable — showing the most recent entries for "${project}" instead._\n\n` +
-                  projectContext(project, entries, total),
+            return finish(
+              rpcResult(
+                msg.id,
+                toolText(
+                  `_Semantic search is temporarily unavailable — showing the most recent entries for "${project}" instead._\n\n` +
+                    projectContext(project, entries, total),
+                ),
               ),
             );
           }
-          return rpcResult(
-            msg.id,
-            toolText(
-              "Memory search is temporarily unavailable. Retry shortly, or call read_context with a project name for its recent entries.",
+          return finish(
+            rpcResult(
+              msg.id,
+              toolText(
+                "Memory search is temporarily unavailable. Retry shortly, or call read_context with a project name for its recent entries.",
+              ),
             ),
           );
         }
@@ -357,9 +401,11 @@ async function toolsCall(
           args.type === "context" ? "context" : "decision";
         const payload = typeof args.payload === "string" ? args.payload : "";
         if (!payload)
-          return rpcResult(
-            msg.id,
-            toolText("missing required argument: payload", true),
+          return finish(
+            rpcResult(
+              msg.id,
+              toolText("missing required argument: payload", true),
+            ),
           );
         const authorSupersedes = Array.isArray(args.supersedes)
           ? args.supersedes.filter((x): x is string => typeof x === "string")
@@ -394,9 +440,11 @@ async function toolsCall(
           }
         }
         if (check.duplicate) {
-          return rpcResult(
-            msg.id,
-            toolText(formatDuplicateResult(check.duplicate, project)),
+          return finish(
+            rpcResult(
+              msg.id,
+              toolText(formatDuplicateResult(check.duplicate, project)),
+            ),
           );
         }
         const entry = await writeEntry(
@@ -406,15 +454,21 @@ async function toolsCall(
           { type, payload },
           fetchImpl,
         );
-        // Best-effort cache invalidation: the write is already durably
-        // committed, so never let a KV failure misreport it as an error
-        // (the cache key has a 60s TTL, so a missed delete self-heals
-        // within a minute).
+        // Hook projection must rebuild; recency is warmed (not deleted) so the
+        // next queryless read never pays a cold GitHub fan-out.
         try {
           await env.ROUTING.delete(hookCacheKey(member.space, project));
-          await env.ROUTING.delete(recencyCacheKey(member.space, project));
+          const { refresh } = await warmRecencyCache(
+            env,
+            member,
+            project,
+            entry,
+            fetchImpl,
+          );
+          if (ctx) ctx.waitUntil(refresh);
+          else await refresh;
         } catch {
-          // swallow: stale cache expires via TTL
+          // swallow: stale/missing cache heals via TTL or next warm
         }
         // Index ingest runs async (ctx.waitUntil): LLM fact extraction would
         // add ~1-3s to the write, and the ledger entry is already committed and
@@ -437,24 +491,21 @@ async function toolsCall(
               );
             }
           } catch {
-            // swallow: reconcile cron re-derives the doc from the ledger
+            // fail-open
           }
         };
         if (ctx) ctx.waitUntil(runIngest());
         else await runIngest();
-        return rpcResult(
-          msg.id,
-          toolText(
-            formatWriteResult(
-              {
-                type: entry.type,
-                author: entry.author,
-                timestamp: entry.timestamp,
-                file: entry.file,
-              },
-              project,
-              check.conflicts,
-              authorSupersedes,
+        return finish(
+          rpcResult(
+            msg.id,
+            toolText(
+              formatWriteResult(
+                entry,
+                project,
+                check.conflicts,
+                authorSupersedes,
+              ),
             ),
           ),
         );
@@ -464,20 +515,26 @@ async function toolsCall(
           typeof args.fact_id === "string" ? args.fact_id.trim() : "";
         const verdict = args.verdict;
         if (!factId)
-          return rpcResult(
-            msg.id,
-            toolText("missing required argument: fact_id", true),
+          return finish(
+            rpcResult(
+              msg.id,
+              toolText("missing required argument: fact_id", true),
+            ),
           );
         if (verdict !== "useful" && verdict !== "wrong" && verdict !== "stale")
-          return rpcResult(
-            msg.id,
-            toolText("verdict must be one of: useful, wrong, stale", true),
+          return finish(
+            rpcResult(
+              msg.id,
+              toolText("verdict must be one of: useful, wrong, stale", true),
+            ),
           );
         const deps = indexDeps(env);
         if (!deps)
-          return rpcResult(
-            msg.id,
-            toolText("memory feedback is not enabled on this gateway", true),
+          return finish(
+            rpcResult(
+              msg.id,
+              toolText("memory feedback is not enabled on this gateway", true),
+            ),
           );
         try {
           const target = await deps.db.getDoc(member.space, factId);
@@ -489,32 +546,38 @@ async function toolsCall(
             verdict,
             ts: new Date().toISOString(),
           });
-          return rpcResult(
-            msg.id,
-            toolText(
-              `Recorded '${verdict}' feedback on ${factId}. This will adjust its future ranking.`,
+          return finish(
+            rpcResult(
+              msg.id,
+              toolText(
+                `Recorded '${verdict}' feedback on ${factId}. This will adjust its future ranking.`,
+              ),
             ),
           );
         } catch (e) {
           console.warn(
             `[feedback] record failed for ${factId}: ${(e as Error).message}`,
           );
-          return rpcResult(
-            msg.id,
-            toolText(
-              "couldn't record feedback right now (it was not saved)",
-              true,
+          return finish(
+            rpcResult(
+              msg.id,
+              toolText(
+                "couldn't record feedback right now (it was not saved)",
+                true,
+              ),
             ),
           );
         }
       }
       default:
-        return rpcResult(
-          msg.id,
-          toolText(`unknown tool: ${msg.params?.name ?? "(none)"}`, true),
+        return finish(
+          rpcResult(
+            msg.id,
+            toolText(`unknown tool: ${msg.params?.name ?? "(none)"}`, true),
+          ),
         );
     }
   } catch (err) {
-    return rpcResult(msg.id, toolText((err as Error).message, true));
+    return finish(rpcResult(msg.id, toolText((err as Error).message, true)));
   }
 }

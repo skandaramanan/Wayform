@@ -46,9 +46,22 @@ export function mergeClaudeSettings(
       hooks: [{ type: "command", command: `${bin} hook claude-code` }],
     },
   );
-  hooks.Stop = addOnce(asArray(hooks.Stop), "stop-review claude-code", {
-    hooks: [{ type: "command", command: `${bin} stop-review claude-code` }],
-  });
+  // Stop re-engagement removed (da491a7d). Claude gets mid-prompt injection
+  // via UserPromptSubmit → /hook/prompt instead.
+  delete hooks.Stop;
+  hooks.UserPromptSubmit = addOnce(
+    asArray(hooks.UserPromptSubmit),
+    "prompt-hook claude-code",
+    {
+      hooks: [
+        {
+          type: "command",
+          command: `${bin} prompt-hook claude-code`,
+          timeout: 15,
+        },
+      ],
+    },
+  );
   root.hooks = hooks;
   return root;
 }
@@ -63,10 +76,8 @@ export function mergeCursorHooks(
   hooks.sessionStart = addOnce(asArray(hooks.sessionStart), "hook cursor", {
     command: `${bin} hook cursor`,
   });
-  hooks.stop = addOnce(asArray(hooks.stop), "stop-review cursor", {
-    command: `${bin} stop-review cursor`,
-    loop_limit: 3,
-  });
+  // Cursor beforeSubmitPrompt cannot inject; Stop re-engagement retired.
+  delete hooks.stop;
   root.hooks = hooks;
   return root;
 }
@@ -81,9 +92,7 @@ export function mergeCodexHooks(
     matcher: "startup|resume",
     hooks: [{ type: "command", command: `${bin} hook codex` }],
   });
-  hooks.Stop = addOnce(asArray(hooks.Stop), "stop-review codex", {
-    hooks: [{ type: "command", command: `${bin} stop-review codex` }],
-  });
+  delete hooks.Stop;
   root.hooks = hooks;
   return root;
 }
@@ -114,9 +123,8 @@ export function codexHookTrust(
 ): Array<{ key: string; hash: string }> {
   const events: Array<[string, string, boolean]> = [
     ["SessionStart", "session_start", true],
-    ["Stop", "stop", false],
   ];
-  const ours = / (hook|stop-review) codex$/;
+  const ours = / (hook|prompt-hook) codex$/;
   const out: Array<{ key: string; hash: string }> = [];
   const hooks = asObject(merged.hooks);
   for (const [prop, label, keepMatcher] of events) {

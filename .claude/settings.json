@@ -10,12 +10,13 @@
         ]
       }
     ],
-    "Stop": [
+    "UserPromptSubmit": [
       {
         "hooks": [
           {
             "type": "command",
-            "command": "wayform stop-review claude-code"
+            "command": "wayform prompt-hook claude-code",
+            "timeout": 15
           }
         ]
       }

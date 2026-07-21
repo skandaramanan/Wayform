@@ -320,9 +320,9 @@ test("write_context defers index ingest to ctx.waitUntil and still returns succe
   );
   const body = await res.json();
   assert.match(body.result.content[0].text, /Recorded decision/);
-  // ingest was handed to ctx.waitUntil (deferred), not awaited inline
-  assert.equal(deferred.length, 1);
-  await Promise.all(deferred); // drain the background task
+  // ingest + recency refresh are handed to ctx.waitUntil (deferred)
+  assert.equal(deferred.length, 2);
+  await Promise.all(deferred); // drain the background tasks
   assert.equal((await indexDb.listDocs("team-a", "memorylayer")).length, 1);
 });
 
@@ -431,7 +431,7 @@ test("ISOLATION: team-a token only ever touches team-a's repo", async () => {
   }
 });
 
-test("write_context invalidates the recency cache so the next queryless read refetches", async () => {
+test("write_context warms the recency cache so the next queryless read stays a KV hit", async () => {
   const md = `---\nauthor: Ada\ntype: decision\ntimestamp: 2026-07-01T00:00:00.000Z\nid: r1\nproject: roadmap\n---\n\nsettled`;
   const { env, calls, tokens } = await setup([
     ...TOKEN_ROUTES,
@@ -473,13 +473,20 @@ test("write_context invalidates the recency cache so the next queryless read ref
       method: "tools/call",
       params: {
         name: "write_context",
-        arguments: { project: "roadmap", type: "decision", payload: "new" },
+        arguments: {
+          project: "roadmap",
+          type: "decision",
+          payload: "brand new",
+        },
       },
     }),
     env,
   );
-  await read(4); // invalidated → refetch
-  assert.equal(treeCalls().length, 2);
+  const after = await read(4);
+  const body = await after.json();
+  // Still a KV hit (no second tree fetch): warm prepend, not invalidate.
+  assert.equal(treeCalls().length, 1);
+  assert.match(body.result.content[0].text, /brand new/);
 });
 
 test("storage failure surfaces as an MCP tool error, not a crash", async () => {

@@ -5,17 +5,19 @@
  *
  *   wayform                       -> MCP server (default)
  *   wayform hook <client>         -> read hook
- *   wayform stop-review <client>  -> Stop/write-review hook
+ *   wayform prompt-hook <client>  -> Claude UserPromptSubmit → /hook/prompt
+ *   wayform stop-review <client>  -> Stop no-op (legacy; re-engagement removed)
  *   wayform init [flags]          -> installer (add --remote for hosted members)
  *   wayform doctor                -> local diagnostics
  *   wayform space create [flags]  -> Plan C: provision a new hosted space
  *
- * `hook`/`stop-review` set MEMORYLAYER_HOOK_CLIENT from the positional arg, then
+ * `hook`/`prompt-hook`/`stop-review` set MEMORYLAYER_HOOK_CLIENT from the positional arg, then
  * delegate to the neutral run functions (which self-load .memorylayer-hook.env).
  */
 import { loadHookEnv } from "./config.js";
 import { runServer } from "./index.js";
 import { runHook } from "./hook.js";
+import { runPromptHook } from "./prompt-hook.js";
 import { runStopHook } from "./stop-hook.js";
 import { runInit } from "./init.js";
 import { runDoctor } from "./doctor.js";
@@ -32,6 +34,10 @@ async function main(): Promise<void> {
     case "hook":
       if (rest[0]) process.env.MEMORYLAYER_HOOK_CLIENT = rest[0];
       await runHook();
+      return;
+    case "prompt-hook":
+      if (rest[0]) process.env.MEMORYLAYER_HOOK_CLIENT = rest[0];
+      await runPromptHook();
       return;
     case "stop-review":
       if (rest[0]) process.env.MEMORYLAYER_HOOK_CLIENT = rest[0];
@@ -58,7 +64,7 @@ async function main(): Promise<void> {
       return;
     default:
       console.error(
-        `Unknown command "${sub}". Use: wayform [hook|stop-review|init|doctor|space] …`,
+        `Unknown command "${sub}". Use: wayform [hook|prompt-hook|stop-review|init|doctor|space] …`,
       );
       process.exit(1);
   }
