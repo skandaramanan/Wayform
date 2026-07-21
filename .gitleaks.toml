@@ -1,0 +1,38 @@
+# gitleaks config for wayform. Extends the built-in ruleset (AWS, GitHub,
+# private keys, generic high-entropy, etc.) and adds the two wayform-specific
+# credential shapes that leaked in the 2026-07-15 onboarding-doc incident.
+# Enforced by .githooks/pre-commit locally and the secret-scan CI job.
+title = "wayform gitleaks config"
+
+[extend]
+useDefault = true
+
+[[rules]]
+id = "wayform-member-token"
+description = "wayform gateway member token (mlk_)"
+regex = '''mlk_[A-Za-z0-9_-]{40,}'''
+keywords = ["mlk_"]
+
+[[rules]]
+id = "wayform-invite-code"
+description = "wayform team invite code (wfi_)"
+regex = '''wfi_[A-Za-z0-9_-]{40,}'''
+keywords = ["wfi_"]
+
+[allowlist]
+description = "Placeholders and redacted values are not leaks"
+regexes = [
+  '''mlk_\.\.\.''',
+  '''wfi_\.\.\.''',
+  '''mlk_YAPIREDACTED''',
+  '''mlk_THEIREDACTED''',
+  '''<token>''',
+  '''your_''',
+]
+# The token *prefixes* live in gateway source (newToken/newInviteCode) and in
+# docs as literal strings — those are patterns, not secrets.
+paths = [
+  '''gateway/src/tenancy\.ts''',
+  '''gateway/src/invites\.ts''',
+  '''\.gitleaks\.toml''',
+]
