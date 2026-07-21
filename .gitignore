@@ -20,3 +20,8 @@ docs/
 .gstack/
 docs/onboarding/pilot-onboarding.local.md
 second-brain-cloudflare-main/
+
+# Build output — generated from src/ by `npm run build`, rebuilt on publish by
+# prepublishOnly. Tracking it invited drift (committed dist stopped matching
+# source when PR #30 reformatted src without rebuilding).
+dist/
