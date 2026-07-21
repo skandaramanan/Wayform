@@ -40,7 +40,9 @@ async function timed(label, fn) {
   }
   samples.sort((a, b) => a.ms - b.ms);
   const p50 = samples[Math.floor(samples.length / 2)].ms;
-  const p95 = samples[Math.min(samples.length - 1, Math.ceil(samples.length * 0.95) - 1)].ms;
+  const p95 =
+    samples[Math.min(samples.length - 1, Math.ceil(samples.length * 0.95) - 1)]
+      .ms;
   console.log(
     JSON.stringify({
       label,
@@ -75,7 +77,9 @@ await timed("hook_read", async (i) => {
   const u = new URL(`${urlBase}/hook/read`);
   u.searchParams.set("project", project);
   u.searchParams.set("budget", String(4000 + (i === 0 ? 0 : 0)));
-  const res = await fetch(u, { headers: { authorization: headers.authorization } });
+  const res = await fetch(u, {
+    headers: { authorization: headers.authorization },
+  });
   const text = await res.text();
   return { status: res.status, bytes: text.length };
 });
@@ -83,7 +87,9 @@ await timed("hook_read", async (i) => {
 await timed("api_read_queryless", async () => {
   const u = new URL(`${urlBase}/api/read`);
   u.searchParams.set("project", project);
-  const res = await fetch(u, { headers: { authorization: headers.authorization } });
+  const res = await fetch(u, {
+    headers: { authorization: headers.authorization },
+  });
   const text = await res.text();
   return { status: res.status, bytes: text.length };
 });
@@ -92,7 +98,9 @@ await timed("api_read_query", async () => {
   const u = new URL(`${urlBase}/api/read`);
   u.searchParams.set("project", project);
   u.searchParams.set("query", "remote MCP latency tool invocation");
-  const res = await fetch(u, { headers: { authorization: headers.authorization } });
+  const res = await fetch(u, {
+    headers: { authorization: headers.authorization },
+  });
   const text = await res.text();
   return { status: res.status, bytes: text.length };
 });

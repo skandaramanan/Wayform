@@ -473,7 +473,11 @@ test("write_context warms the recency cache so the next queryless read stays a K
       method: "tools/call",
       params: {
         name: "write_context",
-        arguments: { project: "roadmap", type: "decision", payload: "brand new" },
+        arguments: {
+          project: "roadmap",
+          type: "decision",
+          payload: "brand new",
+        },
       },
     }),
     env,

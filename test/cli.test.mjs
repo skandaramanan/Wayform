@@ -34,10 +34,7 @@ test("`stop-review <client>` routes to the Stop no-op (re-engagement removed)", 
 });
 
 test("`prompt-hook <client>` fail-opens to {} without a gateway", () => {
-  assert.equal(
-    run(["prompt-hook", "claude-code"], "claude-code").trim(),
-    "{}",
-  );
+  assert.equal(run(["prompt-hook", "claude-code"], "claude-code").trim(), "{}");
 });
 test("hook subcommand arg sets the client (raw emits nothing)", () => {
   assert.equal(run(["hook", "raw"]), "");

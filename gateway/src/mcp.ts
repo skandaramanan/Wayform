@@ -353,7 +353,12 @@ async function toolsCall(
             rpcResult(
               msg.id,
               toolText(
-                renderSearchResults(project || undefined, query, results, total),
+                renderSearchResults(
+                  project || undefined,
+                  query,
+                  results,
+                  total,
+                ),
               ),
             ),
           );
@@ -495,7 +500,12 @@ async function toolsCall(
           rpcResult(
             msg.id,
             toolText(
-              formatWriteResult(entry, project, check.conflicts, authorSupersedes),
+              formatWriteResult(
+                entry,
+                project,
+                check.conflicts,
+                authorSupersedes,
+              ),
             ),
           ),
         );

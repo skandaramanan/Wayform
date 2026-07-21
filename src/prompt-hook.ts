@@ -32,8 +32,7 @@ export async function runPromptHook(): Promise<void> {
     let prompt = "";
     try {
       const payload = raw.trim() ? JSON.parse(raw) : {};
-      prompt =
-        typeof payload.prompt === "string" ? payload.prompt.trim() : "";
+      prompt = typeof payload.prompt === "string" ? payload.prompt.trim() : "";
     } catch {
       emitEmpty();
     }
