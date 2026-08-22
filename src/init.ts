@@ -39,6 +39,10 @@ Options (all optional; missing identity values are prompted for):
 Hosted member (gateway) mode:
   --remote                wire a hosted member (gateway URL, no clone)
   --gateway <url>         (remote) hosted gateway base URL (default: production)
+  --clients <list>        (remote) which agents to wire, comma-separated:
+                          cursor, claude, codex, devin, antigravity
+                          Omit to keep existing vendor folders only — never
+                          dump configs for tools the team does not use.
   Then run: wayform login
 `;
 

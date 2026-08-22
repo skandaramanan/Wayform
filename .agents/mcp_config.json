@@ -1,7 +1,0 @@
-{
-  "mcpServers": {
-    "wayform": {
-      "serverUrl": "https://memorylayer-gateway.memory-layer.workers.dev/mcp"
-    }
-  }
-}

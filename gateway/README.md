@@ -155,7 +155,7 @@ design-partner preview page. No space, no writes, no extract.
 
 ```bash
 npm i -g wayform
-wayform init --remote --yes
+wayform init --remote --yes --clients cursor
 wayform login
 wayform doctor
 ```
@@ -238,7 +238,9 @@ Then Authenticate in MCP settings. DCR OAuth; no headers.
 `wayform login`. Commit the project MCP files so later teammates only
 authenticate.
 
-`wayform init --remote` writes all of the files above.
+`wayform init --remote --clients cursor` writes only that client's files.
+Omit `--clients` with `--yes` to update folders already in the repo — never
+dump `.devin` / `.agents` / `.codex` into a team that does not use them.
 
 ChatGPT custom connectors with a path token (`/mcp/mlk_…`) are **out of
 scope**. Headless grants are not part of this onboarding.

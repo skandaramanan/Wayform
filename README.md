@@ -152,7 +152,9 @@ Same URL everywhere. Tokens stay in the client or OS keychain after login.
 | **Devin CLI** | `.devin/mcp_config.json` → `{ "url": "…", "transport": "http" }` | `--scope user` / `~/.config/devin/mcp_config.json` | `devin mcp login wayform` |
 | **Antigravity** | `.agents/mcp_config.json` → `{ "serverUrl": "…" }` | `~/.gemini/config/mcp_config.json` | Authenticate in MCP settings (DCR) |
 
-`wayform init --remote` writes all of those files. `wayform doctor` says
+`wayform init --remote --clients cursor,claude` writes **only** those
+clients' files. With `--yes` and no `--clients`, it updates folders
+already in the repo and does not create the rest. `wayform doctor` says
 "run wayform login" when the hook session is missing — never "paste a token".
 
 Do **not** add Wayform as a Devin Cloud **organization-wide** MCP if you only
