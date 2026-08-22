@@ -56,6 +56,27 @@ async function genKeypair() {
 
 export const TEST_KEYPAIR = await genKeypair();
 
+function memoryMembershipClaims() {
+  const users = new Map();
+  const invites = new Map();
+  return {
+    async claimUser(githubId, space) {
+      if (!users.has(githubId)) users.set(githubId, space);
+      return users.get(githubId);
+    },
+    async releaseUser(githubId, space) {
+      if (users.get(githubId) === space) users.delete(githubId);
+    },
+    async claimInvite(login, space) {
+      if (!invites.has(login)) invites.set(login, space);
+      return invites.get(login);
+    },
+    async releaseInvite(login, space) {
+      if (invites.get(login) === space) invites.delete(login);
+    },
+  };
+}
+
 /** Env with a FakeKV and the test keypair; pass a mock fetch for GitHub calls.
  *  extra: { indexDb, embedder, WEBHOOK_SECRET, ... } merged onto the env. */
 export function makeEnv(githubFetch, extra = {}) {
@@ -69,6 +90,7 @@ export function makeEnv(githubFetch, extra = {}) {
     GITHUB_CLIENT_SECRET: "gh-client-secret",
     ADMIN_SECRET: "test-admin-secret",
     githubFetch,
+    membershipClaims: memoryMembershipClaims(),
     ...extra,
   };
 }
@@ -78,13 +100,16 @@ export async function seedGithubMember(env, member) {
   const rec = {
     branch: "main",
     role: "member",
-    githubLogin: member.githubLogin ?? String(member.author ?? "user").toLowerCase(),
+    githubLogin:
+      member.githubLogin ?? String(member.author ?? "user").toLowerCase(),
     ...member,
   };
-  await env.ROUTING.put(
-    `member:github:${rec.githubId}`,
-    JSON.stringify(rec),
-  );
+  await env.ROUTING.put(`member:github:${rec.githubId}`, JSON.stringify(rec));
+  const membersKey = `space:members:${rec.space}`;
+  const membersRaw = await env.ROUTING.get(membersKey);
+  const members = membersRaw ? JSON.parse(membersRaw) : [];
+  if (!members.includes(rec.githubId)) members.push(rec.githubId);
+  await env.ROUTING.put(membersKey, JSON.stringify(members));
   if (rec.githubLogin) {
     await env.ROUTING.put(
       `github:login:${String(rec.githubLogin).toLowerCase()}`,

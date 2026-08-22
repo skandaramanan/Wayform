@@ -103,23 +103,32 @@ async function route(
     return handleWebhook(req, env, ctx);
   }
 
-  if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) {
+  if (url.pathname === "/mcp/hook/read" && req.method === "GET") {
+    return handleHookRead(req, env, ctx);
+  }
+
+  if (url.pathname === "/mcp/hook/prompt" && req.method === "POST") {
+    return handleHookPrompt(req, env, ctx);
+  }
+
+  if (url.pathname === "/mcp/api/read" && req.method === "GET") {
+    return handleApiRead(req, env, ctx);
+  }
+
+  if (url.pathname === "/mcp") {
     if (req.method === "POST") return handleMcp(req, env, ctx);
     return new Response("stateless server: POST one JSON-RPC message", {
       status: 405,
     });
   }
 
-  if (url.pathname === "/hook/read" && req.method === "GET") {
-    return handleHookRead(req, env, ctx);
-  }
-
-  if (url.pathname === "/hook/prompt" && req.method === "POST") {
-    return handleHookPrompt(req, env, ctx);
-  }
-
-  if (url.pathname === "/api/read" && req.method === "GET") {
-    return handleApiRead(req, env, ctx);
+  const legacyPath = new Map([
+    ["/hook/read", "/mcp/hook/read"],
+    ["/hook/prompt", "/mcp/hook/prompt"],
+    ["/api/read", "/mcp/api/read"],
+  ]).get(url.pathname);
+  if (legacyPath) {
+    return new Response(`moved to ${legacyPath}`, { status: 410 });
   }
 
   return new Response("not found", { status: 404 });

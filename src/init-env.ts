@@ -48,16 +48,12 @@ export function buildHookEnv(v: {
 export function buildRemoteHookEnv(v: {
   gatewayUrl: string;
   project: string;
-  author: string;
-  email: string;
 }): string {
   return [
-    "# Wayform per-user hook config. URL + identity only — no gateway token.",
-    "# Written by `wayform init --remote`. Run `wayform login` once per machine.",
+    "# Wayform hosted hook config — project scoped and credential-free.",
+    "# Written by `wayform init --remote`. Safe to commit for teammates.",
     `MEMORYLAYER_GATEWAY_URL=${v.gatewayUrl}`,
     `MEMORYLAYER_PROJECT=${v.project}`,
-    `MEMORYLAYER_AUTHOR=${v.author}`,
-    `MEMORYLAYER_AUTHOR_EMAIL=${v.email}`,
     "",
   ].join("\n");
 }
@@ -111,4 +107,17 @@ export function ensureGitignore(existing: string, entries: string[]): string {
     if (!lines.includes(entry)) out += `${entry}\n`;
   }
   return out;
+}
+
+/** Remove exact obsolete ignore entries while preserving all unrelated lines. */
+export function removeGitignoreEntries(
+  existing: string,
+  entries: string[],
+): string {
+  const removed = new Set(entries);
+  const lines = existing
+    .split(/\r?\n/)
+    .filter((line) => !removed.has(line.trim()));
+  while (lines.length > 0 && lines.at(-1) === "") lines.pop();
+  return lines.length > 0 ? `${lines.join("\n")}\n` : "";
 }

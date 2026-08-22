@@ -58,12 +58,15 @@ async function setup(extra = {}) {
   const calls = [];
   const env = makeEnv(ghFetch(calls, []), extra);
   await seedGithubMember(env, MEMBER);
-  env.oauthProps = { githubId: MEMBER.githubId, githubLogin: MEMBER.githubLogin };
+  env.oauthProps = {
+    githubId: MEMBER.githubId,
+    githubLogin: MEMBER.githubLogin,
+  };
   return { env };
 }
 
 function post(body) {
-  return new Request("https://gw.test/hook/prompt", {
+  return new Request("https://gw.test/mcp/hook/prompt", {
     method: "POST",
     headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
@@ -135,7 +138,7 @@ test("hook prompt rejects an unauthenticated request", async () => {
   const { env } = await setup({ indexDb: new MemoryIndexDb() });
   delete env.oauthProps;
   const res = await handleRequest(
-    new Request("https://gw.test/hook/prompt", {
+    new Request("https://gw.test/mcp/hook/prompt", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ project: "memorylayer", prompt: "x" }),

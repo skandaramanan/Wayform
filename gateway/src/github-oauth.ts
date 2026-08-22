@@ -1,5 +1,7 @@
 import type { Env } from "./env.js";
 import type { GithubIdentity, GithubInstallation } from "./spaces.js";
+import { installationToken } from "./github-auth.js";
+import type { SetupRepository } from "./setup.js";
 
 export async function exchangeGithubCode(
   env: Env,
@@ -66,22 +68,76 @@ export async function fetchGithubInstallations(
   return body.installations ?? [];
 }
 
-export async function fetchInstallationRepos(
-  token: string,
+export async function fetchInstallationRepositories(
+  env: Env,
   installationId: number,
-  fetchImpl: typeof fetch,
-): Promise<{ owner: string; repo: string }[]> {
+  fetchImpl: typeof fetch = env.githubFetch ?? fetch,
+): Promise<SetupRepository[]> {
+  const token = await installationToken(env, installationId, fetchImpl);
   const res = await fetchImpl(
-    `https://api.github.com/user/installations/${installationId}/repositories`,
+    "https://api.github.com/installation/repositories?per_page=100",
     { headers: githubHeaders(token) },
   );
-  if (!res.ok) return [];
+  if (!res.ok) {
+    throw new Error(`installation repositories failed: ${res.status}`);
+  }
   const body = (await res.json()) as {
-    repositories?: { name?: string; owner?: { login?: string } }[];
+    repositories?: Array<{
+      name?: string;
+      owner?: { login?: string };
+      private?: boolean;
+      default_branch?: string | null;
+    }>;
   };
   return (body.repositories ?? [])
-    .filter((r) => r.name && r.owner?.login)
-    .map((r) => ({ owner: r.owner!.login!, repo: r.name! }));
+    .filter(
+      (
+        repo,
+      ): repo is {
+        name: string;
+        owner: { login: string };
+        private?: boolean;
+        default_branch?: string | null;
+      } => Boolean(repo.name && repo.owner?.login),
+    )
+    .map((repo) => ({
+      owner: repo.owner.login,
+      repo: repo.name,
+      private: repo.private === true,
+      defaultBranch: repo.default_branch?.trim() || null,
+    }));
+}
+
+export async function validateMemoryRepository(
+  env: Env,
+  installationId: number,
+  repository: SetupRepository,
+  fetchImpl: typeof fetch = env.githubFetch ?? fetch,
+): Promise<void> {
+  if (!repository.private) {
+    throw new Error("Wayform memory repositories must be private.");
+  }
+  if (!repository.defaultBranch) {
+    throw new Error(
+      "Initialize the memory repository with a first commit before selecting it.",
+    );
+  }
+  const token = await installationToken(env, installationId, fetchImpl);
+  const owner = encodeURIComponent(repository.owner);
+  const repo = encodeURIComponent(repository.repo);
+  const branch = repository.defaultBranch
+    .split("/")
+    .map(encodeURIComponent)
+    .join("/");
+  const res = await fetchImpl(
+    `https://api.github.com/repos/${owner}/${repo}/git/ref/heads/${branch}`,
+    { headers: githubHeaders(token) },
+  );
+  if (!res.ok) {
+    throw new Error(
+      "The selected repository branch is unavailable to the GitHub App.",
+    );
+  }
 }
 
 function githubHeaders(token: string): Record<string, string> {

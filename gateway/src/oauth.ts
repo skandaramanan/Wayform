@@ -1,6 +1,7 @@
 import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
 import type { Env, HandlerCtx } from "./env.js";
 import { handleAuthorize, handleGithubCallback } from "./oauth-handler.js";
+import { handleInstallCallback, handleRepositorySelection } from "./setup.js";
 import { handleRequest } from "./router.js";
 
 type WaitCtx = HandlerCtx;
@@ -16,6 +17,12 @@ const defaultHandler = {
     const url = new URL(request.url);
     if (url.pathname === "/authorize") return handleAuthorize(request, env);
     if (url.pathname === "/callback") return handleGithubCallback(request, env);
+    if (url.pathname === "/install/callback") {
+      return handleInstallCallback(request, env);
+    }
+    if (url.pathname === "/install/select") {
+      return handleRepositorySelection(request, env);
+    }
     return handleRequest(request, env, ctx);
   },
 };
@@ -23,7 +30,7 @@ const defaultHandler = {
 /** MCP OAuth 2.1 wrapper: RFC 9728 metadata, DCR, CIMD, PKCE S256. */
 export function createGatewayOAuthProvider(): OAuthProvider<Env> {
   return new OAuthProvider<Env>({
-    apiRoute: ["/mcp", "/hook/read", "/hook/prompt", "/api/read"],
+    apiRoute: "/mcp",
     apiHandler,
     defaultHandler,
     authorizeEndpoint: "/authorize",

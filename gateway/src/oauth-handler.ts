@@ -16,15 +16,15 @@ import {
   consumeOAuthState,
   validateConsentedState,
   clearConsentedCookie,
-  renderPreviewPage,
 } from "./oauth-consent.js";
 import {
   exchangeGithubCode,
   fetchGithubInstallations,
   fetchGithubUser,
-  fetchInstallationRepos,
+  fetchInstallationRepositories,
 } from "./github-oauth.js";
 import { placeGithubUser } from "./spaces.js";
+import { beginInstallSetup, type SetupRepository } from "./setup.js";
 
 interface AuthorizeEnv extends Env {
   OAUTH_PROVIDER: OAuthHelpers;
@@ -160,21 +160,47 @@ export async function handleGithubCallback(
     );
     const user = await fetchGithubUser(ghToken, fetchImpl);
     const installations = await fetchGithubInstallations(ghToken, fetchImpl);
-    const placed = await placeGithubUser(
-      env,
-      user,
-      installations,
-      (installationId) =>
-        fetchInstallationRepos(ghToken, installationId, fetchImpl),
-    );
+    const placed = await placeGithubUser(env, user, installations);
     if (placed.kind === "preview") {
-      return new Response(renderPreviewPage(), {
-        status: 200,
-        headers: {
-          "content-type": "text/html; charset=utf-8",
-          "set-cookie": clearConsentedCookie(),
-        },
+      let installationId: number | undefined;
+      let repositories: SetupRepository[] | undefined;
+      for (const installation of installations) {
+        try {
+          const discovered = await fetchInstallationRepositories(
+            env,
+            installation.id,
+            fetchImpl,
+          );
+          if (discovered.length > 0) {
+            installationId = installation.id;
+            repositories = discovered;
+            break;
+          }
+        } catch {
+          // Offer App installation when no accessible repository can resume.
+        }
+      }
+      const response = await beginInstallSetup(request, env, {
+        oauthRequest: oauthReqInfo,
+        user,
+        installationId,
+        repositories,
+        allowedInstallationIds: installations.map(
+          (installation) => installation.id,
+        ),
       });
+      response.headers.append("set-cookie", clearConsentedCookie());
+      return response;
+    }
+    if (placed.kind === "space_conflict") {
+      const response = oauthErrorResponse(
+        oauthReqInfo,
+        "access_denied",
+        `This GitHub user already belongs to ${placed.existingSpace}. ` +
+          "Multi-space membership is not available yet.",
+      );
+      response.headers.append("set-cookie", clearConsentedCookie());
+      return response;
     }
 
     const oauthEnv = env as AuthorizeEnv;
@@ -194,6 +220,19 @@ export async function handleGithubCallback(
       { status: 502 },
     );
   }
+}
+
+function oauthErrorResponse(
+  request: AuthRequest,
+  code: string,
+  description: string,
+): Response {
+  const redirect = new URL(request.redirectUri);
+  redirect.searchParams.set("error", code);
+  redirect.searchParams.set("error_description", description);
+  if (request.state) redirect.searchParams.set("state", request.state);
+  if (request.issuer) redirect.searchParams.set("iss", request.issuer);
+  return Response.redirect(redirect, 302);
 }
 
 function authorizationErrorResponse(error: unknown): Response {

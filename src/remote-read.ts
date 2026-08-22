@@ -6,6 +6,7 @@
  * cannot stall a session hook.
  */
 import type { Config } from "./config.js";
+import { oauthFetch } from "./oauth-session.js";
 
 export interface RemoteReadResult {
   text: string;
@@ -15,10 +16,18 @@ export interface RemoteReadResult {
 
 const REMOTE_TIMEOUT_MS = 4000;
 
-type GatewayCfg = Pick<Config, "gatewayUrl" | "gatewayToken">;
+type GatewayCfg = Pick<Config, "gatewayUrl">;
 
-function configured(cfg: GatewayCfg): cfg is Required<GatewayCfg> {
-  return Boolean(cfg.gatewayUrl && cfg.gatewayToken);
+export type GatewayFetch = (
+  gatewayUrl: string,
+  input: string | URL | Request,
+  init?: RequestInit,
+) => Promise<Response>;
+
+function configured(
+  cfg: GatewayCfg,
+): cfg is GatewayCfg & { gatewayUrl: string } {
+  return Boolean(cfg.gatewayUrl);
 }
 
 export async function remoteApiRead(
@@ -30,19 +39,18 @@ export async function remoteApiRead(
     kinds?: string[];
     trigger?: string;
   },
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: GatewayFetch = oauthFetch,
 ): Promise<RemoteReadResult | null> {
   if (!configured(cfg)) return null;
   try {
-    const url = new URL(`${cfg.gatewayUrl}/api/read`);
+    const url = new URL(`${cfg.gatewayUrl}/mcp/api/read`);
     url.searchParams.set("project", opts.project);
     if (opts.query) url.searchParams.set("query", opts.query);
     if (opts.budgetTokens)
       url.searchParams.set("budget", String(opts.budgetTokens));
     if (opts.kinds?.length) url.searchParams.set("kinds", opts.kinds.join(","));
     if (opts.trigger) url.searchParams.set("trigger", opts.trigger);
-    const res = await fetchImpl(url.toString(), {
-      headers: { authorization: `Bearer ${cfg.gatewayToken}` },
+    const res = await fetchImpl(cfg.gatewayUrl, url.toString(), {
       signal: AbortSignal.timeout(REMOTE_TIMEOUT_MS),
     });
     if (!res.ok) return null;
@@ -63,15 +71,14 @@ export async function remoteHookRead(
   cfg: GatewayCfg,
   project: string,
   budgetTokens: number,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: GatewayFetch = oauthFetch,
 ): Promise<string | null> {
   if (!configured(cfg)) return null;
   try {
-    const url = new URL(`${cfg.gatewayUrl}/hook/read`);
+    const url = new URL(`${cfg.gatewayUrl}/mcp/hook/read`);
     url.searchParams.set("project", project);
     url.searchParams.set("budget", String(budgetTokens));
-    const res = await fetchImpl(url.toString(), {
-      headers: { authorization: `Bearer ${cfg.gatewayToken}` },
+    const res = await fetchImpl(cfg.gatewayUrl, url.toString(), {
       signal: AbortSignal.timeout(REMOTE_TIMEOUT_MS),
     });
     if (!res.ok) return null;
@@ -81,25 +88,28 @@ export async function remoteHookRead(
   }
 }
 
-/** POST /hook/prompt — returns inject text or "" (nothing to inject) or null (gateway unusable). */
+/** POST /mcp/hook/prompt — returns inject text or "" (nothing to inject) or null (gateway unusable). */
 export async function remoteHookPrompt(
   cfg: GatewayCfg,
   project: string,
   prompt: string,
   budgetTokens: number,
-  fetchImpl: typeof fetch = fetch,
+  fetchImpl: GatewayFetch = oauthFetch,
 ): Promise<string | null> {
   if (!configured(cfg)) return null;
   try {
-    const res = await fetchImpl(`${cfg.gatewayUrl}/hook/prompt`, {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${cfg.gatewayToken}`,
-        "content-type": "application/json",
+    const res = await fetchImpl(
+      cfg.gatewayUrl,
+      `${cfg.gatewayUrl}/mcp/hook/prompt`,
+      {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ project, prompt, budget: budgetTokens }),
+        signal: AbortSignal.timeout(REMOTE_TIMEOUT_MS),
       },
-      body: JSON.stringify({ project, prompt, budget: budgetTokens }),
-      signal: AbortSignal.timeout(REMOTE_TIMEOUT_MS),
-    });
+    );
     if (!res.ok) return null;
     return await res.text();
   } catch {

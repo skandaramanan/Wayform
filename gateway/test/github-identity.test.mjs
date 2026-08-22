@@ -12,10 +12,8 @@ function fetchGw(path, init = {}, env = makeEnv()) {
 }
 
 test("consumeOAuthState returns stored request once, then null", async () => {
-  const {
-    createOAuthState,
-    consumeOAuthState,
-  } = await import("../dist/gateway/src/oauth-consent.js");
+  const { createOAuthState, consumeOAuthState } =
+    await import("../dist/gateway/src/oauth-consent.js");
   const env = makeEnv();
   const { stateToken } = await createOAuthState(
     { clientId: "c1", scope: ["mcp"] },
@@ -27,10 +25,8 @@ test("consumeOAuthState returns stored request once, then null", async () => {
 });
 
 test("validateConsentedState accepts the hashed __Host-CONSENTED_STATE cookie", async () => {
-  const {
-    bindStateToSession,
-    validateConsentedState,
-  } = await import("../dist/gateway/src/oauth-consent.js");
+  const { bindStateToSession, validateConsentedState } =
+    await import("../dist/gateway/src/oauth-consent.js");
   const { setCookie } = await bindStateToSession("state-token-1");
   const cookie = setCookie.split(";")[0];
   await validateConsentedState(
@@ -49,18 +45,16 @@ test("validateConsentedState accepts the hashed __Host-CONSENTED_STATE cookie", 
 });
 
 test("preview HTML is a design-partner page, not an allowlist form", async () => {
-  const { renderPreviewPage } = await import(
-    "../dist/gateway/src/oauth-consent.js"
-  );
+  const { renderPreviewPage } =
+    await import("../dist/gateway/src/oauth-consent.js");
   const html = renderPreviewPage();
   assert.match(html, /design-partner preview/i);
   assert.doesNotMatch(html, /allowlist/i);
 });
 
 test("allowlist matches logins case-insensitively and * opens signup", async () => {
-  const { allowlistMatches, addToAllowlist, isAllowlisted } = await import(
-    "../dist/gateway/src/spaces.js"
-  );
+  const { allowlistMatches, addToAllowlist, isAllowlisted } =
+    await import("../dist/gateway/src/spaces.js");
   assert.equal(allowlistMatches(["Ada", "spear-ai"], "ada"), true);
   assert.equal(allowlistMatches(["spear-ai"], "dberquist"), false);
   assert.equal(allowlistMatches(["*"], "anyone"), true);
@@ -71,9 +65,8 @@ test("allowlist matches logins case-insensitively and * opens signup", async () 
 });
 
 test("activateInstallation creates a plan=pilot space only when the owner is allowlisted", async () => {
-  const { activateInstallation, getSpaceByInstallation } = await import(
-    "../dist/gateway/src/spaces.js"
-  );
+  const { activateInstallation, getSpaceByInstallation } =
+    await import("../dist/gateway/src/spaces.js");
   const env = makeEnv();
   const input = {
     installationId: 42,
@@ -94,6 +87,32 @@ test("activateInstallation creates a plan=pilot space only when the owner is all
   assert.equal(space.space, "ada-memory");
 });
 
+test("concurrent activations can claim a GitHub user for only one space", async () => {
+  const { activateInstallation, getMemberByGithubId } =
+    await import("../dist/gateway/src/spaces.js");
+  const env = makeEnv();
+  await env.ROUTING.put("signup:allowlist", JSON.stringify(["acme", "beta"]));
+  const results = await Promise.all([
+    activateInstallation(env, {
+      installationId: 41,
+      owner: "acme",
+      repo: "memory",
+      actorGithubId: 101,
+      actorLogin: "ada",
+    }),
+    activateInstallation(env, {
+      installationId: 42,
+      owner: "beta",
+      repo: "memory",
+      actorGithubId: 101,
+      actorLogin: "ada",
+    }),
+  ]);
+  assert.deepEqual(results.sort(), ["active", "space_conflict"]);
+  const member = await getMemberByGithubId(env, 101);
+  assert.ok(["acme-memory", "beta-memory"].includes(member.space));
+});
+
 test("resolveMember loads the github_id member from ctx.props, not an mlk_ hash", async () => {
   const { resolveMember } = await import("../dist/gateway/src/tenancy.js");
   const env = makeEnv();
@@ -108,11 +127,10 @@ test("resolveMember loads the github_id member from ctx.props, not an mlk_ hash"
     githubLogin: "ada",
     role: "admin",
   });
-  const member = await resolveMember(
-    new Request("https://gw.test/mcp"),
-    env,
-    { waitUntil() {}, props: { githubId: 101, githubLogin: "ada" } },
-  );
+  const member = await resolveMember(new Request("https://gw.test/mcp"), env, {
+    waitUntil() {},
+    props: { githubId: 101, githubLogin: "ada" },
+  });
   assert.equal(member.author, "ada");
   assert.equal(member.githubId, 101);
   assert.equal(
@@ -121,11 +139,10 @@ test("resolveMember loads the github_id member from ctx.props, not an mlk_ hash"
   );
 });
 
-test("installation.created webhook provisions an allowlisted space and skips others", async () => {
+test("installation.created webhook records inventory but never provisions a space", async () => {
   const { handleWebhook } = await import("../dist/gateway/src/webhook.js");
-  const { getSpaceByInstallation } = await import(
-    "../dist/gateway/src/spaces.js"
-  );
+  const { getSpaceByInstallation } =
+    await import("../dist/gateway/src/spaces.js");
   const SECRET = "hooksecret";
   const sign = (body) =>
     "sha256=" + createHmac("sha256", SECRET).update(body).digest("hex");
@@ -157,21 +174,20 @@ test("installation.created webhook provisions an allowlisted space and skips oth
   const env = makeEnv(undefined, { WEBHOOK_SECRET: SECRET });
   await env.ROUTING.put("signup:allowlist", JSON.stringify(["spear-ai"]));
   assert.equal((await handleWebhook(req, env)).status, 200);
-  const space = await getSpaceByInstallation(env, 99);
-  assert.equal(space.owner, "spear-ai");
-  assert.equal(space.repo, "team-memory");
-  assert.equal(space.plan, "pilot");
-  const admin = JSON.parse(await env.ROUTING.get("member:github:55"));
-  assert.equal(admin.role, "admin");
-  assert.equal(admin.githubLogin, "dberquist");
+  assert.equal(await getSpaceByInstallation(env, 99), null);
+  assert.equal(await env.ROUTING.get("member:github:55"), null);
+  const inventory = JSON.parse(
+    await env.ROUTING.get("installation:inventory:99"),
+  );
+  assert.equal(inventory.owner, "spear-ai");
+  assert.equal(inventory.repositories[0].name, "team-memory");
 });
 
 test("a GitHub-username invite is not a bearer credential and lets that user join", async () => {
-  const { inviteGithubUser, getGithubInvite, placeGithubUser } = await import(
-    "../dist/gateway/src/spaces.js"
-  );
+  const { inviteGithubUser, getGithubInvite, placeGithubUser } =
+    await import("../dist/gateway/src/spaces.js");
   const env = makeEnv();
-  await seedGithubMember(env, {
+  const admin = await seedGithubMember(env, {
     space: "acme-mem",
     installationId: 7,
     owner: "acme",
@@ -182,24 +198,13 @@ test("a GitHub-username invite is not a bearer credential and lets that user joi
     githubLogin: "ada",
     role: "admin",
   });
-  await inviteGithubUser(env, "bo", {
-    space: "acme-mem",
-    installationId: 7,
-    owner: "acme",
-    repo: "mem",
-    branch: "main",
-    invitedByGithubId: 1,
-  });
+  await inviteGithubUser(env, admin, "bo");
   const invite = await getGithubInvite(env, "Bo");
   assert.equal(invite.space, "acme-mem");
   assert.equal(invite.invite, undefined);
   assert.doesNotMatch(JSON.stringify(invite), /wfi_|mlk_/);
 
-  const placed = await placeGithubUser(
-    env,
-    { id: 2, login: "bo" },
-    [],
-  );
+  const placed = await placeGithubUser(env, { id: 2, login: "bo" }, []);
   assert.equal(placed.kind, "member");
   assert.equal(placed.member.space, "acme-mem");
   assert.equal(placed.member.role, "member");
@@ -221,26 +226,55 @@ test("org installation access auto-joins without a personal allowlist entry", as
     role: "admin",
     createdByGithubId: 1,
   });
-  const placed = await placeGithubUser(
-    env,
-    { id: 9, login: "casey" },
-    [
-      {
-        id: 7,
-        account: { login: "acme", id: 80, type: "Organization" },
-      },
-    ],
-  );
+  const placed = await placeGithubUser(env, { id: 9, login: "casey" }, [
+    {
+      id: 7,
+      account: { login: "acme", id: 80, type: "Organization" },
+    },
+  ]);
   assert.equal(placed.kind, "member");
   assert.equal(placed.member.role, "member");
   assert.equal(placed.member.author, "casey");
+});
+
+test("a stale second-space invitation returns an explicit membership conflict", async () => {
+  const { placeGithubUser } = await import("../dist/gateway/src/spaces.js");
+  const env = makeEnv();
+  await seedGithubMember(env, {
+    space: "team-a",
+    installationId: 1,
+    owner: "acme",
+    repo: "a-memory",
+    author: "casey",
+    authorEmail: "c@x.io",
+    githubId: 9,
+    githubLogin: "casey",
+    role: "member",
+  });
+  await env.ROUTING.put(
+    "invite:github:casey",
+    JSON.stringify({
+      space: "team-b",
+      installationId: 2,
+      owner: "beta",
+      repo: "b-memory",
+      branch: "main",
+      invitedByGithubId: 2,
+      invitedAt: Date.now(),
+    }),
+  );
+
+  assert.deepEqual(await placeGithubUser(env, { id: 9, login: "casey" }, []), {
+    kind: "space_conflict",
+    existingSpace: "team-a",
+  });
 });
 
 test("account-wide neuron cap is unchanged by space activation", () => {
   assert.equal(DAILY_NEURON_BUDGET, 9500);
 });
 
-test("GitHub callback completes MCP authorization for an allowlisted installer", async () => {
+test("GitHub callback completes MCP authorization for an existing member", async () => {
   const env = makeEnv(
     ghFetch(
       [],
@@ -282,7 +316,17 @@ test("GitHub callback completes MCP authorization for an allowlisted installer",
       ],
     ),
   );
-  await env.ROUTING.put("signup:allowlist", JSON.stringify(["ada"]));
+  await seedGithubMember(env, {
+    space: "ada-mem",
+    installationId: 42,
+    owner: "ada",
+    repo: "mem",
+    author: "ada",
+    authorEmail: "101+ada@users.noreply.github.com",
+    githubId: 101,
+    githubLogin: "ada",
+    role: "admin",
+  });
   const client = await registerClient(env);
   const shown = await fetchGw(await authorizePath(client.client_id), {}, env);
   const html = await shown.text();
@@ -316,7 +360,7 @@ test("GitHub callback completes MCP authorization for an allowlisted installer",
   assert.match(redirect, /code=/);
 });
 
-test("GitHub callback shows the preview page when the installer is not allowlisted", async () => {
+test("unknown GitHub user receives the guided App installation action", async () => {
   const env = makeEnv(
     ghFetch(
       [],
@@ -325,38 +369,14 @@ test("GitHub callback shows the preview page when the installer is not allowlist
           "/login/oauth/access_token",
           () => Response.json({ access_token: "ghu_test" }),
         ],
-        [
-          "/user/installations/1/repositories",
-          () =>
-            Response.json({
-              repositories: [
-                {
-                  name: "x",
-                  full_name: "rando/x",
-                  owner: { login: "rando" },
-                  private: true,
-                },
-              ],
-            }),
-        ],
-        [
-          "/user/installations",
-          () =>
-            Response.json({
-              installations: [
-                {
-                  id: 1,
-                  account: { login: "rando", id: 9, type: "User" },
-                },
-              ],
-            }),
-        ],
+        ["/user/installations", () => Response.json({ installations: [] })],
         [
           "https://api.github.com/user",
           () => Response.json({ id: 9, login: "rando" }),
         ],
       ],
     ),
+    { GITHUB_APP_SLUG: "wayform-test" },
   );
   const client = await registerClient(env);
   const shown = await fetchGw(await authorizePath(client.client_id), {}, env);
@@ -383,39 +403,41 @@ test("GitHub callback shows the preview page when the installer is not allowlist
     env,
   );
   assert.equal(callback.status, 200);
-  assert.match(await callback.text(), /design-partner preview/i);
+  const installHtml = await callback.text();
+  assert.match(installHtml, /Install the Wayform GitHub App/i);
+  assert.match(
+    installHtml,
+    /github\.com\/apps\/wayform-test\/installations\/new/,
+  );
+  assert.match(callback.headers.get("set-cookie"), /__Host-WAYFORM_SETUP=/);
 });
 
 test("two GitHub users share a space without any mlk_ credential", async () => {
-  const { inviteGithubUser, placeGithubUser, getMemberByGithubId } =
-    await import("../dist/gateway/src/spaces.js");
+  const {
+    activateInstallation,
+    inviteGithubUser,
+    placeGithubUser,
+    getMemberByGithubId,
+  } = await import("../dist/gateway/src/spaces.js");
   const { resolveMember } = await import("../dist/gateway/src/tenancy.js");
   const env = makeEnv();
   await env.ROUTING.put("signup:allowlist", JSON.stringify(["ada"]));
-  const first = await placeGithubUser(
-    env,
-    { id: 101, login: "ada" },
-    [
-      {
-        id: 42,
-        account: { login: "ada", id: 101, type: "User" },
-      },
-    ],
-    async () => [{ owner: "ada", repo: "mem" }],
+  assert.equal(
+    await activateInstallation(env, {
+      installationId: 42,
+      owner: "ada",
+      repo: "mem",
+      actorGithubId: 101,
+      actorLogin: "ada",
+    }),
+    "active",
   );
-  assert.equal(first.kind, "member");
-  assert.equal(first.member.role, "admin");
-  await inviteGithubUser(env, "qitaoshi", {
-    space: first.member.space,
-    installationId: 42,
-    owner: "ada",
-    repo: "mem",
-    branch: "main",
-    invitedByGithubId: 101,
-  });
+  const first = await getMemberByGithubId(env, 101);
+  assert.equal(first.role, "admin");
+  await inviteGithubUser(env, first, "qitaoshi");
   const second = await placeGithubUser(env, { id: 202, login: "qitaoshi" }, []);
   assert.equal(second.kind, "member");
-  assert.equal(second.member.space, first.member.space);
+  assert.equal(second.member.space, first.space);
   const ada = await resolveMember(new Request("https://gw.test/mcp"), env, {
     props: { githubId: 101 },
   });

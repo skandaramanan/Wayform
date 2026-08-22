@@ -242,6 +242,35 @@ auth = "oauth"
 }
 
 /**
+ * Replace only Codex's project-scoped Wayform table. Keeping the operation
+ * text-based preserves comments, model settings, trust, and unrelated MCP
+ * servers without introducing a TOML serializer that rewrites user config.
+ */
+export function mergeCodexRemoteConfigToml(
+  existing: string,
+  gatewayUrl: string,
+): string {
+  const replacement = codexRemoteConfigToml(gatewayUrl);
+  const header = /^\[mcp_servers\.wayform\]\s*$/m;
+  const found = header.exec(existing);
+  if (!found) {
+    let out = existing;
+    if (out && !out.endsWith("\n")) out += "\n";
+    if (out && !out.endsWith("\n\n")) out += "\n";
+    return out + replacement;
+  }
+
+  const nextHeader = /^\[/gm;
+  nextHeader.lastIndex = found.index + found[0].length;
+  const next = nextHeader.exec(existing);
+  const end = next?.index ?? existing.length;
+  const suffix = existing.slice(end);
+  return (
+    existing.slice(0, found.index) + replacement + (suffix ? "\n" : "") + suffix
+  );
+}
+
+/**
  * Devin CLI project MCP (`.devin/mcp_config.json`). Not `--scope user` /
  * `~/.config/devin/mcp_config.json`, which would load in every repo.
  */

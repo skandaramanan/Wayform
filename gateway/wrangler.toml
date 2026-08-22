@@ -4,6 +4,9 @@ compatibility_date = "2026-06-01"
 # CIMD (RFC client_id metadata documents) requires this SSRF guard.
 compatibility_flags = ["global_fetch_strictly_public"]
 
+[vars]
+GITHUB_APP_SLUG = "memorylayer-gateway"
+
 # Created in Step 3; paste the id wrangler prints.
 [[kv_namespaces]]
 binding = "ROUTING"

@@ -16,7 +16,6 @@
  * delegate to the neutral run functions (which self-load .memorylayer-hook.env).
  */
 import { loadHookEnv } from "./config.js";
-import { hydrateGatewayTokenFromKeychain } from "./keychain.js";
 import { runServer } from "./index.js";
 import { runHook } from "./hook.js";
 import { runPromptHook } from "./prompt-hook.js";
@@ -30,7 +29,6 @@ async function main(): Promise<void> {
   // Self-load .memorylayer-hook.env from the project cwd for every subcommand,
   // so the command is self-contained (no bash launcher). loadConfig stays pure.
   loadHookEnv();
-  hydrateGatewayTokenFromKeychain();
 
   const [sub, ...rest] = process.argv.slice(2);
 

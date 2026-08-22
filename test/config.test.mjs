@@ -328,7 +328,7 @@ test("defaultProject derives from the cwd basename, not the literal 'memorylayer
   assert.equal(defaultProject("/"), "unknown");
 });
 
-test("loadConfig reads gateway url/token; url is trailing-slash-normalized", () => {
+test("loadConfig normalizes gateway URL and never exposes env credentials", () => {
   withEnv(
     {
       MEMORYLAYER_AUTHOR: "A",
@@ -339,7 +339,7 @@ test("loadConfig reads gateway url/token; url is trailing-slash-normalized", () 
     () => {
       const cfg = loadConfig();
       assert.equal(cfg.gatewayUrl, "https://gw.example.com");
-      assert.equal(cfg.gatewayToken, "mlk_abc");
+      assert.equal("gatewayToken" in cfg, false);
     },
   );
 });
@@ -347,14 +347,13 @@ test("loadConfig reads gateway url/token; url is trailing-slash-normalized", () 
 test("loadConfig treats a gateway URL without a token as hosted (no clone)", () => {
   withEnv(
     {
-      MEMORYLAYER_AUTHOR: "A",
       MEMORYLAYER_GATEWAY_URL: "https://gw.example.com/",
     },
     () => {
       const cfg = loadConfig();
       assert.equal(cfg.gatewayUrl, "https://gw.example.com");
-      assert.equal(cfg.gatewayToken, undefined);
       assert.equal(cfg.repoUrl, "");
+      assert.equal(cfg.author, "GitHub");
     },
   );
 });
@@ -363,11 +362,11 @@ test("loadConfig leaves gateway fields undefined when unset", () => {
   withEnv({ MEMORYLAYER_AUTHOR: "A", CONTEXT_REPO_URL: "u" }, () => {
     const cfg = loadConfig();
     assert.equal(cfg.gatewayUrl, undefined);
-    assert.equal(cfg.gatewayToken, undefined);
+    assert.equal("gatewayToken" in cfg, false);
   });
 });
 
-test("loadHookEnv honors the gateway keys", () => {
+test("loadHookEnv honors the gateway URL and rejects legacy credentials", () => {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "ml-env-"));
   fs.writeFileSync(
     path.join(dir, ".memorylayer-hook.env"),
@@ -379,7 +378,7 @@ test("loadHookEnv honors the gateway keys", () => {
   try {
     loadHookEnv(dir);
     assert.equal(process.env.MEMORYLAYER_GATEWAY_URL, "https://gw.example.com");
-    assert.equal(process.env.MEMORYLAYER_GATEWAY_TOKEN, "mlk_fromfile");
+    assert.equal(process.env.MEMORYLAYER_GATEWAY_TOKEN, undefined);
   } finally {
     process.env = saved;
     fs.rmSync(dir, { recursive: true, force: true });
@@ -389,7 +388,6 @@ test("loadHookEnv honors the gateway keys", () => {
 test("loadConfig: gateway-only mode succeeds without CONTEXT_REPO_URL", () => {
   withEnv(
     {
-      MEMORYLAYER_AUTHOR: "Dana",
       MEMORYLAYER_GATEWAY_URL: "https://gw.example.com",
       MEMORYLAYER_GATEWAY_TOKEN: "mlk_x",
     },
@@ -398,7 +396,7 @@ test("loadConfig: gateway-only mode succeeds without CONTEXT_REPO_URL", () => {
       assert.equal(cfg.repoUrl, ""); // sentinel: no local clone
       assert.equal(cfg.repoPath, "");
       assert.equal(cfg.gatewayUrl, "https://gw.example.com");
-      assert.equal(cfg.gatewayToken, "mlk_x");
+      assert.equal("gatewayToken" in cfg, false);
     },
   );
 });

@@ -2,9 +2,11 @@ import http from "node:http";
 import { createHash, randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { saveStoredOAuth } from "./keychain.js";
+import type { CredentialStore } from "./credential-store.js";
 
 export const DEFAULT_GATEWAY_URL =
   "https://memorylayer-gateway.memory-layer.workers.dev";
+export const LOGIN_TIMEOUT_MS = 11 * 60 * 1000;
 
 export interface LoginDeps {
   fetchImpl?: typeof fetch;
@@ -14,6 +16,7 @@ export interface LoginDeps {
     close: () => void;
   }>;
   log?: (msg: string) => void;
+  credentialStore?: CredentialStore;
 }
 
 function b64url(buf: Buffer): string {
@@ -66,6 +69,7 @@ export async function runLogin(
   ).replace(/\/+$/, "");
 
   const { verifier, challenge } = pkce();
+  const oauthState = b64url(randomBytes(16));
   let settle!: (code: string) => void;
   let fail!: (err: Error) => void;
   const codePromise = new Promise<string>((resolve, reject) => {
@@ -74,7 +78,7 @@ export async function runLogin(
   });
   const timeout = setTimeout(
     () => fail(new Error("login timed out waiting for the browser")),
-    5 * 60 * 1000,
+    LOGIN_TIMEOUT_MS,
   );
 
   const listen = deps.listen ?? defaultListen;
@@ -88,13 +92,16 @@ export async function runLogin(
       }
       const err = url.searchParams.get("error");
       const code = url.searchParams.get("code");
+      const returnedState = url.searchParams.get("state");
       res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
       res.end(
         "<!doctype html><title>Wayform</title><p>You can close this tab and return to the terminal.</p>",
       );
       clearTimeout(timeout);
       listener.close();
-      if (err) fail(new Error(`authorization failed: ${err}`));
+      if (returnedState !== oauthState) {
+        fail(new Error("authorization state mismatch"));
+      } else if (err) fail(new Error(`authorization failed: ${err}`));
       else if (!code) fail(new Error("authorization missing code"));
       else settle(code);
     } catch (e) {
@@ -125,8 +132,9 @@ export async function runLogin(
     authorize.searchParams.set("response_type", "code");
     authorize.searchParams.set("code_challenge", challenge);
     authorize.searchParams.set("code_challenge_method", "S256");
-    authorize.searchParams.set("state", b64url(randomBytes(16)));
-    authorize.searchParams.set("resource", `${gatewayUrl}/mcp`);
+    authorize.searchParams.set("state", oauthState);
+    const resource = `${gatewayUrl}/mcp`;
+    authorize.searchParams.set("resource", resource);
     log("Open this URL to authorize Wayform with GitHub:");
     log(`  ${authorize.href}`);
     (deps.openUrl ?? defaultOpen)(authorize.href);
@@ -141,6 +149,7 @@ export async function runLogin(
         redirect_uri: redirectUri,
         client_id: client.client_id,
         code_verifier: verifier,
+        resource,
       }).toString(),
     });
     if (!tokenRes.ok) {
@@ -154,14 +163,18 @@ export async function runLogin(
     if (!tokens.access_token) {
       throw new Error("token response missing access_token");
     }
-    saveStoredOAuth(gatewayUrl, {
-      access_token: tokens.access_token,
-      refresh_token: tokens.refresh_token,
-      expires_at: tokens.expires_in
-        ? Date.now() + tokens.expires_in * 1000
-        : undefined,
-      token_endpoint: `${gatewayUrl}/oauth/token`,
-    });
+    saveStoredOAuth(
+      gatewayUrl,
+      {
+        client_id: client.client_id,
+        access_token: tokens.access_token,
+        refresh_token: tokens.refresh_token,
+        expires_at: Date.now() + (tokens.expires_in ?? 3600) * 1000,
+        token_endpoint: `${gatewayUrl}/oauth/token`,
+        resource,
+      },
+      deps.credentialStore,
+    );
     log(
       "Logged in. Restart your agent, then ask it to record a test decision.",
     );

@@ -9,6 +9,7 @@ import {
   mergeDevinRemoteMcp,
   mergeAntigravityRemoteMcp,
   codexRemoteConfigToml,
+  mergeCodexRemoteConfigToml,
   codexHookTrust,
   mergeCodexTrustToml,
   CODEX_MCP_TOML,
@@ -215,6 +216,29 @@ test("codexRemoteConfigToml renders native HTTP with OAuth, no headers", () => {
   assert.doesNotMatch(toml, /http_headers/);
   assert.doesNotMatch(toml, /mlk_/);
   assert.doesNotMatch(toml, /mcp-remote/);
+});
+
+test("mergeCodexRemoteConfigToml replaces only Wayform and preserves unrelated config", () => {
+  const existing = `model = "gpt-5"
+
+[mcp_servers.other]
+url = "https://other.test/mcp"
+
+[mcp_servers.wayform]
+url = "https://old.test/mcp"
+http_headers = { Authorization = "Bearer mlk_old" }
+
+[projects."/repo"]
+trust_level = "trusted"
+`;
+  const merged = mergeCodexRemoteConfigToml(existing, "https://gw.test");
+  assert.match(merged, /model = "gpt-5"/);
+  assert.match(merged, /\[mcp_servers\.other\]/);
+  assert.match(merged, /\[projects\."\/repo"\]/);
+  assert.match(merged, /url = "https:\/\/gw\.test\/mcp"/);
+  assert.match(merged, /auth = "oauth"/);
+  assert.doesNotMatch(merged, /old\.test|http_headers|mlk_old/);
+  assert.equal(mergeCodexRemoteConfigToml(merged, "https://gw.test"), merged);
 });
 
 test("codexHookTrust reproduces codex's own trusted hashes (gold values from a real TUI grant)", () => {

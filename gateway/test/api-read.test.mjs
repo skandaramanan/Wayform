@@ -20,12 +20,15 @@ const MEMBER = {
 async function authedEnv(indexDb, ghRoutes = []) {
   const env = makeEnv(ghFetch([], ghRoutes), { indexDb, embedder: fakeEmbed });
   await seedGithubMember(env, MEMBER);
-  env.oauthProps = { githubId: MEMBER.githubId, githubLogin: MEMBER.githubLogin };
+  env.oauthProps = {
+    githubId: MEMBER.githubId,
+    githubLogin: MEMBER.githubLogin,
+  };
   return env;
 }
 
 const get = (env, qs) =>
-  handleRequest(new Request(`https://gw/api/read?${qs}`), env);
+  handleRequest(new Request(`https://gw/mcp/api/read?${qs}`), env);
 
 test("query path returns ranked JSON and logs with the api_read trigger", async () => {
   const db = new MemoryIndexDb();
@@ -79,7 +82,7 @@ test("401 without a token; 400 without a project", async () => {
   const saved = env.oauthProps;
   delete env.oauthProps;
   const noAuth = await handleRequest(
-    new Request("https://gw/api/read?project=x"),
+    new Request("https://gw/mcp/api/read?project=x"),
     env,
   );
   assert.equal(noAuth.status, 401);

@@ -23,9 +23,9 @@ One gateway serves many spaces. Spaces cannot see each other — isolation is
 enforced by GitHub's own repo permissions, not by gateway code (see
 [Tenancy model](#tenancy-model)).
 
-Invite codes (`wfi_`) and member API keys (`mlk_`) are **retired**. See
-[Tenancy model](#tenancy-model). The 2026-07-20 invite-code join design is
-superseded by GitHub-username invite + OAuth.
+Legacy invite codes and member API keys are **retired**. See
+[Tenancy model](#tenancy-model). The 2026-07-20 design is superseded by
+GitHub-username invite + OAuth.
 
 ---
 
@@ -55,6 +55,9 @@ already `memorylayer-gateway`):
 - **Name:** anything globally unique (e.g. `memorylayer-gateway-<you>`)
 - **Homepage URL:** this repo's URL
 - **Callback URL:** `https://<gateway>/callback`
+- **Setup URL:** `https://<gateway>/install/callback`; enable
+  **Redirect on update**. This resumes the cookie-bound repository picker after
+  installation or a repository-access change.
 - **Webhook:** **Active**. Payload URL `https://<gateway>/webhook/github`,
   content type `application/json`, secret = `WEBHOOK_SECRET`. Subscribe to
   **Meta** plus **Installation**, **Installation repositories**, **Push**, and
@@ -67,6 +70,9 @@ already `memorylayer-gateway`):
 After creating: note the **App ID** (numeric) and the **Client ID** (`Iv1.…` —
 this is `GITHUB_CLIENT_ID`, not the App ID). Generate a private key (`.pem`)
 and a **Client secret** (`GITHUB_CLIENT_SECRET`).
+
+Set the App's public slug as `GITHUB_APP_SLUG` in `wrangler.toml` (the
+production value is `memorylayer-gateway`). It is configuration, not a secret.
 
 ### 1.3 Convert the key and set secrets
 
@@ -84,6 +90,7 @@ openssl rand -hex 32
 npx wrangler secret put ADMIN_SECRET                       # operator eval/allowlist only
 openssl rand -hex 32
 npx wrangler secret put WEBHOOK_SECRET                     # GitHub App webhook HMAC
+npx wrangler d1 migrations apply memorylayer-index --remote
 npm run deploy
 rm app-pkcs8.pem                                           # never leave the key on disk
 ```
@@ -121,63 +128,78 @@ does **not** create your repo, install the App, or send a token.
 
 ### 2.1 Create the space repo
 
-Create a **private** repo in your own account — e.g. `yourteam-memory`. Empty
-is fine, but it must have at least one commit on `main` (initialize with a
-README). This repo **is** your team's memory: every decision lands here as a
-commit, and you keep full ownership and history.
+Create a **private** repo in your own account — e.g. `yourteam-memory` — and
+give it a first commit (initialize it with a README). This repo **is** your
+team's memory: every decision lands here as a commit, and you keep full
+ownership and history.
 
-### 2.2 Connect from this product repo and install the GitHub App
+### 2.2 Initialize this product repo
 
-In **the product repo** (the codebase you work in, not the memory repo), add
-an MCP server with this URL and nothing else:
+In **the product repo** (the codebase you work in, not the memory repo), run:
 
-`https://memorylayer-gateway.memory-layer.workers.dev/mcp`
+```bash
+npm i -g wayform
+wayform init --remote --clients cursor,claude
+```
 
-Use that client's **project** config — see [Part 3](#part-3--member-connect-your-client).
-Do not add Wayform to a user-global MCP file, or it will load in every folder
-you open.
+Choose only the clients this project uses. Remote init writes project-scoped
+configuration containing the gateway URL and no user credential. Do not add
+Wayform to a user-global MCP file, or it will load in every folder you open.
 
-Then connect / log in with GitHub. When GitHub asks which repos to install the
-Wayform app on, pick **only** that private memory repo.
+### 2.3 Connect and choose the memory repo
 
-Because the operator already allowlisted you, Wayform activates the space.
-You are admin. Writes are attributed to your GitHub name.
+Connect the `wayform` MCP server and sign in with GitHub. For a new team,
+Wayform presents an installation action, returns through the configured Setup
+URL, and renders a repository picker. Select only the private, initialized
+memory repo from step 1. Public or branchless repositories are rejected.
 
-If you were not on the allowlist, GitHub login still works, then you get a
-design-partner preview page. No space, no writes, no extract.
+Because the operator already allowlisted the repo owner or org, Wayform
+activates the selected space. You are admin, and writes are attributed to your
+GitHub identity. The user OAuth credential used to establish identity is never
+persisted.
 
 > Why this is safe to install: the App gets **Contents read/write on exactly
 > the repo you selected** — GitHub enforces that scope, not the gateway. It
 > cannot see your other repos. Uninstalling it (repo settings → Integrations)
 > instantly cuts the whole space off.
 
-### 2.3 Hook login (once per machine)
+### 2.4 Hook login (once per machine)
 
 ```bash
-npm i -g wayform
-wayform init --remote --yes --clients cursor
 wayform login
+```
+
+Restart the agent. The CLI uses internally managed OAuth credentials from the
+native OS credential store. If logged out, hooks fail open and doctor directs
+the user to `wayform login`.
+
+### 2.5 Run diagnostics
+
+```bash
 wayform doctor
 ```
 
-Restart the agent. Session-start hooks send a short-lived Bearer from the OS
-keychain. If you are logged out they fail-open (existing contract); doctor
-says `run: wayform login`.
+Resolve every failed hosted check before testing the product loop.
 
-### 2.4 Verify the space works (~1 minute)
+### 2.6 Verify the space works (~1 minute)
 
 Ask the agent to record a test decision, start a new chat, and confirm it is
 already in context. Check the memory repo on GitHub: a new commit, authored
 as you.
 
-### 2.5 Ongoing space administration (in-agent, no dashboard)
+### 2.7 Commit URL-only project configuration
+
+Commit the generated project MCP and hook files. Teammates run remote init for
+their local hook environment and authenticate; nobody copies a credential.
+
+### Ongoing space administration (in-agent, no dashboard)
 
 | Need | How |
 |---|---|
 | Add a member | In the agent: `invite <github-username> to this Wayform space` (`invite_member`). They authenticate in their client. |
 | Org teammate | Installing the App on an org repo auto-joins org members who OAuth in. |
 | Remove a member | `revoke_member` with their GitHub username. |
-| Nuke the whole space | Uninstall the App from the repo. Every member's GitHub writes die; the repo stays yours. |
+| Nuke the whole space | Uninstall or suspend the App, or remove its access to the selected memory repo. Wayform deletes derived memberships, invitations, OAuth grants, caches, and index rows; the git repo and its history stay yours. |
 | Read the memory as a human | It's a git repo — browse it on GitHub or clone it. |
 
 ---
@@ -185,8 +207,8 @@ as you.
 ## Part 3 — Member: connect your client
 
 Config files contain **only** the MCP URL and live **in this product repo**.
-OAuth tokens live in the client / OS keychain. Do not put Wayform in a
-user-global MCP file.
+Internally managed OAuth credentials live in the client or native OS
+credential store. Do not put Wayform in a user-global MCP file.
 
 **Cursor** — `.cursor/mcp.json` (not `~/.cursor/mcp.json`)
 
@@ -234,7 +256,8 @@ Then Authenticate in MCP settings. DCR OAuth; no headers.
 
 **Hooks** (any client that runs them)
 
-`.memorylayer-hook.env` has URL + project + author only. Once per machine:
+`.memorylayer-hook.env` has the gateway URL only; GitHub supplies hosted
+identity and the product repo supplies project scope. Once per machine:
 `wayform login`. Commit the project MCP files so later teammates only
 authenticate.
 
@@ -242,8 +265,13 @@ authenticate.
 Omit `--clients` with `--yes` to update folders already in the repo — never
 dump `.devin` / `.agents` / `.codex` into a team that does not use them.
 
-ChatGPT custom connectors with a path token (`/mcp/mlk_…`) are **out of
-scope**. Headless grants are not part of this onboarding.
+On upgrade, remote init detects an old credential- or author-bearing
+`.memorylayer-hook.env`, preserves it once as `.memorylayer-hook.env.bak`, and
+rewrites the active file as URL-only hosted configuration. The backup is mode
+`0600` and explicitly gitignored. Remote init removes obsolete ignore entries
+and merges only Wayform's Codex table, preserving unrelated client settings.
+
+Headless grants and path-based credentials are not part of this onboarding.
 
 ## Relevance index (Phase A)
 
@@ -278,7 +306,8 @@ Part 1.2 already enables the webhook. Subscribe to **Pushes**, **Installation**,
 and **Installation repositories** (plus **Pull request** if you use the merged-PR
 recorder). Pushes index the ledger within seconds; a missed webhook is caught
 by the cron reconciler within 15 minutes (it compares each space's indexed sha
-to the ledger HEAD). Installation events provision the space.
+to the ledger HEAD). Installation events are inventory and lifecycle signals;
+only the cookie-bound repository picker provisions a space.
 
 ### Backfill existing entries
 
@@ -297,8 +326,9 @@ curl --tlsv1.2 -s -X POST https://<gateway>/admin/reindex \
 - `read_context` gains an optional `query` — when set, returns relevance-ranked
   matches from the whole indexed history instead of the recency window.
 - `search_memory(query, project?, kinds?)` — a dedicated whole-space search tool
-  (both planes; the local CLI proxies to `GET /api/read`).
-- `GET /api/read` — JSON read endpoint the local CLI uses for remote-first reads.
+  (both planes; the local CLI proxies to `GET /mcp/api/read`).
+- `GET /mcp/api/read` — JSON read endpoint the local CLI uses for remote-first
+  reads.
 - Every query-conditioned retrieval is logged to the `retrieval_log` table in
   D1 (trigger, query, returned ids+scores, injected flag) — the calibration
   data Phases B/C build on.
@@ -339,7 +369,7 @@ inherits it via the remote-first reads above (no local changes).
   leaves duplicate or orphan facts.
 - **Canon tier + entity tags** feed retrieval: canon facts get a ranking boost,
   and an entity-tag candidate generator joins BM25 + cosine (three recall paths).
-- **Session-start briefing.** `/hook/read` now returns canon facts + open
+- **Session-start briefing.** `/mcp/hook/read` now returns canon facts + open
   questions + decisions from the last 7 days + a one-line topic manifest
   (`memory covers: <entity> (<n>), …`) instead of a raw recency dump. If the index
   is empty or unavailable it falls back to the verbatim Phase A recency dump.
@@ -351,9 +381,9 @@ inherits it via the remote-first reads above (no local changes).
 ### Apply the migration + backfill (once, after deploy)
 
 ```bash
-wrangler deploy
 wrangler d1 migrations apply memorylayer-index            # local
 wrangler d1 migrations apply memorylayer-index --remote   # production
+wrangler deploy
 
 # Rebuild every fact from the ledger for each space (extraction + embeddings):
 curl -sX POST https://<gateway>/admin/reindex \
@@ -362,7 +392,7 @@ curl -sX POST https://<gateway>/admin/reindex \
 ```
 
 Verify: `search_memory` for the Cursor topic returns the atomic
-project-scoped-config fact, and `/hook/read` shows a topic manifest. The
+project-scoped-config fact, and `/mcp/hook/read` shows a topic manifest. The
 extraction-fidelity audit (B1 exit gate) samples these backfilled facts against
 their source entries.
 
@@ -384,8 +414,8 @@ Phase B2 adds **fact lifecycle** on top of B1's atomic facts:
 ### Apply migration + first B2 deploy
 
 ```bash
-wrangler deploy
 wrangler d1 migrations apply memorylayer-index --remote
+wrangler deploy
 
 # First B2 deploy on an existing index: clear stale edges, then rebuild facts
 curl -sX POST https://<gateway>/admin/reindex \
@@ -424,15 +454,18 @@ OAuth 2.1 (MCP clients; `workers-oauth-provider`):
 - `GET /.well-known/oauth-protected-resource` — RFC 9728 metadata
 - `GET /.well-known/oauth-authorization-server` — AS metadata (PKCE S256)
 - `POST /oauth/register` — dynamic client registration
-- `GET /authorize`, `POST /authorize/consent`, `GET /callback` — GitHub App user OAuth
+- `GET /authorize`, `POST /authorize`, `GET /callback` — GitHub App user OAuth
+- `GET /install/callback`, `POST /install/select` — cookie-bound App setup and
+  repository selection
 - `POST /oauth/token` — authorization_code / refresh_token
 
-Member plane (OAuth access token required; unauthenticated and `mlk_` bearers get `401` + `WWW-Authenticate`):
+Member plane (OAuth access required; unauthenticated requests get `401` +
+`WWW-Authenticate`):
 
 - `POST /mcp` — MCP Streamable HTTP
-- `GET /hook/read?project=<name>[&budget=<n>]` — session-start briefing
-- `POST /hook/prompt` — Claude UserPromptSubmit injection
-- `GET /api/read?project=<name>[&query=<q>][&budget=<n>][&kinds=a,b][&trigger=<t>]`
+- `GET /mcp/hook/read?project=<name>[&budget=<n>]` — session-start briefing
+- `POST /mcp/hook/prompt` — Claude UserPromptSubmit injection
+- `GET /mcp/api/read?project=<name>[&query=<q>][&budget=<n>][&kinds=a,b][&trigger=<t>]`
 
 Outside the member OAuth plane:
 
@@ -458,10 +491,15 @@ one repo. No authenticated API surface accepts a repo/space parameter.
 
 New spaces activate only if the repo owner or org is on the KV allowlist
 (`signup:allowlist`). Teammates of an already-active space OAuth in without
-being on the list (org membership or `invite_member`). Unknown installers see
-a design-partner preview page — no space, no writes, no extract. Space records
-carry `plan=pilot` for later billing; extract spend stays on the account-wide
-neuron cap.
+being on the list (org membership or `invite_member`). Unknown installers may
+authenticate and install the App, but activation returns a deterministic OAuth
+denial unless the selected owner or org is allowlisted. Space records carry
+`plan=pilot` for later billing; extract spend stays on the account-wide neuron
+cap.
+
+For now, **one GitHub user can belong to one Wayform space**. A conflicting
+invitation or setup is rejected explicitly. Multi-space membership is a
+deferred product decision.
 
 ### Limits (Workers free plan)
 
@@ -477,8 +515,9 @@ neuron cap.
 | Symptom | Likely cause |
 |---|---|
 | `curl` TLS handshake failure on macOS | Add `--tlsv1.2` (LibreSSL quirk; workers.dev only). |
-| `401` on `/mcp` or `/hook/read` | Not logged in, or the OAuth grant expired. Click Connect / `wayform login`. `mlk_` bearers are rejected. |
-| Browser shows design-partner preview | GitHub user/org is not on the allowlist and they are not joining an existing space. |
+| `401` on `/mcp` or `/mcp/hook/read` | Not logged in, or the OAuth grant expired. Click Connect / `wayform login`. |
+| OAuth returns `access_denied` after repository selection | The selected owner/org is not allowlisted, or this GitHub user already belongs to another space. |
+| Installation returns “setup state mismatch” | The ten-minute setup expired or the browser cookie was lost. Start Connect again in the same browser. |
 | `403` on `/admin/allowlist` | Wrong `x-admin-secret`. |
 | Write fails with `404`/`installation token exchange failed` | App not installed on that repo, or the installation was suspended/deleted. |
 | Write fails with `409`/branch error | Space repo has no commits, or the space record's `branch` doesn't exist. Initialize the repo with a README. |

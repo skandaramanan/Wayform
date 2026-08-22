@@ -45,7 +45,13 @@ export async function runSpaceCreate(
     log("Pass --owner <github-login-or-org> to print the allowlist command.");
   }
   log(
-    `They install the App on their private memory repo: https://github.com/apps/${parsed.appSlug}`,
+    `GitHub App used by the guided flow: https://github.com/apps/${parsed.appSlug}`,
   );
-  log(`MCP URL (send this, never a token): ${parsed.gatewayUrl}/mcp`);
+  log(
+    `In the product repo, run: wayform init --remote --gateway ${parsed.gatewayUrl}`,
+  );
+  log(
+    `Then Connect the project-scoped Wayform MCP server; OAuth guides App installation and repository selection.`,
+  );
+  log(`MCP URL (URL-only project config): ${parsed.gatewayUrl}/mcp`);
 }
