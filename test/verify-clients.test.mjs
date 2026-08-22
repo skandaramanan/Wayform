@@ -15,6 +15,8 @@ import path from "node:path";
 import http from "node:http";
 import {
   mergeCursorRemoteMcp,
+  mergeDevinRemoteMcp,
+  mergeAntigravityRemoteMcp,
   codexRemoteConfigToml,
 } from "../dist/init-configs.js";
 import { registerClaudeCodeMcp } from "../dist/init-remote.js";
@@ -43,14 +45,24 @@ test("Codex config is url + auth=oauth (codex mcp login wayform)", () => {
   assert.doesNotMatch(toml, /http_headers|mlk_|Bearer /);
 });
 
-test("Claude Code registration is claude mcp add --transport http with no --header", () => {
+test("Claude Code project scope is --scope project, never --scope user", () => {
   const res = registerClaudeCodeMcp(
     "https://memorylayer-gateway.memory-layer.workers.dev",
     () => undefined,
   );
-  assert.match(res.command, /claude mcp add --transport http/);
-  assert.doesNotMatch(res.command, /--header/);
+  assert.match(res.command, /--scope project/);
+  assert.doesNotMatch(res.command, /--scope user|--scope local|--header/);
   assert.doesNotMatch(res.command, /mlk_/);
+});
+
+test("Devin and Antigravity project files are URL-only HTTP", () => {
+  const gw = "https://memorylayer-gateway.memory-layer.workers.dev";
+  const devin = mergeDevinRemoteMcp(undefined, gw);
+  assert.equal(devin.mcpServers.wayform.url, `${gw}/mcp`);
+  assert.doesNotMatch(JSON.stringify(devin), /headers|mlk_/);
+  const agy = mergeAntigravityRemoteMcp(undefined, gw);
+  assert.equal(agy.mcpServers.wayform.serverUrl, `${gw}/mcp`);
+  assert.doesNotMatch(JSON.stringify(agy), /headers|mlk_/);
 });
 
 test("session hook after wayform login sends the keychain Bearer, not a file token", async () => {

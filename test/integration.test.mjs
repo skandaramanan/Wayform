@@ -550,14 +550,32 @@ test("init --remote writes URL-only configs and never a member token", () => {
     );
     assert.equal(cursorMcp.mcpServers.wayform.headers, undefined);
 
+    const claudeMcp = JSON.parse(
+      fs.readFileSync(path.join(cwd, ".mcp.json"), "utf8"),
+    );
+    assert.equal(
+      claudeMcp.mcpServers.wayform.url,
+      "https://gw.example.com/mcp",
+    );
+    assert.equal(claudeMcp.mcpServers.wayform.command, undefined);
+
+    const devinMcp = JSON.parse(
+      fs.readFileSync(path.join(cwd, ".devin/mcp_config.json"), "utf8"),
+    );
+    assert.equal(devinMcp.mcpServers.wayform.url, "https://gw.example.com/mcp");
+    assert.equal(devinMcp.mcpServers.wayform.transport, "http");
+
+    const agy = JSON.parse(
+      fs.readFileSync(path.join(cwd, ".agents/mcp_config.json"), "utf8"),
+    );
+    assert.equal(
+      agy.mcpServers.wayform.serverUrl,
+      "https://gw.example.com/mcp",
+    );
+
     const gi = fs.readFileSync(path.join(cwd, ".gitignore"), "utf8");
     assert.doesNotMatch(gi, /^\.cursor\/mcp\.json$/m);
     assert.match(gi, /^\.memorylayer-hook\.env$/m);
-
-    assert.ok(
-      !fs.existsSync(path.join(cwd, ".mcp.json")),
-      "hosted members do not get the committed stdio .mcp.json",
-    );
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }
