@@ -8,6 +8,10 @@
  */
 import type { Env } from "./env.js";
 import { getSpaceRepo, getProductRepo, listSpaceRepos } from "./tenancy.js";
+import {
+  activateInstallation,
+  deactivateInstallation,
+} from "./spaces.js";
 import { indexDeps } from "./deps.js";
 import { ingestFiles, ingestEntries } from "./ingest.js";
 import { writeEntry, warmRecencyCache } from "./github-store.js";
@@ -160,6 +164,54 @@ async function handleMergedPr(
   return new Response("ok", { status: 200 });
 }
 
+interface InstallationPayload {
+  action?: string;
+  installation?: {
+    id?: number;
+    account?: { login?: string; id?: number; type?: string };
+  };
+  repositories?: { name?: string; full_name?: string; private?: boolean }[];
+  repositories_added?: { name?: string; full_name?: string }[];
+  sender?: { login?: string; id?: number };
+}
+
+async function handleInstallationEvent(
+  body: string,
+  env: Env,
+): Promise<Response> {
+  let payload: InstallationPayload;
+  try {
+    payload = JSON.parse(body) as InstallationPayload;
+  } catch {
+    return new Response("bad payload", { status: 400 });
+  }
+  const installationId = payload.installation?.id;
+  if (!installationId) return new Response("ignored event", { status: 200 });
+  if (payload.action === "deleted" || payload.action === "suspend") {
+    await deactivateInstallation(env, installationId);
+    return new Response("deactivated", { status: 200 });
+  }
+  const repos = [
+    ...(payload.repositories ?? []),
+    ...(payload.repositories_added ?? []),
+  ];
+  const repo = repos.find((r) => r.name) ?? repos[0];
+  const owner = payload.installation?.account?.login;
+  const actorLogin = payload.sender?.login;
+  const actorGithubId = payload.sender?.id;
+  if (!repo?.name || !owner || !actorLogin || actorGithubId == null) {
+    return new Response("ignored event", { status: 200 });
+  }
+  const result = await activateInstallation(env, {
+    installationId,
+    owner,
+    repo: repo.name,
+    actorGithubId,
+    actorLogin,
+  });
+  return new Response(result, { status: 200 });
+}
+
 export async function handleWebhook(
   req: Request,
   env: Env,
@@ -178,6 +230,9 @@ export async function handleWebhook(
   }
   const event = req.headers.get("x-github-event");
   if (event === "pull_request") return handleMergedPr(body, env, ctx);
+  if (event === "installation" || event === "installation_repositories") {
+    return handleInstallationEvent(body, env);
+  }
   if (event !== "push") {
     return new Response("ignored event", { status: 200 });
   }

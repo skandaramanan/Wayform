@@ -2,7 +2,7 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { handleRequest } from "../dist/gateway/src/router.js";
 import { MemoryIndexDb } from "../dist/gateway/src/index-db.js";
-import { makeEnv, ghFetch, fakeEmbed } from "./helpers.mjs";
+import { makeEnv, ghFetch, fakeEmbed, seedGithubMember } from "./helpers.mjs";
 
 const MEMBER_A = {
   space: "team-a",
@@ -11,6 +11,9 @@ const MEMBER_A = {
   repo: "team-a-memory",
   author: "Ada",
   authorEmail: "ada@acme.io",
+  githubId: 101,
+  githubLogin: "ada",
+  role: "admin",
 };
 const MEMBER_B = {
   space: "team-b",
@@ -19,35 +22,27 @@ const MEMBER_B = {
   repo: "team-b-memory",
   author: "Bo",
   authorEmail: "bo@acme.io",
+  githubId: 102,
+  githubLogin: "bo",
+  role: "member",
 };
 
 async function setup(routes, extra = {}) {
   const calls = [];
   const env = makeEnv(ghFetch(calls, routes), extra);
-  const tokens = {};
   for (const m of [MEMBER_A, MEMBER_B]) {
-    const res = await handleRequest(
-      new Request("https://gw.test/admin/members", {
-        method: "POST",
-        headers: { "x-admin-secret": "test-admin-secret" },
-        body: JSON.stringify(m),
-      }),
-      env,
-    );
-    tokens[m.space] = (await res.json()).token;
+    await seedGithubMember(env, m);
   }
-  return { env, calls, tokens };
-}
-
-function rpc(token, body) {
-  return new Request("https://gw.test/mcp", {
-    method: "POST",
-    headers: {
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json",
-    },
-    body: JSON.stringify(body),
-  });
+  const rpc = (space, body) => {
+    const m = space === "team-b" ? MEMBER_B : MEMBER_A;
+    env.oauthProps = { githubId: m.githubId, githubLogin: m.githubLogin };
+    return new Request("https://gw.test/mcp", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify(body),
+    });
+  };
+  return { env, calls, rpc };
 }
 
 const TOKEN_ROUTES = [
@@ -73,9 +68,9 @@ test("unauthenticated POST /mcp is 401; GET /mcp is 405", async () => {
 });
 
 test("initialize and tools/list expose the stdio-identical contract", async () => {
-  const { env, tokens } = await setup(TOKEN_ROUTES);
+  const { env, rpc } = await setup(TOKEN_ROUTES);
   const init = await handleRequest(
-    rpc(tokens["team-a"], {
+    rpc("team-a", {
       jsonrpc: "2.0",
       id: 1,
       method: "initialize",
@@ -92,13 +87,15 @@ test("initialize and tools/list expose the stdio-identical contract", async () =
   assert.match(initBody.result.instructions, /MUST:/);
 
   const list = await handleRequest(
-    rpc(tokens["team-a"], { jsonrpc: "2.0", id: 2, method: "tools/list" }),
+    rpc("team-a", { jsonrpc: "2.0", id: 2, method: "tools/list" }),
     env,
   );
   const names = (await list.json()).result.tools.map((t) => t.name).sort();
   assert.deepEqual(names, [
+    "invite_member",
     "memory_feedback",
     "read_context",
+    "revoke_member",
     "search_memory",
     "write_context",
   ]);
@@ -122,9 +119,9 @@ function docFor(space, project, id, body, embedding) {
 }
 
 test("read_context.query is advertised in the schema", async () => {
-  const { env, tokens } = await setup(TOKEN_ROUTES);
+  const { env, rpc } = await setup(TOKEN_ROUTES);
   const list = await handleRequest(
-    rpc(tokens["team-a"], { jsonrpc: "2.0", id: 20, method: "tools/list" }),
+    rpc("team-a", { jsonrpc: "2.0", id: 20, method: "tools/list" }),
     env,
   );
   const tools = (await list.json()).result.tools;
@@ -148,12 +145,12 @@ test("read_context with query returns ranked matches from the index", async () =
       vec,
     ),
   ]);
-  const { env, tokens } = await setup(TOKEN_ROUTES, {
+  const { env, rpc } = await setup(TOKEN_ROUTES, {
     indexDb,
     embedder: fakeEmbed,
   });
   const res = await handleRequest(
-    rpc(tokens["team-a"], {
+    rpc("team-a", {
       jsonrpc: "2.0",
       id: 21,
       method: "tools/call",
@@ -173,7 +170,7 @@ test("read_context with query returns ranked matches from the index", async () =
 test("read_context with query but no index falls back to the recency read", async () => {
   const md =
     "---\nauthor: Ada\ntype: decision\ntimestamp: 2026-07-01T00:00:00.000Z\nid: x1\nproject: memorylayer\n---\n\nships";
-  const { env, tokens } = await setup([
+  const { env, rpc } = await setup([
     ...TOKEN_ROUTES,
     [
       "/git/trees/",
@@ -190,7 +187,7 @@ test("read_context with query but no index falls back to the recency read", asyn
     ["x1.md", () => new Response(md)],
   ]);
   const res = await handleRequest(
-    rpc(tokens["team-a"], {
+    rpc("team-a", {
       jsonrpc: "2.0",
       id: 22,
       method: "tools/call",
@@ -226,12 +223,12 @@ test("search_memory searches the space, honors kinds, and requires query", async
       kind: "context",
     },
   ]);
-  const { env, tokens } = await setup(TOKEN_ROUTES, {
+  const { env, rpc } = await setup(TOKEN_ROUTES, {
     indexDb,
     embedder: fakeEmbed,
   });
   const res = await handleRequest(
-    rpc(tokens["team-a"], {
+    rpc("team-a", {
       jsonrpc: "2.0",
       id: 23,
       method: "tools/call",
@@ -245,7 +242,7 @@ test("search_memory searches the space, honors kinds, and requires query", async
   assert.match((await res.json()).result.content[0].text, /project-scoped/);
 
   const missing = await handleRequest(
-    rpc(tokens["team-a"], {
+    rpc("team-a", {
       jsonrpc: "2.0",
       id: 24,
       method: "tools/call",
@@ -260,7 +257,7 @@ test("search_memory searches the space, honors kinds, and requires query", async
 
 test("write_context ingests the new entry inline so it is immediately searchable", async () => {
   const indexDb = new MemoryIndexDb();
-  const { env, tokens } = await setup(
+  const { env, rpc } = await setup(
     [
       ...TOKEN_ROUTES,
       ["/contents/", () => Response.json({ ok: true }, { status: 201 })],
@@ -268,7 +265,7 @@ test("write_context ingests the new entry inline so it is immediately searchable
     { indexDb, embedder: fakeEmbed },
   );
   await handleRequest(
-    rpc(tokens["team-a"], {
+    rpc("team-a", {
       jsonrpc: "2.0",
       id: 25,
       method: "tools/call",
@@ -289,7 +286,7 @@ test("write_context ingests the new entry inline so it is immediately searchable
 
 test("write_context defers index ingest to ctx.waitUntil and still returns success", async () => {
   const indexDb = new MemoryIndexDb();
-  const { env, tokens } = await setup(
+  const { env, rpc } = await setup(
     [
       ...TOKEN_ROUTES,
       ["/contents/", () => Response.json({ ok: true }, { status: 201 })],
@@ -306,7 +303,7 @@ test("write_context defers index ingest to ctx.waitUntil and still returns succe
   const deferred = [];
   const ctx = { waitUntil: (p) => deferred.push(p) };
   const res = await handleRequest(
-    rpc(tokens["team-a"], {
+    rpc("team-a", {
       jsonrpc: "2.0",
       id: 26,
       method: "tools/call",
@@ -327,12 +324,12 @@ test("write_context defers index ingest to ctx.waitUntil and still returns succe
 });
 
 test("tools/call write_context writes to the member repo and reports like stdio", async () => {
-  const { env, tokens, calls } = await setup([
+  const { env, rpc, calls } = await setup([
     ...TOKEN_ROUTES,
     ["/contents/", () => Response.json({ ok: true }, { status: 201 })],
   ]);
   const res = await handleRequest(
-    rpc(tokens["team-a"], {
+    rpc("team-a", {
       jsonrpc: "2.0",
       id: 3,
       method: "tools/call",
@@ -366,7 +363,7 @@ test("tools/call write_context writes to the member repo and reports like stdio"
 test("tools/call read_context renders the shared projection", async () => {
   const md =
     "---\nauthor: Ada\ntype: decision\ntimestamp: 2026-07-01T00:00:00.000Z\nid: x1\nproject: roadmap\n---\n\nships";
-  const { env, tokens } = await setup([
+  const { env, rpc } = await setup([
     ...TOKEN_ROUTES,
     [
       "/git/trees/",
@@ -383,7 +380,7 @@ test("tools/call read_context renders the shared projection", async () => {
     ["x1.md", () => new Response(md)],
   ]);
   const res = await handleRequest(
-    rpc(tokens["team-a"], {
+    rpc("team-a", {
       jsonrpc: "2.0",
       id: 4,
       method: "tools/call",
@@ -397,13 +394,13 @@ test("tools/call read_context renders the shared projection", async () => {
 });
 
 test("ISOLATION: team-a token only ever touches team-a's repo", async () => {
-  const { env, tokens, calls } = await setup([
+  const { env, rpc, calls } = await setup([
     ...TOKEN_ROUTES,
     ["/git/trees/", () => Response.json({ tree: [] })],
     ["/contents/", () => Response.json({ ok: true }, { status: 201 })],
   ]);
   await handleRequest(
-    rpc(tokens["team-a"], {
+    rpc("team-a", {
       jsonrpc: "2.0",
       id: 5,
       method: "tools/call",
@@ -412,7 +409,7 @@ test("ISOLATION: team-a token only ever touches team-a's repo", async () => {
     env,
   );
   await handleRequest(
-    rpc(tokens["team-a"], {
+    rpc("team-a", {
       jsonrpc: "2.0",
       id: 6,
       method: "tools/call",
@@ -433,7 +430,7 @@ test("ISOLATION: team-a token only ever touches team-a's repo", async () => {
 
 test("write_context warms the recency cache so the next queryless read stays a KV hit", async () => {
   const md = `---\nauthor: Ada\ntype: decision\ntimestamp: 2026-07-01T00:00:00.000Z\nid: r1\nproject: roadmap\n---\n\nsettled`;
-  const { env, calls, tokens } = await setup([
+  const { env, calls, rpc } = await setup([
     ...TOKEN_ROUTES,
     [
       "/git/trees/",
@@ -452,7 +449,7 @@ test("write_context warms the recency cache so the next queryless read stays a K
   ]);
   const read = (id) =>
     handleRequest(
-      rpc(tokens["team-a"], {
+      rpc("team-a", {
         jsonrpc: "2.0",
         id,
         method: "tools/call",
@@ -467,7 +464,7 @@ test("write_context warms the recency cache so the next queryless read stays a K
   assert.equal(treeCalls().length, 1);
 
   await handleRequest(
-    rpc(tokens["team-a"], {
+    rpc("team-a", {
       jsonrpc: "2.0",
       id: 3,
       method: "tools/call",
@@ -490,12 +487,12 @@ test("write_context warms the recency cache so the next queryless read stays a K
 });
 
 test("storage failure surfaces as an MCP tool error, not a crash", async () => {
-  const { env, tokens } = await setup([
+  const { env, rpc } = await setup([
     ...TOKEN_ROUTES,
     ["/contents/", () => new Response("boom", { status: 500 })],
   ]);
   const res = await handleRequest(
-    rpc(tokens["team-a"], {
+    rpc("team-a", {
       jsonrpc: "2.0",
       id: 7,
       method: "tools/call",
@@ -512,7 +509,7 @@ test("storage failure surfaces as an MCP tool error, not a crash", async () => {
 });
 
 test("KV delete failure after a successful write still reports success (best-effort invalidation)", async () => {
-  const { env, tokens } = await setup([
+  const { env, rpc } = await setup([
     ...TOKEN_ROUTES,
     ["/contents/", () => Response.json({ ok: true }, { status: 201 })],
   ]);
@@ -523,7 +520,7 @@ test("KV delete failure after a successful write still reports success (best-eff
     return realDelete(key);
   };
   const res = await handleRequest(
-    rpc(tokens["team-a"], {
+    rpc("team-a", {
       jsonrpc: "2.0",
       id: 10,
       method: "tools/call",
@@ -546,7 +543,7 @@ test("read_context budget_tokens: 0 does not mean unlimited — still budget-lim
   const bigPayload = "x".repeat(20000); // ~5000 estimated tokens, > DEFAULT_BUDGET_TOKENS
   const md1 = `---\nauthor: Ada\ntype: decision\ntimestamp: 2026-07-01T00:00:00.000Z\nid: x1\nproject: roadmap\n---\n\n${bigPayload}`;
   const md2 = `---\nauthor: Ada\ntype: decision\ntimestamp: 2026-07-02T00:00:00.000Z\nid: x2\nproject: roadmap\n---\n\n${bigPayload}`;
-  const { env, tokens } = await setup([
+  const { env, rpc } = await setup([
     ...TOKEN_ROUTES,
     [
       "/git/trees/",
@@ -568,7 +565,7 @@ test("read_context budget_tokens: 0 does not mean unlimited — still budget-lim
     ["x2.md", () => new Response(md2)],
   ]);
   const res = await handleRequest(
-    rpc(tokens["team-a"], {
+    rpc("team-a", {
       jsonrpc: "2.0",
       id: 11,
       method: "tools/call",
@@ -584,23 +581,22 @@ test("read_context budget_tokens: 0 does not mean unlimited — still budget-lim
 });
 
 test("unknown method -> -32601; parse error -> -32700; batch -> -32600", async () => {
-  const { env, tokens } = await setup(TOKEN_ROUTES);
+  const { env, rpc } = await setup(TOKEN_ROUTES);
   const unknown = await handleRequest(
-    rpc(tokens["team-a"], { jsonrpc: "2.0", id: 8, method: "resources/list" }),
+    rpc("team-a", { jsonrpc: "2.0", id: 8, method: "resources/list" }),
     env,
   );
   assert.equal((await unknown.json()).error.code, -32601);
   const bad = await handleRequest(
     new Request("https://gw.test/mcp", {
       method: "POST",
-      headers: { authorization: `Bearer ${tokens["team-a"]}` },
       body: "{nope",
     }),
     env,
   );
   assert.equal((await bad.json()).error.code, -32700);
   const batch = await handleRequest(
-    rpc(tokens["team-a"], [{ jsonrpc: "2.0", id: 9, method: "ping" }]),
+    rpc("team-a", [{ jsonrpc: "2.0", id: 9, method: "ping" }]),
     env,
   );
   assert.equal((await batch.json()).error.code, -32600);
@@ -626,9 +622,9 @@ test("memory_feedback records one row from the bearer identity", async () => {
       entities: [],
     },
   ]);
-  const { env, tokens } = await setup(TOKEN_ROUTES, { indexDb: db });
+  const { env, rpc } = await setup(TOKEN_ROUTES, { indexDb: db });
   const res = await handleRequest(
-    rpc(tokens["team-a"], {
+    rpc("team-a", {
       jsonrpc: "2.0",
       id: 1,
       method: "tools/call",
@@ -648,9 +644,9 @@ test("memory_feedback records one row from the bearer identity", async () => {
 
 test("memory_feedback rejects an unknown verdict", async () => {
   const db = new MemoryIndexDb();
-  const { env, tokens } = await setup(TOKEN_ROUTES, { indexDb: db });
+  const { env, rpc } = await setup(TOKEN_ROUTES, { indexDb: db });
   const res = await handleRequest(
-    rpc(tokens["team-a"], {
+    rpc("team-a", {
       jsonrpc: "2.0",
       id: 1,
       method: "tools/call",
@@ -671,9 +667,9 @@ test("memory_feedback fails open on a write error", async () => {
   db.recordFeedback = async () => {
     throw new Error("store down");
   };
-  const { env, tokens } = await setup(TOKEN_ROUTES, { indexDb: db });
+  const { env, rpc } = await setup(TOKEN_ROUTES, { indexDb: db });
   const res = await handleRequest(
-    rpc(tokens["team-a"], {
+    rpc("team-a", {
       jsonrpc: "2.0",
       id: 1,
       method: "tools/call",
@@ -696,7 +692,7 @@ test("search_memory fails open when the index throws: recency read with project,
   indexDb.queryScan = async () => {
     throw new Error("D1 hiccup");
   };
-  const { env, tokens } = await setup(
+  const { env, rpc } = await setup(
     [
       ...TOKEN_ROUTES,
       [
@@ -717,7 +713,7 @@ test("search_memory fails open when the index throws: recency read with project,
   );
 
   const withProject = await handleRequest(
-    rpc(tokens["team-a"], {
+    rpc("team-a", {
       jsonrpc: "2.0",
       id: 40,
       method: "tools/call",
@@ -734,7 +730,7 @@ test("search_memory fails open when the index throws: recency read with project,
   assert.match(wp.content[0].text, /ships/);
 
   const noProject = await handleRequest(
-    rpc(tokens["team-a"], {
+    rpc("team-a", {
       jsonrpc: "2.0",
       id: 41,
       method: "tools/call",
@@ -755,7 +751,7 @@ test("write_context with the dup gate ENFORCED blocks an exact duplicate and nev
   await indexDb.upsertDocs([
     docFor("team-a", "memorylayer", "dup1", payload, vec),
   ]);
-  const { env, calls, tokens } = await setup(
+  const { env, calls, rpc } = await setup(
     [
       ...TOKEN_ROUTES,
       ["/contents/", () => Response.json({ ok: true }, { status: 201 })],
@@ -768,7 +764,7 @@ test("write_context with the dup gate ENFORCED blocks an exact duplicate and nev
     },
   );
   const res = await handleRequest(
-    rpc(tokens["team-a"], {
+    rpc("team-a", {
       jsonrpc: "2.0",
       id: 50,
       method: "tools/call",
@@ -796,7 +792,7 @@ test("write_context with explicit supersedes bypasses the enforced dup gate and 
   await indexDb.upsertDocs([
     docFor("team-a", "memorylayer", "dup1", payload, vec),
   ]);
-  const { env, calls, tokens } = await setup(
+  const { env, calls, rpc } = await setup(
     [
       ...TOKEN_ROUTES,
       ["/contents/", () => Response.json({ ok: true }, { status: 201 })],
@@ -809,7 +805,7 @@ test("write_context with explicit supersedes bypasses the enforced dup gate and 
     },
   );
   const res = await handleRequest(
-    rpc(tokens["team-a"], {
+    rpc("team-a", {
       jsonrpc: "2.0",
       id: 51,
       method: "tools/call",
@@ -835,7 +831,7 @@ test("write_context still commits when the embedder throws (gate fails open)", a
   await indexDb.upsertDocs([
     docFor("team-a", "memorylayer", "dup1", "existing fact", vec),
   ]);
-  const { env, calls, tokens } = await setup(
+  const { env, calls, rpc } = await setup(
     [
       ...TOKEN_ROUTES,
       ["/contents/", () => Response.json({ ok: true }, { status: 201 })],
@@ -850,7 +846,7 @@ test("write_context still commits when the embedder throws (gate fails open)", a
     },
   );
   const res = await handleRequest(
-    rpc(tokens["team-a"], {
+    rpc("team-a", {
       jsonrpc: "2.0",
       id: 52,
       method: "tools/call",
@@ -869,9 +865,9 @@ test("write_context still commits when the embedder throws (gate fails open)", a
 });
 
 test("write_context schema teaches amend-via-supersedes", async () => {
-  const { env, tokens } = await setup(TOKEN_ROUTES);
+  const { env, rpc } = await setup(TOKEN_ROUTES);
   const list = await handleRequest(
-    rpc(tokens["team-a"], { jsonrpc: "2.0", id: 60, method: "tools/list" }),
+    rpc("team-a", { jsonrpc: "2.0", id: 60, method: "tools/list" }),
     env,
   );
   const tools = (await list.json()).result.tools;

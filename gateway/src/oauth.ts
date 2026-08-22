@@ -1,9 +1,9 @@
 import { OAuthProvider } from "@cloudflare/workers-oauth-provider";
-import type { Env } from "./env.js";
-import { handleAuthorize } from "./oauth-handler.js";
+import type { Env, HandlerCtx } from "./env.js";
+import { handleAuthorize, handleGithubCallback } from "./oauth-handler.js";
 import { handleRequest } from "./router.js";
 
-type WaitCtx = { waitUntil(p: Promise<unknown>): void };
+type WaitCtx = HandlerCtx;
 
 const apiHandler = {
   fetch(request: Request, env: Env, ctx: WaitCtx): Promise<Response> {
@@ -15,6 +15,7 @@ const defaultHandler = {
   fetch(request: Request, env: Env, ctx: WaitCtx): Promise<Response> {
     const url = new URL(request.url);
     if (url.pathname === "/authorize") return handleAuthorize(request, env);
+    if (url.pathname === "/callback") return handleGithubCallback(request, env);
     return handleRequest(request, env, ctx);
   },
 };

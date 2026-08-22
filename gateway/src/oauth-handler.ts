@@ -13,7 +13,18 @@ import {
   githubAuthorizeUrl,
   renderConsentPage,
   validateCSRFToken,
+  consumeOAuthState,
+  validateConsentedState,
+  clearConsentedCookie,
+  renderPreviewPage,
 } from "./oauth-consent.js";
+import {
+  exchangeGithubCode,
+  fetchGithubInstallations,
+  fetchGithubUser,
+  fetchInstallationRepos,
+} from "./github-oauth.js";
+import { placeGithubUser } from "./spaces.js";
 
 interface AuthorizeEnv extends Env {
   OAUTH_PROVIDER: OAuthHelpers;
@@ -112,6 +123,77 @@ async function postAuthorize(
   headers.append("Set-Cookie", clearCsrf);
   headers.append("Set-Cookie", consented);
   return new Response(null, { status: 302, headers });
+}
+
+export async function handleGithubCallback(
+  request: Request,
+  env: Env,
+): Promise<Response> {
+  if (!env.OAUTH_PROVIDER) {
+    return new Response("oauth provider missing", { status: 500 });
+  }
+  const url = new URL(request.url);
+  const code = url.searchParams.get("code");
+  const stateToken = url.searchParams.get("state");
+  if (!code || !stateToken) {
+    return new Response("missing code or state", { status: 400 });
+  }
+  try {
+    await validateConsentedState(request, stateToken);
+  } catch {
+    return new Response("consent state mismatch", { status: 400 });
+  }
+  const oauthReqInfo = (await consumeOAuthState(
+    env.OAUTH_KV,
+    stateToken,
+  )) as AuthRequest | null;
+  if (!oauthReqInfo?.clientId) {
+    return new Response("expired or unknown state", { status: 400 });
+  }
+
+  const fetchImpl = env.githubFetch ?? fetch;
+  try {
+    const ghToken = await exchangeGithubCode(
+      env,
+      code,
+      new URL("/callback", request.url).href,
+    );
+    const user = await fetchGithubUser(ghToken, fetchImpl);
+    const installations = await fetchGithubInstallations(ghToken, fetchImpl);
+    const placed = await placeGithubUser(
+      env,
+      user,
+      installations,
+      (installationId) =>
+        fetchInstallationRepos(ghToken, installationId, fetchImpl),
+    );
+    if (placed.kind === "preview") {
+      return new Response(renderPreviewPage(), {
+        status: 200,
+        headers: {
+          "content-type": "text/html; charset=utf-8",
+          "set-cookie": clearConsentedCookie(),
+        },
+      });
+    }
+
+    const oauthEnv = env as AuthorizeEnv;
+    const { redirectTo } = await oauthEnv.OAUTH_PROVIDER.completeAuthorization({
+      request: oauthReqInfo,
+      userId: String(user.id),
+      metadata: { githubLogin: user.login },
+      scope: oauthReqInfo.scope?.length ? oauthReqInfo.scope : ["mcp"],
+      props: { githubId: user.id, githubLogin: user.login },
+    });
+    const headers = new Headers({ Location: redirectTo });
+    headers.append("Set-Cookie", clearConsentedCookie());
+    return new Response(null, { status: 302, headers });
+  } catch (err) {
+    return new Response(
+      err instanceof Error ? err.message : "github oauth failed",
+      { status: 502 },
+    );
+  }
 }
 
 function authorizationErrorResponse(error: unknown): Response {

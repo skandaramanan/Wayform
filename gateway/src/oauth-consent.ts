@@ -6,11 +6,13 @@ const COOKIE_ATTRS = "HttpOnly; Secure; Path=/; SameSite=Lax";
 const STATE_TTL_SECONDS = 600;
 
 export interface OauthKv {
+  get(key: string): Promise<unknown>;
   put(
     key: string,
     value: string,
     opts?: { expirationTtl?: number },
   ): Promise<void>;
+  delete(key: string): Promise<void>;
 }
 
 export function generateCSRFProtection(): { token: string; setCookie: string } {
@@ -105,6 +107,52 @@ export async function bindStateToSession(
   return {
     setCookie: `${CONSENTED_STATE_COOKIE}=${hashHex}; ${COOKIE_ATTRS}; Max-Age=${STATE_TTL_SECONDS}`,
   };
+}
+
+export async function consumeOAuthState(
+  kv: OauthKv,
+  stateToken: string,
+): Promise<unknown | null> {
+  const key = `oauth:state:${stateToken}`;
+  const raw = await kv.get(key);
+  if (raw == null) return null;
+  await kv.delete(key);
+  return typeof raw === "string" ? (JSON.parse(raw) as unknown) : raw;
+}
+
+/** Cookie must be the SHA-256 of the state token (confused-deputy bind). */
+export async function validateConsentedState(
+  request: Request,
+  stateToken: string,
+): Promise<void> {
+  const cookie = cookieValue(request, CONSENTED_STATE_COOKIE);
+  if (!cookie) throw new Error("consent cookie missing");
+  const expected = await sha256Hex(stateToken);
+  if (cookie !== expected) throw new Error("consent state mismatch");
+}
+
+export function clearConsentedCookie(): string {
+  return `${CONSENTED_STATE_COOKIE}=; ${COOKIE_ATTRS}; Max-Age=0`;
+}
+
+export function renderPreviewPage(): string {
+  return `<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Wayform preview</title>
+  <style>
+    body { font-family: ui-sans-serif, system-ui, sans-serif; max-width: 32rem; margin: 4rem auto; padding: 0 1.25rem; color: #111; }
+    h1 { font-size: 1.35rem; }
+    p { line-height: 1.45; color: #333; }
+  </style>
+</head>
+<body>
+  <h1>Wayform is in design-partner preview</h1>
+  <p>Your GitHub account is signed in, but no team space was created and nothing was indexed. If a teammate already uses Wayform, ask them to invite your GitHub username from their agent. If you were told you should have access, ping whoever sent you the MCP URL.</p>
+</body>
+</html>`;
 }
 
 export function encodeAuthState(oauthReqInfo: unknown): string {

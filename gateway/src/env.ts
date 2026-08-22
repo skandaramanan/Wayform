@@ -52,6 +52,14 @@ export interface Env {
   GITHUB_APP_PRIVATE_KEY: string;
   /** GitHub App user-to-server OAuth client id (Iv1.…), not the numeric App ID. */
   GITHUB_CLIENT_ID?: string;
+  /** GitHub App OAuth client secret, used only on /callback code exchange. */
+  GITHUB_CLIENT_SECRET?: string;
+  /**
+   * Test seam: GitHub identity the OAuth wrapper would put on ctx.props.
+   * Production requests get props from workers-oauth-provider; handler tests
+   * that call handleRequest directly set this instead of minting mlk_ tokens.
+   */
+  oauthProps?: { githubId: number; githubLogin?: string };
   ADMIN_SECRET: string;
   /** D1 index database. Optional: absent = index plane disabled, recency reads only. */
   DB?: D1Like;
@@ -69,4 +77,10 @@ export interface Env {
   /** Test seam: force the near-duplicate write gate on/off. Production
    *  leaves it unset (behavior comes from DUP_GATE_ENFORCE in supersede.ts). */
   dupGateEnforce?: boolean;
+}
+
+/** waitUntil plus OAuth grant props injected by workers-oauth-provider. */
+export interface HandlerCtx {
+  waitUntil(p: Promise<unknown>): void;
+  props?: { githubId?: number; githubLogin?: string };
 }
