@@ -22,7 +22,10 @@ async function setup(routes, extra = {}) {
   const calls = [];
   const env = makeEnv(ghFetch(calls, routes), extra);
   await seedGithubMember(env, MEMBER);
-  env.oauthProps = { githubId: MEMBER.githubId, githubLogin: MEMBER.githubLogin };
+  env.oauthProps = {
+    githubId: MEMBER.githubId,
+    githubLogin: MEMBER.githubLogin,
+  };
   return { env, calls };
 }
 
@@ -47,7 +50,7 @@ const ROUTES = [
 ];
 
 function get(qs = "project=roadmap") {
-  return new Request(`https://gw.test/hook/read?${qs}`);
+  return new Request(`https://gw.test/mcp/hook/read?${qs}`);
 }
 
 test("hook read returns injectable plain text with playbook + preamble", async () => {
@@ -97,7 +100,7 @@ test("a write_context rebuilds the hook cache so the next read is fresh", async 
     }),
     env,
   );
-  // Hook projection key is deleted on write — next /hook/read must rebuild
+  // Hook projection key is deleted on write — next /mcp/hook/read must rebuild
   // (D1 briefing or GitHub), not serve the pre-write cached string.
   const second = await handleRequest(get(), env);
   const secondText = await second.text();
@@ -142,7 +145,7 @@ test("negative budget does not mean unlimited — still budget-limited", async (
   assert.match(text, /Showing the 1 most recent of 2/);
 });
 
-test("/hook/read serves the index briefing when facts exist", async () => {
+test("/mcp/hook/read serves the index briefing when facts exist", async () => {
   const indexDb = new MemoryIndexDb();
   await indexDb.replaceBySource("team-a", "c", [
     {
@@ -172,7 +175,7 @@ test("/hook/read serves the index briefing when facts exist", async () => {
   assert.match(text, /search_memory/);
 });
 
-test("/hook/read falls back to the recency dump when the index is unconfigured", async () => {
+test("/mcp/hook/read falls back to the recency dump when the index is unconfigured", async () => {
   // No indexDb → deps null → recency path (Phase A behavior), no manifest.
   const { env } = await setup(ROUTES);
   const res = await handleRequest(get(), env);
@@ -197,7 +200,7 @@ test("empty project -> 400; no entries -> empty 200 body; no auth -> 401", async
   assert.equal(
     (
       await handleRequest(
-        new Request("https://gw.test/hook/read?project=x"),
+        new Request("https://gw.test/mcp/hook/read?project=x"),
         env,
       )
     ).status,

@@ -5,6 +5,7 @@ import http from "node:http";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import { fileURLToPath } from "node:url";
 
 /**
@@ -455,9 +456,10 @@ test("flushMetrics is a silent no-op when nothing was recorded", async () => {
   }
 });
 
-test("gateway-only hook injects the gateway's /hook/read text (no clone)", async () => {
+test("gateway-only hook injects the gateway's /mcp/hook/read text (no clone)", async () => {
   const server = http.createServer((req, res) => {
-    if (req.url.startsWith("/hook/read")) {
+    if (req.url.startsWith("/mcp/hook/read")) {
+      assert.equal(req.headers.authorization, "Bearer oauth-test");
       res.writeHead(200, { "content-type": "text/plain" });
       res.end("SHARED MEMORY FROM GATEWAY");
     } else {
@@ -467,24 +469,61 @@ test("gateway-only hook injects the gateway's /hook/read text (no clone)", async
   });
   await new Promise((r) => server.listen(0, "127.0.0.1", r));
   const { port } = server.address();
+  const gatewayUrl = `http://127.0.0.1:${port}`;
+  const keychainFile = path.join(
+    os.tmpdir(),
+    `wayform-hook-oauth-${randomUUID()}.json`,
+  );
+  fs.writeFileSync(
+    keychainFile,
+    JSON.stringify({
+      [gatewayUrl]: JSON.stringify({
+        client_id: "cli-1",
+        access_token: "oauth-test",
+        refresh_token: "refresh-test",
+        expires_at: Date.now() + 3_600_000,
+        token_endpoint: `${gatewayUrl}/oauth/token`,
+        resource: `${gatewayUrl}/mcp`,
+      }),
+    }),
+    { mode: 0o600 },
+  );
   try {
     const stdout = await runHookAsync({
       PATH: process.env.PATH ?? "",
+      NODE_ENV: "test",
+      WAYFORM_KEYCHAIN_FILE: keychainFile,
       MEMORYLAYER_HOOK_CLIENT: "raw",
       MEMORYLAYER_AUTHOR: "Dana",
       MEMORYLAYER_PROJECT: "acme-eng",
-      MEMORYLAYER_GATEWAY_URL: `http://127.0.0.1:${port}`,
-      MEMORYLAYER_GATEWAY_TOKEN: "mlk_x",
+      MEMORYLAYER_GATEWAY_URL: gatewayUrl,
       // deliberately NO CONTEXT_REPO_URL — hosted-only member
     });
     assert.match(stdout, /SHARED MEMORY FROM GATEWAY/);
   } finally {
     server.close();
+    fs.rmSync(keychainFile, { force: true });
   }
 });
 
 test("gateway-only hook fails open (no clone, unreachable gateway) and writes no stray files", () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "ml-gwonly-"));
+  const gatewayUrl = "http://127.0.0.1:1";
+  const keychainFile = path.join(cwd, "oauth-test.json");
+  fs.writeFileSync(
+    keychainFile,
+    JSON.stringify({
+      [gatewayUrl]: JSON.stringify({
+        client_id: "cli-1",
+        access_token: "oauth-test",
+        refresh_token: "refresh-test",
+        expires_at: Date.now() + 3_600_000,
+        token_endpoint: `${gatewayUrl}/oauth/token`,
+        resource: `${gatewayUrl}/mcp`,
+      }),
+    }),
+    { mode: 0o600 },
+  );
   try {
     const out = execFileSync(process.execPath, [hookJs], {
       cwd,
@@ -492,11 +531,12 @@ test("gateway-only hook fails open (no clone, unreachable gateway) and writes no
       encoding: "utf8",
       env: {
         PATH: process.env.PATH ?? "",
+        NODE_ENV: "test",
+        WAYFORM_KEYCHAIN_FILE: keychainFile,
         MEMORYLAYER_HOOK_CLIENT: "claude-code",
         MEMORYLAYER_AUTHOR: "Dana",
         MEMORYLAYER_PROJECT: "acme-eng",
-        MEMORYLAYER_GATEWAY_URL: "http://127.0.0.1:1",
-        MEMORYLAYER_GATEWAY_TOKEN: "mlk_unreachable",
+        MEMORYLAYER_GATEWAY_URL: gatewayUrl,
       },
     });
     assert.equal(out.trim(), "{}"); // empty no-op, exit 0
@@ -523,10 +563,6 @@ test("init --remote --yes writes no vendor folders when the repo has none", () =
         "https://gw.example.com",
         "--project",
         "acme-eng",
-        "--author",
-        "Dana",
-        "--email",
-        "dana@acme.com",
         "--yes",
       ],
       { cwd, encoding: "utf8", env: { PATH: "" } },
@@ -538,6 +574,7 @@ test("init --remote --yes writes no vendor folders when the repo has none", () =
     );
     assert.match(env, /MEMORYLAYER_GATEWAY_URL=https:\/\/gw\.example\.com/);
     assert.doesNotMatch(env, /MEMORYLAYER_GATEWAY_TOKEN/);
+    assert.doesNotMatch(env, /MEMORYLAYER_AUTHOR/);
     assert.doesNotMatch(env, /mlk_/);
 
     for (const p of [
@@ -548,10 +585,7 @@ test("init --remote --yes writes no vendor folders when the repo has none", () =
       ".agents",
       ".mcp.json",
     ]) {
-      assert.ok(
-        !fs.existsSync(path.join(cwd, p)),
-        `must not dump unused ${p}`,
-      );
+      assert.ok(!fs.existsSync(path.join(cwd, p)), `must not dump unused ${p}`);
     }
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
@@ -616,7 +650,8 @@ test("init --remote --clients cursor,claude writes URL-only configs and skips th
 
     const gi = fs.readFileSync(path.join(cwd, ".gitignore"), "utf8");
     assert.doesNotMatch(gi, /^\.cursor\/mcp\.json$/m);
-    assert.match(gi, /^\.memorylayer-hook\.env$/m);
+    assert.doesNotMatch(gi, /^\.memorylayer-hook\.env$/m);
+    assert.match(gi, /^\.claude\/settings\.local\.json$/m);
   } finally {
     fs.rmSync(cwd, { recursive: true, force: true });
   }

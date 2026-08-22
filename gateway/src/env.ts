@@ -11,6 +11,11 @@ export interface KVStore {
     opts?: { expirationTtl?: number },
   ): Promise<void>;
   delete(key: string): Promise<void>;
+  list(opts?: { prefix?: string; limit?: number; cursor?: string }): Promise<{
+    keys: { name: string }[];
+    list_complete: boolean;
+    cursor?: string;
+  }>;
 }
 
 /** workers-oauth-provider's KV surface (get-with-type + list). */
@@ -27,6 +32,13 @@ export interface OauthKvStore {
     list_complete: boolean;
     cursor?: string;
   }>;
+}
+
+export interface MembershipClaimStore {
+  claimUser(githubId: number, space: string): Promise<string>;
+  releaseUser(githubId: number, space: string): Promise<void>;
+  claimInvite(login: string, space: string): Promise<string>;
+  releaseInvite(login: string, space: string): Promise<void>;
 }
 
 import type { D1Like, IndexDb } from "./index-db.js";
@@ -50,6 +62,8 @@ export interface Env {
   GITHUB_APP_ID: string;
   /** PKCS#8 PEM. GitHub downloads PKCS#1 — convert before `wrangler secret put`. */
   GITHUB_APP_PRIVATE_KEY: string;
+  /** Public GitHub App slug used to construct the guided installation URL. */
+  GITHUB_APP_SLUG?: string;
   /** GitHub App user-to-server OAuth client id (Iv1.…), not the numeric App ID. */
   GITHUB_CLIENT_ID?: string;
   /** GitHub App OAuth client secret, used only on /callback code exchange. */
@@ -57,7 +71,7 @@ export interface Env {
   /**
    * Test seam: GitHub identity the OAuth wrapper would put on ctx.props.
    * Production requests get props from workers-oauth-provider; handler tests
-   * that call handleRequest directly set this instead of minting mlk_ tokens.
+   * that call handleRequest directly set this instead of minting credentials.
    */
   oauthProps?: { githubId: number; githubLogin?: string };
   ADMIN_SECRET: string;
@@ -72,6 +86,8 @@ export interface Env {
   /** Test seams: injected index store / embedder. Production leaves unset. */
   indexDb?: IndexDb;
   embedder?: Embedder;
+  /** Test seam for D1-backed identity uniqueness. */
+  membershipClaims?: MembershipClaimStore;
   /** Test seam: injected text-gen. Production leaves it unset (uses AI). */
   genText?: (prompt: string) => Promise<string>;
   /** Test seam: force the near-duplicate write gate on/off. Production

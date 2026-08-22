@@ -10,7 +10,8 @@ import {
   registerSpaceRepo,
   handleAdminAddProductRepo,
 } from "../dist/gateway/src/tenancy.js";
-import { makeEnv, ghFetch, fakeEmbed } from "./helpers.mjs";
+import { inviteGithubUser } from "../dist/gateway/src/spaces.js";
+import { makeEnv, ghFetch, fakeEmbed, seedGithubMember } from "./helpers.mjs";
 
 const SECRET = "hooksecret";
 const sign = (body) =>
@@ -268,4 +269,182 @@ test("webhook rejects bad signatures; ignores non-push, unknown repos, other bra
   const branch = { ...PAYLOAD, ref: "refs/heads/dev" };
   assert.equal((await handleWebhook(pushReq(branch), env)).status, 200);
   assert.deepEqual(await db.listDocs("s1"), []); // none of those ingested
+});
+
+async function lifecycleEnv() {
+  const indexDb = new MemoryIndexDb();
+  const revoked = [];
+  const env = makeEnv(undefined, {
+    WEBHOOK_SECRET: SECRET,
+    indexDb,
+    OAUTH_PROVIDER: {
+      async listUserGrants(userId) {
+        return { items: [{ id: `grant-${userId}` }] };
+      },
+      async revokeGrant(grantId, userId) {
+        revoked.push(`${grantId}:${userId}`);
+      },
+    },
+  });
+  const admin = await seedGithubMember(env, {
+    space: "team-a",
+    installationId: 7,
+    owner: "acme",
+    repo: "memory",
+    author: "ada",
+    authorEmail: "a@x.io",
+    githubId: 1,
+    githubLogin: "ada",
+    role: "admin",
+  });
+  await seedGithubMember(env, {
+    ...admin,
+    author: "bo",
+    authorEmail: "b@x.io",
+    githubId: 2,
+    githubLogin: "bo",
+    role: "member",
+  });
+  await inviteGithubUser(env, admin, "casey");
+  await env.ROUTING.put(
+    "member:github:3",
+    JSON.stringify({
+      ...admin,
+      githubId: 3,
+      githubLogin: "legacy",
+      author: "legacy",
+      role: "member",
+    }),
+  );
+  await env.ROUTING.put("github:login:legacy", "3");
+  await env.ROUTING.put(
+    "invite:github:legacy-invite",
+    JSON.stringify({
+      space: "team-a",
+      installationId: 7,
+      owner: "acme",
+      repo: "memory",
+      branch: "main",
+      invitedByGithubId: 1,
+      invitedAt: Date.now(),
+    }),
+  );
+  await env.ROUTING.put("recency:team-a:product", "cached");
+  await env.ROUTING.put("hookread:team-a:product", "cached");
+  await env.ROUTING.put("oauth:setup-space:team-a:pending", "cached");
+  await env.ROUTING.put("reindex-cursor:team-a", "cached");
+  await env.ROUTING.put("ghtok:7", "installation-access");
+  await env.ROUTING.put(
+    "product-repos:registry",
+    JSON.stringify({
+      "acme/product": { space: "team-a", project: "product" },
+      "other/product": { space: "team-b", project: "product" },
+    }),
+  );
+  await indexDb.replaceBySource("team-a", "source", [
+    {
+      id: "fact",
+      space: "team-a",
+      project: "product",
+      kind: "decision",
+      tier: "normal",
+      body: "derived fact",
+      sourceFile: "f",
+      sourceAuthor: "ada",
+      sourceTs: "2026-08-22T00:00:00Z",
+      embedding: [],
+      supersededBy: null,
+      createdAt: "2026-08-22T00:00:00Z",
+      sourceId: "source",
+      entities: [],
+    },
+  ]);
+  return { env, indexDb, revoked };
+}
+
+test("installation deletion removes every derived access record", async () => {
+  const { env, indexDb, revoked } = await lifecycleEnv();
+  const payload = {
+    action: "deleted",
+    installation: { id: 7 },
+  };
+  const res = await handleWebhook(
+    pushReq(payload, { event: "installation" }),
+    env,
+  );
+  assert.equal(res.status, 200);
+  for (const key of [
+    "space:inst:7",
+    "member:github:1",
+    "member:github:2",
+    "member:github:3",
+    "github:login:ada",
+    "github:login:bo",
+    "github:login:legacy",
+    "invite:github:casey",
+    "invite:github:legacy-invite",
+    "space:members:team-a",
+    "space:invites:team-a",
+    "recency:team-a:product",
+    "hookread:team-a:product",
+    "oauth:setup-space:team-a:pending",
+    "reindex-cursor:team-a",
+    "ghtok:7",
+  ]) {
+    assert.equal(await env.ROUTING.get(key), null, key);
+  }
+  assert.deepEqual(await indexDb.listDocs("team-a"), []);
+  assert.deepEqual(revoked.sort(), ["grant-1:1", "grant-2:2", "grant-3:3"]);
+  const spaces = JSON.parse(await env.ROUTING.get("spaces:registry"));
+  assert.equal(spaces["acme/memory"], undefined);
+  const products = JSON.parse(await env.ROUTING.get("product-repos:registry"));
+  assert.equal(products["acme/product"], undefined);
+  assert.deepEqual(products["other/product"], {
+    space: "team-b",
+    project: "product",
+  });
+});
+
+test("failed grant revocation leaves a retryable deactivation tombstone", async () => {
+  const { env } = await lifecycleEnv();
+  env.OAUTH_PROVIDER.revokeGrant = async () => {
+    throw new Error("provider unavailable");
+  };
+  const payload = { action: "deleted", installation: { id: 7 } };
+  await assert.rejects(
+    handleWebhook(pushReq(payload, { event: "installation" }), env),
+    /provider unavailable/,
+  );
+  assert.equal(await env.ROUTING.get("member:github:1"), null);
+  assert.ok(await env.ROUTING.get("space:inst:7"));
+  assert.ok(await env.ROUTING.get("deactivation:inst:7"));
+
+  env.OAUTH_PROVIDER.revokeGrant = async () => {};
+  const retry = await handleWebhook(
+    pushReq(payload, { event: "installation" }),
+    env,
+  );
+  assert.equal(retry.status, 200);
+  assert.equal(await env.ROUTING.get("space:inst:7"), null);
+  assert.equal(await env.ROUTING.get("deactivation:inst:7"), null);
+});
+
+test("suspension and selected repository removal deactivate the space", async () => {
+  for (const [event, payload] of [
+    ["installation", { action: "suspend", installation: { id: 7 } }],
+    [
+      "installation_repositories",
+      {
+        action: "removed",
+        installation: { id: 7 },
+        repositories_removed: [{ name: "memory", full_name: "acme/memory" }],
+      },
+    ],
+  ]) {
+    const { env } = await lifecycleEnv();
+    const res = await handleWebhook(pushReq(payload, { event }), env);
+    assert.equal(res.status, 200);
+    assert.equal(await env.ROUTING.get("space:inst:7"), null, event);
+    assert.equal(await env.ROUTING.get("member:github:1"), null, event);
+  }
 });

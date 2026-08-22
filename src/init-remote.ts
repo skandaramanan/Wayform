@@ -17,12 +17,12 @@ import {
   mergeRemoteHttpMcp,
   mergeDevinRemoteMcp,
   mergeAntigravityRemoteMcp,
-  codexRemoteConfigToml,
+  mergeCodexRemoteConfigToml,
 } from "./init-configs.js";
 import {
   buildRemoteHookEnv,
-  gitConfigDefault,
   ensureGitignore,
+  removeGitignoreEntries,
   writeSecretFile,
   trustCodexHooks,
 } from "./init-env.js";
@@ -85,11 +85,7 @@ export function registerClaudeCodeMcp(
 }
 
 export type RemoteClient =
-  | "cursor"
-  | "claude"
-  | "codex"
-  | "devin"
-  | "antigravity";
+  "cursor" | "claude" | "codex" | "devin" | "antigravity";
 
 const CLIENT_ALIASES: Record<string, RemoteClient> = {
   cursor: "cursor",
@@ -181,21 +177,14 @@ export async function runInitRemote(args: string[]): Promise<void> {
   );
 
   const useDefaults = has(args, "yes");
-  const rl =
-    useDefaults || (flag(args, "author") && flag(args, "email"))
-      ? undefined
-      : readline.createInterface({ input, output });
+  const rl = useDefaults
+    ? undefined
+    : readline.createInterface({ input, output });
   const ask = async (q: string, def: string): Promise<string> => {
     if (!rl) return def;
     const a = (await rl.question(def ? `${q} [${def}]: ` : `${q}: `)).trim();
     return a || def;
   };
-  const author =
-    flag(args, "author") ??
-    (await ask("Author name", gitConfigDefault("user.name")));
-  const email =
-    flag(args, "email") ??
-    (await ask("Author email", gitConfigDefault("user.email")));
   const project = flag(args, "project") ?? path.basename(cwd);
 
   const clientsFlag = flag(args, "clients");
@@ -233,7 +222,10 @@ export async function runInitRemote(args: string[]): Promise<void> {
     writeJson(
       cwd,
       ".cursor/hooks.json",
-      mergeCursorHooks(readJson(path.join(cwd, ".cursor/hooks.json")), "wayform"),
+      mergeCursorHooks(
+        readJson(path.join(cwd, ".cursor/hooks.json")),
+        "wayform",
+      ),
     );
     writeJson(
       cwd,
@@ -251,7 +243,15 @@ export async function runInitRemote(args: string[]): Promise<void> {
     );
     writeJson(cwd, ".codex/hooks.json", codexHooks);
     trustCodexHooks(cwd, codexHooks);
-    writeText(cwd, ".codex/config.toml", codexRemoteConfigToml(gatewayUrl));
+    const codexConfig = path.join(cwd, ".codex/config.toml");
+    const existing = fs.existsSync(codexConfig)
+      ? fs.readFileSync(codexConfig, "utf8")
+      : "";
+    writeText(
+      cwd,
+      ".codex/config.toml",
+      mergeCodexRemoteConfigToml(existing, gatewayUrl),
+    );
   }
   if (wants(clients, "devin")) {
     writeJson(
@@ -274,24 +274,47 @@ export async function runInitRemote(args: string[]): Promise<void> {
     );
   }
 
+  const giPath = path.join(cwd, ".gitignore");
+  const initialGitignore = fs.existsSync(giPath)
+    ? fs.readFileSync(giPath, "utf8")
+    : "";
+  fs.writeFileSync(
+    giPath,
+    ensureGitignore(initialGitignore, [".memorylayer-hook.env.bak"]),
+  );
+
   const envFile = path.join(cwd, ".memorylayer-hook.env");
-  if (fs.existsSync(envFile) && !has(args, "force")) {
+  const existingEnv = fs.existsSync(envFile)
+    ? fs.readFileSync(envFile, "utf8")
+    : "";
+  const legacyEnv =
+    /MEMORYLAYER_GATEWAY_TOKEN\s*=|MEMORYLAYER_AUTHOR(?:_EMAIL)?\s*=|(?:mlk_|wfi_)[A-Za-z0-9_-]+/.test(
+      existingEnv,
+    );
+  if (legacyEnv) {
+    writeSecretFile(`${envFile}.bak`, existingEnv);
+    writeSecretFile(envFile, buildRemoteHookEnv({ gatewayUrl, project }));
+    console.log(
+      "  migrated .memorylayer-hook.env (legacy file backed up to .memorylayer-hook.env.bak)",
+    );
+  } else if (existingEnv && !has(args, "force")) {
     console.log(
       "  .memorylayer-hook.env exists — leaving it (use --force to rewrite).",
     );
   } else {
-    writeSecretFile(
-      envFile,
-      buildRemoteHookEnv({ gatewayUrl, project, author, email }),
-    );
+    writeSecretFile(envFile, buildRemoteHookEnv({ gatewayUrl, project }));
     console.log("  wrote .memorylayer-hook.env");
   }
 
-  const giPath = path.join(cwd, ".gitignore");
   const gi = fs.existsSync(giPath) ? fs.readFileSync(giPath, "utf8") : "";
-  const ignore = [".memorylayer-hook.env"];
+  const cleaned = removeGitignoreEntries(gi, [
+    ".memorylayer-hook.env",
+    ".cursor/mcp.json",
+    ".codex/config.toml",
+  ]);
+  const ignore: string[] = [".memorylayer-hook.env.bak"];
   if (wants(clients, "claude")) ignore.push(".claude/settings.local.json");
-  fs.writeFileSync(giPath, ensureGitignore(gi, ignore));
+  fs.writeFileSync(giPath, ensureGitignore(cleaned, ignore));
   console.log("  updated .gitignore");
 
   if (clients.length === 0) {
@@ -334,7 +357,7 @@ export async function runInitRemote(args: string[]): Promise<void> {
 }
 
 function commitPaths(clients: RemoteClient[]): string[] {
-  const add: string[] = [".gitignore"];
+  const add: string[] = [".gitignore", ".memorylayer-hook.env"];
   if (wants(clients, "claude")) add.push(".mcp.json", ".claude");
   if (wants(clients, "cursor")) add.push(".cursor");
   if (wants(clients, "codex")) add.push(".codex");

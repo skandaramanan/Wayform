@@ -2,12 +2,12 @@ import { test } from "node:test";
 import assert from "node:assert/strict";
 import { remoteApiRead, remoteHookRead } from "../dist/remote-read.js";
 
-const CFG = { gatewayUrl: "https://gw.example.com", gatewayToken: "mlk_t" };
+const CFG = { gatewayUrl: "https://gw.example.com" };
 
-test("remoteApiRead builds the URL, sends the bearer token, parses JSON", async () => {
+test("remoteApiRead uses the OAuth fetch boundary and parses JSON", async () => {
   let seen;
-  const fetchImpl = async (url, init) => {
-    seen = { url: String(url), init };
+  const fetchImpl = async (gatewayUrl, url, init) => {
+    seen = { gatewayUrl, url: String(url), init };
     return Response.json({ text: "ranked", total: 5, matched: 2 });
   };
   const out = await remoteApiRead(
@@ -21,13 +21,14 @@ test("remoteApiRead builds the URL, sends the bearer token, parses JSON", async 
     fetchImpl,
   );
   assert.deepEqual(out, { text: "ranked", total: 5, matched: 2 });
+  assert.equal(seen.gatewayUrl, "https://gw.example.com");
   const u = new URL(seen.url);
-  assert.equal(u.pathname, "/api/read");
+  assert.equal(u.pathname, "/mcp/api/read");
   assert.equal(u.searchParams.get("project"), "memorylayer");
   assert.equal(u.searchParams.get("query"), "cursor config");
   assert.equal(u.searchParams.get("budget"), "1000");
   assert.equal(u.searchParams.get("trigger"), "mcp_read");
-  assert.equal(seen.init.headers.authorization, "Bearer mlk_t");
+  assert.equal(new Headers(seen.init.headers).has("authorization"), false);
 });
 
 test("remoteApiRead returns null on non-200, bad JSON, thrown fetch, or missing config", async () => {
@@ -57,15 +58,15 @@ test("remoteApiRead returns null on non-200, bad JSON, thrown fetch, or missing 
 });
 
 test("remoteHookRead returns the body text (empty string preserved), null on failure", async () => {
+  let pathname;
   assert.equal(
-    await remoteHookRead(
-      CFG,
-      "p",
-      4000,
-      async () => new Response("injected text"),
-    ),
+    await remoteHookRead(CFG, "p", 4000, async (_gatewayUrl, url) => {
+      pathname = new URL(url).pathname;
+      return new Response("injected text");
+    }),
     "injected text",
   );
+  assert.equal(pathname, "/mcp/hook/read");
   assert.equal(
     await remoteHookRead(CFG, "p", 4000, async () => new Response("")),
     "",

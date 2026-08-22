@@ -27,7 +27,6 @@ test("detectExistingClients only reports folders already in the repo", () => {
   fs.rmSync(dir, { recursive: true, force: true });
 });
 
-
 test("registerClaudeCodeMcp invokes claude mcp add with no Authorization header", () => {
   let seen;
   const run = (cmd, args) => {
@@ -118,4 +117,101 @@ test("runInitRemote --yes wires only vendor folders already in the repo", async 
   assert.equal(existsSync(join(dir, ".agents")), false);
   assert.equal(existsSync(join(dir, ".mcp.json")), false);
   assert.equal(existsSync(join(dir, ".codex")), false);
+});
+
+test("runInitRemote migrates legacy credentials and preserves Codex config", async (t) => {
+  const { runInitRemote } = await import("../dist/init-remote.js");
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wayform-migrate-"));
+  const prev = process.cwd();
+  const prevCodexHome = process.env.CODEX_HOME;
+  process.chdir(dir);
+  process.env.CODEX_HOME = path.join(dir, "codex-home");
+  t.after(() => {
+    process.chdir(prev);
+    if (prevCodexHome === undefined) delete process.env.CODEX_HOME;
+    else process.env.CODEX_HOME = prevCodexHome;
+    fs.rmSync(dir, { recursive: true, force: true });
+  });
+
+  const { execFileSync } = await import("node:child_process");
+  execFileSync("git", ["init", "-q"]);
+  fs.mkdirSync(path.join(dir, ".cursor"));
+  fs.mkdirSync(path.join(dir, ".codex"));
+  fs.writeFileSync(
+    path.join(dir, ".memorylayer-hook.env"),
+    [
+      "MEMORYLAYER_GATEWAY_URL=https://old.test",
+      "MEMORYLAYER_GATEWAY_TOKEN=mlk_legacy",
+      "MEMORYLAYER_AUTHOR=Ada",
+      "MEMORYLAYER_AUTHOR_EMAIL=ada@example.com",
+      "MEMORYLAYER_PROJECT=product",
+      "",
+    ].join("\n"),
+  );
+  fs.writeFileSync(
+    path.join(dir, ".gitignore"),
+    [
+      "node_modules/",
+      ".memorylayer-hook.env",
+      ".cursor/mcp.json",
+      ".codex/config.toml",
+      ".claude/settings.local.json",
+      "",
+    ].join("\n"),
+  );
+  fs.writeFileSync(
+    path.join(dir, ".codex/config.toml"),
+    [
+      'model = "gpt-5"',
+      "",
+      "[mcp_servers.other]",
+      'url = "https://other.test/mcp"',
+      "",
+      "[mcp_servers.wayform]",
+      'url = "https://old.test/mcp"',
+      'http_headers = { Authorization = "Bearer mlk_legacy" }',
+      "",
+    ].join("\n"),
+  );
+
+  await runInitRemote([
+    "--yes",
+    "--clients",
+    "cursor,codex",
+    "--gateway",
+    "https://gw.test",
+    "--project",
+    "product",
+  ]);
+
+  const backup = fs.readFileSync(
+    path.join(dir, ".memorylayer-hook.env.bak"),
+    "utf8",
+  );
+  assert.match(backup, /mlk_legacy/);
+  const env = fs.readFileSync(path.join(dir, ".memorylayer-hook.env"), "utf8");
+  assert.match(env, /MEMORYLAYER_GATEWAY_URL=https:\/\/gw\.test/);
+  assert.match(env, /MEMORYLAYER_PROJECT=product/);
+  assert.doesNotMatch(env, /MEMORYLAYER_GATEWAY_TOKEN|MEMORYLAYER_AUTHOR|mlk_/);
+
+  const gitignore = fs.readFileSync(path.join(dir, ".gitignore"), "utf8");
+  assert.match(gitignore, /node_modules\//);
+  assert.match(gitignore, /\.claude\/settings\.local\.json/);
+  assert.match(gitignore, /^\.memorylayer-hook\.env\.bak$/m);
+  assert.doesNotMatch(
+    gitignore,
+    /^\.memorylayer-hook\.env$|\.cursor\/mcp\.json|\.codex\/config\.toml/m,
+  );
+  if (process.platform !== "win32") {
+    assert.equal(
+      fs.statSync(path.join(dir, ".memorylayer-hook.env.bak")).mode & 0o777,
+      0o600,
+    );
+  }
+
+  const codex = fs.readFileSync(path.join(dir, ".codex/config.toml"), "utf8");
+  assert.match(codex, /model = "gpt-5"/);
+  assert.match(codex, /\[mcp_servers\.other\]/);
+  assert.match(codex, /url = "https:\/\/gw\.test\/mcp"/);
+  assert.doesNotMatch(codex, /old\.test|http_headers|mlk_legacy/);
 });

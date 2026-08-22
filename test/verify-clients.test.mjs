@@ -24,6 +24,41 @@ import { saveStoredOAuth } from "../dist/keychain.js";
 
 const hookPath = fileURLToPath(new URL("../dist/hook.js", import.meta.url));
 const cliPath = fileURLToPath(new URL("../dist/cli.js", import.meta.url));
+const root = fileURLToPath(new URL("..", import.meta.url));
+
+test("tracked onboarding artifacts enforce the credential-free contract", () => {
+  const artifacts = [
+    "README.md",
+    "gateway/README.md",
+    "gateway/eval/benchmarks/README.md",
+    "gateway/eval/benchmarks/latency.mjs",
+    "docs/superpowers/specs/2026-07-20-invite-code-join-design.md",
+    ".claude/settings.json",
+  ];
+  for (const relative of artifacts) {
+    const text = fs.readFileSync(path.join(root, relative), "utf8");
+    assert.doesNotMatch(text, /mlk_|wfi_|MEMORYLAYER_GATEWAY_TOKEN/);
+    assert.doesNotMatch(text, /Authorization:\s*Bearer/i);
+  }
+  assert.equal(
+    fs.existsSync(
+      path.join(root, "integrations/github-actions/record-merged-pr.yml"),
+    ),
+    false,
+    "the token-bearing workflow is replaced by GitHub App webhooks",
+  );
+  const readme = fs.readFileSync(path.join(root, "README.md"), "utf8");
+  assert.match(readme, /wayform init --remote/);
+  assert.match(readme, /first commit|initial commit/i);
+  const gatewayReadme = fs.readFileSync(
+    path.join(root, "gateway/README.md"),
+    "utf8",
+  );
+  assert.match(gatewayReadme, /Setup URL/i);
+  assert.match(gatewayReadme, /Redirect on update/i);
+  assert.match(gatewayReadme, /one GitHub user.*one Wayform space/is);
+  assert.match(gatewayReadme, /internally managed OAuth credentials/i);
+});
 
 test("Cursor Connect config is URL-only (no Authorization header)", () => {
   const cfg = mergeCursorRemoteMcp(
@@ -69,7 +104,9 @@ test("session hook after wayform login sends the keychain Bearer, not a file tok
   const kc = path.join(os.tmpdir(), `wayform-kc-${Date.now()}.json`);
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "wayform-hook-login-"));
   const prevKc = process.env.WAYFORM_KEYCHAIN_FILE;
+  const prevNodeEnv = process.env.NODE_ENV;
   process.env.WAYFORM_KEYCHAIN_FILE = kc;
+  process.env.NODE_ENV = "test";
   const hits = [];
   const server = http.createServer((req, res) => {
     hits.push({ url: req.url, auth: req.headers.authorization ?? "" });
@@ -80,7 +117,14 @@ test("session hook after wayform login sends the keychain Bearer, not a file tok
   const { port } = server.address();
   const gatewayUrl = `http://127.0.0.1:${port}`;
   try {
-    saveStoredOAuth(gatewayUrl, { access_token: "oauth_access_from_login" });
+    saveStoredOAuth(gatewayUrl, {
+      client_id: "cli-1",
+      access_token: "oauth_access_from_login",
+      refresh_token: "oauth_refresh_from_login",
+      expires_at: Date.now() + 3_600_000,
+      token_endpoint: `${gatewayUrl}/oauth/token`,
+      resource: `${gatewayUrl}/mcp`,
+    });
     fs.writeFileSync(
       path.join(cwd, ".memorylayer-hook.env"),
       [
@@ -96,6 +140,7 @@ test("session hook after wayform login sends the keychain Bearer, not a file tok
         stdio: ["ignore", "pipe", "pipe"],
         env: {
           PATH: process.env.PATH ?? "",
+          NODE_ENV: "test",
           MEMORYLAYER_HOOK_CLIENT: "raw",
           MEMORYLAYER_AUTHOR: "Dana",
           MEMORYLAYER_PROJECT: "acme-eng",
@@ -128,6 +173,8 @@ test("session hook after wayform login sends the keychain Bearer, not a file tok
     server.close();
     if (prevKc === undefined) delete process.env.WAYFORM_KEYCHAIN_FILE;
     else process.env.WAYFORM_KEYCHAIN_FILE = prevKc;
+    if (prevNodeEnv === undefined) delete process.env.NODE_ENV;
+    else process.env.NODE_ENV = prevNodeEnv;
     fs.rmSync(kc, { force: true });
     fs.rmSync(cwd, { recursive: true, force: true });
   }

@@ -114,35 +114,33 @@ OAuth. Configure it in **this product repo** (the codebase you work in) — neve
 as a user-global MCP, or it will follow you into unrelated folders.
 
 Every customer is a new team. The operator allowlists their GitHub user or org;
-they create their own private memory repo, add the MCP URL in the product
-repo, and install the App on that memory repo only. Teammates are invited
-in-agent by GitHub username.
+they create their own private memory repo, initialize project-scoped config,
+and select that memory repo in the guided App installation. Teammates are
+invited in-agent by GitHub username.
 
 **Operator (once per client):** add their GitHub login or org to the allowlist,
 then send the MCP URL. Never send a token.
 
 **They do:**
 
-1. On GitHub, create a **private** repo for team memory (empty is fine).
-2. In **this product repo**, add a remote MCP server with URL only — no token,
-   no Authorization header:
-
-   `https://memorylayer-gateway.memory-layer.workers.dev/mcp`
-
-   Put that URL in the **project** config for your client (table below). Do not
-   add it under a user/global MCP file.
-3. Connect / log in with GitHub. When GitHub asks which repos to install the
-   Wayform app on, pick **only** that private memory repo.
-4. Once per machine: `npm i -g wayform && wayform login` then restart the agent
-   (session-start hooks need this).
-5. Ask the agent to record a test decision, open a new chat, and confirm the
-   decision is already there.
-6. Commit the project MCP files so teammates only authenticate — they do not
-   re-add the URL.
+1. On GitHub, create a **private** team-memory repo and give it a first commit
+   (for example, initialize it with a README).
+2. In the product repo, run
+   `wayform init --remote --clients cursor,claude` with the clients the team
+   actually uses. This writes URL-only, project-scoped configuration.
+3. Connect the `wayform` MCP server. Sign in with GitHub, follow the guided App
+   installation, and select only the private memory repo from step 1.
+4. Run `wayform login` once on the machine so session hooks can authenticate.
+5. Run `wayform doctor`; resolve every failed hosted check before continuing.
+6. Ask the agent to record a test decision, then open a new session and confirm
+   that decision is already present.
+7. Commit the URL-only project configuration. Teammates run remote init and
+   authenticate; nobody copies a credential.
 
 ### Client setup (project-scoped, OAuth)
 
-Same URL everywhere. Tokens stay in the client or OS keychain after login.
+Same URL everywhere. OAuth credentials are managed internally by each MCP
+client or the native OS credential store; users never copy or configure them.
 
 | Client | Project file (commit this) | Do **not** use (global) | Authenticate |
 |---|---|---|---|
@@ -220,15 +218,15 @@ into hook subprocesses:
 |-----|----------|---------|
 | `CONTEXT_REPO_URL` | local mode | Shared context repo URL (may embed a git token). |
 | `MEMORYLAYER_GATEWAY_URL` | hosted mode | Gateway base URL. Presence selects hosted (no clone). |
-| `MEMORYLAYER_AUTHOR` | yes | Your name — commit author / attribution. |
-| `MEMORYLAYER_AUTHOR_EMAIL` | no | Commit email. Defaults from author name. |
+| `MEMORYLAYER_AUTHOR` | local mode | Your name — local commit author / attribution. Hosted attribution comes from GitHub OAuth. |
+| `MEMORYLAYER_AUTHOR_EMAIL` | no | Local commit email. Defaults from author name. |
 | `MEMORYLAYER_PROJECT` | no | Project/space name. Default: repo directory name. |
 | `CONTEXT_REPO_PATH` | no | Local clone path. Default: keyed per repo URL under `$XDG_DATA_HOME/memorylayer/clones/<repo-slug>-<hash>` (falls back to `~/.local/share/...`), so two spaces can never share a clone. |
 | `MEMORYLAYER_READ_BUDGET_TOKENS` | no | Read token budget. Default 4000; `<=0` = unlimited. |
 | `MEMORYLAYER_AUTO_PUSH` | no | `false` to skip pushing (local smoke tests). |
 
-Hosted hook env has **no** `MEMORYLAYER_GATEWAY_TOKEN`. Session tokens live in
-the OS keychain after `wayform login`.
+Hosted hook env contains only project settings and the gateway URL. The OAuth
+session is held by the native OS credential store after `wayform login`.
 
 ## Diagnostics
 
@@ -251,7 +249,9 @@ write "silently" does nothing — fail-open means problems hide here first.
   a private GitHub repo in *your* account. The App holds Contents-only
   permission on exactly one repo per space; members are keyed by GitHub user
   id after OAuth. The Worker holds operator secrets in Cloudflare's secret
-  store, never in code or git. Members never see a Wayform API key.
+  store, never in code or git. Members never see a Wayform API key. For now,
+  one GitHub user can belong to one Wayform space; multi-space membership is a
+  deferred product decision.
 - **Trust boundary to know about:** everything a space member writes is
   injected into every member's sessions. You trust the people in your space —
   that's the model, stated plainly.

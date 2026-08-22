@@ -627,14 +627,7 @@ async function toolsCall(
           );
         }
         if (toolName === "invite_member") {
-          await inviteGithubUser(env, login, {
-            space: member.space,
-            installationId: member.installationId,
-            owner: member.owner,
-            repo: member.repo,
-            branch: member.branch,
-            invitedByGithubId: member.githubId ?? 0,
-          });
+          await inviteGithubUser(env, member, login);
           return finish(
             rpcResult(
               msg.id,
@@ -644,7 +637,15 @@ async function toolsCall(
             ),
           );
         }
-        await revokeGithubUser(env, login);
+        const revoked = await revokeGithubUser(env, member, login);
+        if (revoked === "not_found") {
+          return finish(
+            rpcResult(
+              msg.id,
+              toolText(`@${login} is not a member of this space.`, true),
+            ),
+          );
+        }
         return finish(
           rpcResult(msg.id, toolText(`Revoked @${login} from this space.`)),
         );

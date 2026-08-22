@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { makeEnv } from "./helpers.mjs";
+import { makeEnv, seedGithubMember } from "./helpers.mjs";
 
 const { default: worker } = await import("../dist/gateway/src/worker.js");
 
@@ -21,11 +21,76 @@ test("unauthenticated /mcp is 401 with RFC 9728 WWW-Authenticate", async () => {
   );
 });
 
+test("one /mcp OAuth grant reaches every protected member route", async () => {
+  const env = makeEnv();
+  await seedGithubMember(env, {
+    space: "team-a",
+    installationId: 7,
+    owner: "acme",
+    repo: "memory",
+    author: "Ada",
+    authorEmail: "1+ada@users.noreply.github.com",
+    githubId: 1,
+    githubLogin: "ada",
+    role: "admin",
+  });
+  const accessToken = await issueAccessToken(env, {
+    githubId: 1,
+    githubLogin: "ada",
+  });
+  const authorization = `Bearer ${accessToken}`;
+
+  const ping = await fetchGw(
+    "/mcp",
+    {
+      method: "POST",
+      headers: {
+        authorization,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "ping" }),
+    },
+    env,
+  );
+  assert.equal(ping.status, 200);
+
+  const hookRead = await fetchGw(
+    "/mcp/hook/read",
+    { headers: { authorization } },
+    env,
+  );
+  assert.equal(hookRead.status, 400);
+  assert.equal(await hookRead.text(), "missing project");
+
+  const hookPrompt = await fetchGw(
+    "/mcp/hook/prompt",
+    {
+      method: "POST",
+      headers: {
+        authorization,
+        "content-type": "application/json",
+      },
+      body: "{}",
+    },
+    env,
+  );
+  assert.equal(hookPrompt.status, 200);
+  assert.equal(await hookPrompt.text(), "");
+
+  const apiRead = await fetchGw(
+    "/mcp/api/read",
+    { headers: { authorization } },
+    env,
+  );
+  assert.equal(apiRead.status, 400);
+  assert.equal(await apiRead.text(), "missing project");
+});
+
 test("unauthenticated hook and api read routes are 401 with resource_metadata", async () => {
   for (const [path, init] of [
-    ["/hook/read?project=p", {}],
-    ["/hook/prompt", { method: "POST", body: "{}" }],
-    ["/api/read?project=p", {}],
+    ["/mcp/hook/read?project=p", {}],
+    ["/mcp/hook/prompt", { method: "POST", body: "{}" }],
+    ["/mcp/api/read?project=p", {}],
   ]) {
     const res = await fetchGw(path, init);
     assert.equal(res.status, 401, path);
@@ -34,6 +99,19 @@ test("unauthenticated hook and api read routes are 401 with resource_metadata", 
       /resource_metadata=/,
       path,
     );
+  }
+});
+
+test("legacy member routes identify their canonical replacements", async () => {
+  for (const [path, replacement, method] of [
+    ["/hook/read", "/mcp/hook/read", "GET"],
+    ["/hook/prompt", "/mcp/hook/prompt", "POST"],
+    ["/api/read", "/mcp/api/read", "GET"],
+  ]) {
+    const res = await fetchGw(path, { method });
+    assert.equal(res.status, 410, path);
+    assert.match(await res.text(), new RegExp(replacement));
+    assert.equal(res.headers.get("www-authenticate"), null);
   }
 });
 
@@ -156,7 +234,7 @@ test("an mlk_ bearer on the Worker HTTP gate is still a provider 401", async () 
   assert.match(res.headers.get("www-authenticate") ?? "", /resource_metadata=/);
 });
 
-test("health, webhook, and admin stay outside the member OAuth plane", async () => {
+test("health, webhook, admin, and setup stay outside the member OAuth plane", async () => {
   const env = makeEnv(undefined, { WEBHOOK_SECRET: "whsec" });
   const health = await fetchGw("/health", {}, env);
   assert.equal(health.status, 200);
@@ -177,6 +255,13 @@ test("health, webhook, and admin stay outside the member OAuth plane", async () 
   const admin = await fetchGw("/admin/installations", {}, env);
   assert.equal(admin.status, 403);
   assert.equal(admin.headers.get("www-authenticate"), null);
+
+  const installCallback = await fetchGw("/install/callback", {}, env);
+  assert.equal(installCallback.status, 400);
+  assert.equal(installCallback.headers.get("www-authenticate"), null);
+  const installSelect = await fetchGw("/install/select", {}, env);
+  assert.equal(installSelect.status, 405);
+  assert.equal(installSelect.headers.get("www-authenticate"), null);
 });
 
 async function registerClient(env) {
@@ -197,6 +282,55 @@ async function registerClient(env) {
   );
   assert.equal(res.status, 201);
   return res.json();
+}
+
+async function issueAccessToken(env, props) {
+  const client = await registerClient(env);
+  const verifier = Buffer.from(
+    crypto.getRandomValues(new Uint8Array(32)),
+  ).toString("base64url");
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(verifier),
+  );
+  const challenge = Buffer.from(digest).toString("base64url");
+  await fetchGw("/health", {}, env);
+  const { redirectTo } = await env.OAUTH_PROVIDER.completeAuthorization({
+    request: {
+      responseType: "code",
+      clientId: client.client_id,
+      redirectUri: "http://127.0.0.1:9876/callback",
+      scope: ["mcp"],
+      state: "client-state",
+      codeChallenge: challenge,
+      codeChallengeMethod: "S256",
+      resource: "https://gw.test/mcp",
+    },
+    userId: String(props.githubId),
+    metadata: { githubLogin: props.githubLogin },
+    scope: ["mcp"],
+    props,
+  });
+  const code = new URL(redirectTo).searchParams.get("code");
+  assert.ok(code);
+  const token = await fetchGw(
+    "/oauth/token",
+    {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "authorization_code",
+        client_id: client.client_id,
+        redirect_uri: "http://127.0.0.1:9876/callback",
+        code,
+        code_verifier: verifier,
+        resource: "https://gw.test/mcp",
+      }),
+    },
+    env,
+  );
+  assert.equal(token.status, 200);
+  return (await token.json()).access_token;
 }
 
 async function pkceChallenge() {
