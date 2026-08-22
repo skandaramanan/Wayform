@@ -1,10 +1,17 @@
 name = "memorylayer-gateway"
 main = "dist/gateway/src/worker.js"
 compatibility_date = "2026-06-01"
+# CIMD (RFC client_id metadata documents) requires this SSRF guard.
+compatibility_flags = ["global_fetch_strictly_public"]
 
 # Created in Step 3; paste the id wrangler prints.
 [[kv_namespaces]]
 binding = "ROUTING"
+id = "799c559402d6472993dc63ed26b0fd5e"
+
+# OAuth grants/clients. Same namespace as ROUTING until grants need isolation.
+[[kv_namespaces]]
+binding = "OAUTH_KV"
 id = "799c559402d6472993dc63ed26b0fd5e"
 
 # Relevance index (Phase A). Create with `wrangler d1 create memorylayer-index`

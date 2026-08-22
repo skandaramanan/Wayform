@@ -3,14 +3,32 @@ export class FakeKV {
   constructor() {
     this.map = new Map();
   }
-  async get(key) {
-    return this.map.has(key) ? this.map.get(key) : null;
+  async get(key, typeOrOpts) {
+    if (!this.map.has(key)) return null;
+    const value = this.map.get(key);
+    const type = typeof typeOrOpts === "string" ? typeOrOpts : typeOrOpts?.type;
+    if (type === "json") return JSON.parse(value);
+    return value;
   }
   async put(key, value, _opts) {
     this.map.set(key, value);
   }
   async delete(key) {
     this.map.delete(key);
+  }
+  async list({ prefix = "", limit = 1000, cursor } = {}) {
+    const names = [...this.map.keys()]
+      .filter((k) => k.startsWith(prefix))
+      .sort();
+    const start = cursor ? Number(cursor) : 0;
+    const page = names.slice(start, start + limit);
+    const next =
+      start + limit < names.length ? String(start + limit) : undefined;
+    return {
+      keys: page.map((name) => ({ name })),
+      list_complete: !next,
+      cursor: next,
+    };
   }
 }
 
@@ -41,10 +59,13 @@ export const TEST_KEYPAIR = await genKeypair();
 /** Env with a FakeKV and the test keypair; pass a mock fetch for GitHub calls.
  *  extra: { indexDb, embedder, WEBHOOK_SECRET, ... } merged onto the env. */
 export function makeEnv(githubFetch, extra = {}) {
+  const routing = extra.ROUTING ?? new FakeKV();
   return {
-    ROUTING: new FakeKV(),
+    ROUTING: routing,
+    OAUTH_KV: routing,
     GITHUB_APP_ID: "12345",
     GITHUB_APP_PRIVATE_KEY: TEST_KEYPAIR.pem,
+    GITHUB_CLIENT_ID: "Iv1.testoauth",
     ADMIN_SECRET: "test-admin-secret",
     githubFetch,
     ...extra,

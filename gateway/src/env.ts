@@ -13,6 +13,22 @@ export interface KVStore {
   delete(key: string): Promise<void>;
 }
 
+/** workers-oauth-provider's KV surface (get-with-type + list). */
+export interface OauthKvStore {
+  get(key: string, opts?: { type?: string } | string): Promise<unknown>;
+  put(
+    key: string,
+    value: string,
+    opts?: { expirationTtl?: number },
+  ): Promise<void>;
+  delete(key: string): Promise<void>;
+  list(opts?: { prefix?: string; limit?: number; cursor?: string }): Promise<{
+    keys: { name: string }[];
+    list_complete: boolean;
+    cursor?: string;
+  }>;
+}
+
 import type { D1Like, IndexDb } from "./index-db.js";
 import type { Embedder } from "./retrieval.js";
 
@@ -27,9 +43,15 @@ export interface AiBinding {
 
 export interface Env {
   ROUTING: KVStore;
+  /** OAuth grants/clients. Same Cloudflare namespace as ROUTING is fine. */
+  OAUTH_KV: OauthKvStore;
+  /** Injected by workers-oauth-provider on each request. */
+  OAUTH_PROVIDER?: import("@cloudflare/workers-oauth-provider").OAuthHelpers;
   GITHUB_APP_ID: string;
   /** PKCS#8 PEM. GitHub downloads PKCS#1 — convert before `wrangler secret put`. */
   GITHUB_APP_PRIVATE_KEY: string;
+  /** GitHub App user-to-server OAuth client id (Iv1.…), not the numeric App ID. */
+  GITHUB_CLIENT_ID?: string;
   ADMIN_SECRET: string;
   /** D1 index database. Optional: absent = index plane disabled, recency reads only. */
   DB?: D1Like;
