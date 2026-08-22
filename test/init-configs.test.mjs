@@ -175,41 +175,28 @@ test("re-merging with a different binary name does not duplicate hooks (marker i
   assert.equal(twice.hooks.SessionStart.length, 1);
 });
 
-test("mergeCursorRemoteMcp writes an HTTP server with a bearer header", () => {
-  const out = mergeCursorRemoteMcp(
-    undefined,
-    "https://gw.example.com",
-    "mlk_x",
-  );
+test("mergeCursorRemoteMcp writes a URL-only HTTP server", () => {
+  const out = mergeCursorRemoteMcp(undefined, "https://gw.example.com");
   assert.deepEqual(out.mcpServers.wayform, {
     url: "https://gw.example.com/mcp",
-    headers: { Authorization: "Bearer mlk_x" },
   });
 });
 
 test("mergeCursorRemoteMcp preserves unrelated servers and is idempotent", () => {
   const existing = { mcpServers: { other: { url: "x" } } };
-  const once = mergeCursorRemoteMcp(existing, "https://gw", "mlk_x");
-  const twice = mergeCursorRemoteMcp(once, "https://gw", "mlk_x");
+  const once = mergeCursorRemoteMcp(existing, "https://gw");
+  const twice = mergeCursorRemoteMcp(once, "https://gw");
   assert.equal(twice.mcpServers.other.url, "x");
-  assert.deepEqual(twice.mcpServers.wayform, {
-    url: "https://gw/mcp",
-    headers: { Authorization: "Bearer mlk_x" },
-  });
+  assert.deepEqual(twice.mcpServers.wayform, { url: "https://gw/mcp" });
 });
 
-test("codexRemoteConfigToml renders a native HTTP server with a literal auth header", () => {
-  const toml = codexRemoteConfigToml("https://gw", "mlk_secret");
+test("codexRemoteConfigToml renders native HTTP with OAuth, no headers", () => {
+  const toml = codexRemoteConfigToml("https://gw");
   assert.match(toml, /\[mcp_servers\.wayform\]/);
   assert.match(toml, /url = "https:\/\/gw\/mcp"/);
-  // Literal http_headers, NOT bearer_token_env_var: the env-var form requires
-  // exporting the token before every launch and silently breaks IDE-launched
-  // Codex (no env → MCP client never initializes → no tools).
-  assert.match(
-    toml,
-    /http_headers = \{ Authorization = "Bearer mlk_secret" \}/,
-  );
-  assert.doesNotMatch(toml, /bearer_token_env_var/);
+  assert.match(toml, /auth = "oauth"/);
+  assert.doesNotMatch(toml, /http_headers/);
+  assert.doesNotMatch(toml, /mlk_/);
   assert.doesNotMatch(toml, /mcp-remote/);
 });
 

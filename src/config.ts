@@ -26,7 +26,7 @@ export interface Config {
   readBudgetTokens: number;
   /** Hosted gateway base URL for remote-first reads (unset = local-only). */
   gatewayUrl?: string;
-  /** Member token for the hosted gateway. */
+  /** Short-lived OAuth access token (from keychain / env). Never written to project files. */
   gatewayToken?: string;
 }
 
@@ -172,7 +172,7 @@ export function loadConfig(): Config {
     undefined;
   const gatewayToken =
     process.env.MEMORYLAYER_GATEWAY_TOKEN?.trim() || undefined;
-  const hasGateway = Boolean(gatewayUrl && gatewayToken);
+  const hasGateway = Boolean(gatewayUrl);
 
   // Gateway-only members have no local clone. CONTEXT_REPO_URL is optional when a
   // gateway is configured; without a gateway it stays required (local-only mode).

@@ -44,19 +44,17 @@ export function buildHookEnv(v: {
   ].join("\n");
 }
 
-/** Contents of `.memorylayer-hook.env` for a HOSTED (gateway) member — gitignored. */
+/** Contents of `.memorylayer-hook.env` for a HOSTED (gateway) member. */
 export function buildRemoteHookEnv(v: {
   gatewayUrl: string;
-  token: string;
   project: string;
   author: string;
   email: string;
 }): string {
   return [
-    "# Wayform per-user hook config — gitignored. Do NOT commit.",
-    "# Written by `wayform init --remote`. Hosted (gateway) member — no local clone.",
+    "# Wayform per-user hook config. URL + identity only — no gateway token.",
+    "# Written by `wayform init --remote`. Run `wayform login` once per machine.",
     `MEMORYLAYER_GATEWAY_URL=${v.gatewayUrl}`,
-    `MEMORYLAYER_GATEWAY_TOKEN=${v.token}`,
     `MEMORYLAYER_PROJECT=${v.project}`,
     `MEMORYLAYER_AUTHOR=${v.author}`,
     `MEMORYLAYER_AUTHOR_EMAIL=${v.email}`,

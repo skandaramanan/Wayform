@@ -6,16 +6,16 @@ import {
   ensureGitignore,
 } from "../dist/init-env.js";
 
-test("buildRemoteHookEnv writes gateway vars and omits CONTEXT_REPO_URL", () => {
+test("buildRemoteHookEnv writes gateway URL and omits any token", () => {
   const out = buildRemoteHookEnv({
     gatewayUrl: "https://gw.example.com",
-    token: "mlk_x",
     project: "acme-eng",
     author: "Dana Lee",
     email: "dana@acme.com",
   });
   assert.match(out, /MEMORYLAYER_GATEWAY_URL=https:\/\/gw\.example\.com/);
-  assert.match(out, /MEMORYLAYER_GATEWAY_TOKEN=mlk_x/);
+  assert.doesNotMatch(out, /MEMORYLAYER_GATEWAY_TOKEN/);
+  assert.doesNotMatch(out, /mlk_/);
   assert.match(out, /MEMORYLAYER_PROJECT=acme-eng/);
   assert.match(out, /MEMORYLAYER_AUTHOR=Dana Lee/);
   assert.match(out, /MEMORYLAYER_AUTHOR_EMAIL=dana@acme.com/);

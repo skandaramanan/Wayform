@@ -81,7 +81,7 @@ export async function runServer(): Promise<void> {
               text:
                 "read_context could not reach the hosted gateway and this member " +
                 "is gateway-only (no local clone to fall back to). Retry online, " +
-                "or check MEMORYLAYER_GATEWAY_URL / MEMORYLAYER_GATEWAY_TOKEN.",
+                "or run: wayform login",
             },
           ],
           isError: true,
@@ -220,7 +220,7 @@ export async function runServer(): Promise<void> {
               type: "text",
               text:
                 "search_memory needs the hosted gateway and it was not reachable " +
-                "(set MEMORYLAYER_GATEWAY_URL and MEMORYLAYER_GATEWAY_TOKEN, or retry online). " +
+                "(run: wayform login, or retry online). " +
                 "Use read_context for the local recency view.",
             },
           ],

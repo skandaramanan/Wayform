@@ -111,7 +111,6 @@ function writeRemoteEnv(cwd) {
     path.join(cwd, ".memorylayer-hook.env"),
     [
       "MEMORYLAYER_GATEWAY_URL=https://gw.example.com",
-      "MEMORYLAYER_GATEWAY_TOKEN=mlk_test_token",
       "MEMORYLAYER_AUTHOR=Alice",
       "",
     ].join("\n"),
@@ -160,7 +159,7 @@ test("runDoctor passes for a healthy hosted member and skips git checks", async 
   }
 });
 
-test("runDoctor fails when the gateway rejects the token", async () => {
+test("runDoctor fails when the gateway rejects the session", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ml-doc-"));
   try {
     writeRemoteEnv(tmp);
@@ -173,7 +172,28 @@ test("runDoctor fails when the gateway rejects the token", async () => {
       setExitCode: false,
     });
     assert.equal(code, 1);
-    assert.match(lines.join("\n"), /token rejected/);
+    assert.match(lines.join("\n"), /wayform login/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("runDoctor fails with wayform login when hosted and not logged in", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ml-doc-"));
+  try {
+    writeRemoteEnv(tmp);
+    const lines = [];
+    const code = await runDoctor({
+      cwd: tmp,
+      config: { ...remoteCfg(), gatewayToken: undefined },
+      fetchImpl: async () => {
+        throw new Error("must not fetch without a token");
+      },
+      write: (line) => lines.push(line),
+      setExitCode: false,
+    });
+    assert.equal(code, 1);
+    assert.match(lines.join("\n"), /wayform login/);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

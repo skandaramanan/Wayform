@@ -1,0 +1,11 @@
+# Wayform MCP — project-scoped Codex config. URL + OAuth only; no member token.
+# Codex loads this when the project is trusted. Run: codex mcp login wayform
+[mcp_servers.wayform]
+url = "https://memorylayer-gateway.memory-layer.workers.dev/mcp"
+auth = "oauth"
+
+[mcp_servers.wayform.tools.read_context]
+approval_mode = "approve"
+
+[mcp_servers.wayform.tools.search_memory]
+approval_mode = "approve"
