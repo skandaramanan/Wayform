@@ -509,7 +509,56 @@ test("gateway-only hook fails open (no clone, unreachable gateway) and writes no
   }
 });
 
-test("init --remote writes URL-only configs and never a member token", () => {
+test("init --remote --yes writes no vendor folders when the repo has none", () => {
+  const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "ml-initremote-empty-"));
+  execFileSync("git", ["init", "-q"], { cwd });
+  try {
+    execFileSync(
+      process.execPath,
+      [
+        cliPath,
+        "init",
+        "--remote",
+        "--gateway",
+        "https://gw.example.com",
+        "--project",
+        "acme-eng",
+        "--author",
+        "Dana",
+        "--email",
+        "dana@acme.com",
+        "--yes",
+      ],
+      { cwd, encoding: "utf8", env: { PATH: "" } },
+    );
+
+    const env = fs.readFileSync(
+      path.join(cwd, ".memorylayer-hook.env"),
+      "utf8",
+    );
+    assert.match(env, /MEMORYLAYER_GATEWAY_URL=https:\/\/gw\.example\.com/);
+    assert.doesNotMatch(env, /MEMORYLAYER_GATEWAY_TOKEN/);
+    assert.doesNotMatch(env, /mlk_/);
+
+    for (const p of [
+      ".cursor",
+      ".claude",
+      ".codex",
+      ".devin",
+      ".agents",
+      ".mcp.json",
+    ]) {
+      assert.ok(
+        !fs.existsSync(path.join(cwd, p)),
+        `must not dump unused ${p}`,
+      );
+    }
+  } finally {
+    fs.rmSync(cwd, { recursive: true, force: true });
+  }
+});
+
+test("init --remote --clients cursor,claude writes URL-only configs and skips the rest", () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "ml-initremote-"));
   execFileSync("git", ["init", "-q"], { cwd });
   try {
@@ -528,6 +577,8 @@ test("init --remote writes URL-only configs and never a member token", () => {
         "--email",
         "dana@acme.com",
         "--yes",
+        "--clients",
+        "cursor,claude",
       ],
       { cwd, encoding: "utf8", env: { PATH: "" } },
     );
@@ -559,19 +610,9 @@ test("init --remote writes URL-only configs and never a member token", () => {
     );
     assert.equal(claudeMcp.mcpServers.wayform.command, undefined);
 
-    const devinMcp = JSON.parse(
-      fs.readFileSync(path.join(cwd, ".devin/mcp_config.json"), "utf8"),
-    );
-    assert.equal(devinMcp.mcpServers.wayform.url, "https://gw.example.com/mcp");
-    assert.equal(devinMcp.mcpServers.wayform.transport, "http");
-
-    const agy = JSON.parse(
-      fs.readFileSync(path.join(cwd, ".agents/mcp_config.json"), "utf8"),
-    );
-    assert.equal(
-      agy.mcpServers.wayform.serverUrl,
-      "https://gw.example.com/mcp",
-    );
+    assert.ok(!fs.existsSync(path.join(cwd, ".devin")));
+    assert.ok(!fs.existsSync(path.join(cwd, ".agents")));
+    assert.ok(!fs.existsSync(path.join(cwd, ".codex")));
 
     const gi = fs.readFileSync(path.join(cwd, ".gitignore"), "utf8");
     assert.doesNotMatch(gi, /^\.cursor\/mcp\.json$/m);
