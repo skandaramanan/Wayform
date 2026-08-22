@@ -1,21 +1,31 @@
-# MemoryLayer Hosted Gateway
+# Wayform Hosted Gateway
 
-Stateless MCP-over-HTTP gateway on Cloudflare Workers. Same two tools as the
-local stdio server (`read_context`, `write_context`), same on-disk entry
-format, stored in a GitHub-App-managed **private repo per team space**. Members
-join with a URL and a token — no git credentials, no local install.
+Stateless MCP-over-HTTP gateway on Cloudflare Workers. Same tools as the local
+CLI (`read_context`, `write_context`, `search_memory`, plus in-agent invite),
+same on-disk entry format, stored in a GitHub-App-managed **private repo per
+team space**. Members sign in with GitHub. They never copy a Wayform token.
+
+Production:
+
+- Gateway: `https://memorylayer-gateway.memory-layer.workers.dev`
+- GitHub App: `https://github.com/apps/memorylayer-gateway`
+- CLI: `wayform`
 
 There are three roles in a hosted deployment:
 
 | Role | Does what | How often |
 |---|---|---|
-| **Gateway operator** | Deploys the Worker, owns the GitHub App and the admin secret | Once |
-| **Team leader** | Creates their team's space: one private repo + App install; requests member tokens | Once per team |
-| **Member** | Pastes a URL + token into their MCP client | Once per person |
+| **Gateway operator** | Deploys the Worker, owns the GitHub App, allowlists new teams | Once, then one KV put per new client |
+| **Team leader** | Creates a private memory repo, clicks Connect, installs the App on that repo | Once per team |
+| **Member** | Clicks Connect (or `claude mcp login` / `codex mcp login` / `wayform login`) | Once per person |
 
 One gateway serves many spaces. Spaces cannot see each other — isolation is
 enforced by GitHub's own repo permissions, not by gateway code (see
 [Tenancy model](#tenancy-model)).
+
+Invite codes (`wfi_`) and member API keys (`mlk_`) are **retired**. See
+[Tenancy model](#tenancy-model). The 2026-07-20 invite-code join design is
+superseded by GitHub-username invite + OAuth.
 
 ---
 
@@ -32,26 +42,31 @@ npx wrangler login                        # browser auth
 npx wrangler kv namespace create ROUTING  # prints an id
 ```
 
-Paste the printed id into `wrangler.toml` (`kv_namespaces` → `id`).
+Paste the printed id into `wrangler.toml` (`kv_namespaces` → `id` for both
+`ROUTING` and `OAUTH_KV`; they may share one namespace until grants need
+isolation). Enable `global_fetch_strictly_public` (already in `wrangler.toml`)
+so CIMD is advertised.
 
 ### 1.2 GitHub App: create it
 
-At <https://github.com/settings/apps> → **New GitHub App**:
+At <https://github.com/settings/apps> → **New GitHub App** (production App is
+already `memorylayer-gateway`):
 
 - **Name:** anything globally unique (e.g. `memorylayer-gateway-<you>`)
 - **Homepage URL:** this repo's URL
-- **Webhook:** ⚠️ *uncheck "Active"* (no webhook needed)
-- **Repository permissions:** **Contents → Read and write.** Nothing else.
-- **Where can this App be installed?** — this choice matters:
-  - *Only on this account* → only repos you own can be spaces (fine for
-    dogfood)
-  - **Any account** → team leaders can host their space repo in *their own*
-    GitHub account, which is the intended multi-team model. **Pick this (or
-    flip it later under App settings → Advanced) before onboarding an external
-    team** — otherwise their App install will fail.
+- **Callback URL:** `https://<gateway>/callback`
+- **Webhook:** **Active**. Payload URL `https://<gateway>/webhook/github`,
+  content type `application/json`, secret = `WEBHOOK_SECRET`. Subscribe to
+  **Meta** plus **Installation**, **Installation repositories**, **Push**, and
+  **Pull request** (merged-PR recorder).
+- **Permissions:** Repository **Contents → Read and write**. Pull requests
+  **Read** if you use the merged-PR recorder.
+- **Where can this App be installed?** **Any account** so team leaders host
+  the memory repo in their own GitHub.
 
-After creating: note the **App ID** (top of the App settings page), then
-**Generate a private key** (downloads a `.pem`).
+After creating: note the **App ID** (numeric) and the **Client ID** (`Iv1.…` —
+this is `GITHUB_CLIENT_ID`, not the App ID). Generate a private key (`.pem`)
+and a **Client secret** (`GITHUB_CLIENT_SECRET`).
 
 ### 1.3 Convert the key and set secrets
 
@@ -61,11 +76,14 @@ GitHub ships the key as PKCS#1; Workers' WebCrypto needs PKCS#8:
 openssl pkcs8 -topk8 -inform PEM -outform PEM -nocrypt \
   -in ~/Downloads/<your-app>.*.private-key.pem -out app-pkcs8.pem
 
-npx wrangler secret put GITHUB_APP_ID                      # the App ID number
+npx wrangler secret put GITHUB_APP_ID                      # numeric App ID
 npx wrangler secret put GITHUB_APP_PRIVATE_KEY < app-pkcs8.pem
-openssl rand -hex 32                                       # generate admin secret
-npx wrangler secret put ADMIN_SECRET                       # paste it; ALSO save it
-                                                           # in a password manager
+npx wrangler secret put GITHUB_CLIENT_ID                   # Iv1.…
+npx wrangler secret put GITHUB_CLIENT_SECRET               # App client secret
+openssl rand -hex 32
+npx wrangler secret put ADMIN_SECRET                       # operator eval/allowlist only
+openssl rand -hex 32
+npx wrangler secret put WEBHOOK_SECRET                     # GitHub App webhook HMAC
 npm run deploy
 rm app-pkcs8.pem                                           # never leave the key on disk
 ```
@@ -76,22 +94,30 @@ rm app-pkcs8.pem                                           # never leave the key
 
 ```bash
 curl --tlsv1.2 -s https://<gateway>/health     # → {"ok":true}
+curl --tlsv1.2 -s https://<gateway>/mcp        # → 401 + WWW-Authenticate
 ```
 
 (macOS system curl needs `--tlsv1.2` against workers.dev — a LibreSSL quirk;
 SDK clients are unaffected.)
 
-The **admin secret is the master key for minting member tokens** — treat it
-like a root credential. If it ever leaks, re-run
-`npx wrangler secret put ADMIN_SECRET` with a new value; existing member
-tokens keep working.
+`ADMIN_SECRET` gates operator routes only (`/admin/allowlist`, reindex, eval,
+product-repos). It does **not** mint members. If it leaks, rotate it with
+`npx wrangler secret put ADMIN_SECRET`; GitHub identities are unchanged.
+
+Allowlist a new team (no secret is created or sent to them):
+
+```bash
+curl --tlsv1.2 -s -X POST https://<gateway>/admin/allowlist \
+  -H "x-admin-secret: $ADMIN_SECRET" -H "content-type: application/json" \
+  -d '{"add":["their-github-login-or-org"]}'
+```
 
 ---
 
 ## Part 2 — Team leader: onboard your team's space
 
-You need: a GitHub account, ~10 minutes, and the gateway operator reachable
-(they run one command per member for you).
+You need: a GitHub account and the MCP URL from the operator. The operator
+does **not** create your repo, install the App, or send a token.
 
 ### 2.1 Create the space repo
 
@@ -100,119 +126,98 @@ is fine, but it must have at least one commit on `main` (initialize with a
 README). This repo **is** your team's memory: every decision lands here as a
 commit, and you keep full ownership and history.
 
-### 2.2 Install the GitHub App on that repo — and only that repo
+### 2.2 Connect and install the GitHub App
 
-Open the App's install page (the operator gives you the link,
-`https://github.com/apps/<app-name>`) → **Install** → choose your account →
-**"Only select repositories"** → pick your space repo → Install.
+In Cursor (or Claude/Codex), add an MCP server with this URL and nothing else:
 
-You land on `github.com/settings/installations/<NUMBER>` — that number is your
-**installation id**. Send it to the operator along with your repo's
-owner/name.
+`https://memorylayer-gateway.memory-layer.workers.dev/mcp`
+
+Click **Connect**. Browser opens GitHub. Log in and authorize. When GitHub
+asks which repos to install the Wayform app on, pick **only** that private
+memory repo.
+
+Because the operator already allowlisted you, Wayform activates the space.
+You are admin. Writes are attributed to your GitHub name.
+
+If you were not on the allowlist, GitHub login still works, then you get a
+design-partner preview page. No space, no writes, no extract.
 
 > Why this is safe to install: the App gets **Contents read/write on exactly
 > the repo you selected** — GitHub enforces that scope, not the gateway. It
 > cannot see your other repos. Uninstalling it (repo settings → Integrations)
 > instantly cuts the whole space off.
 
-### 2.3 Get member tokens minted (operator runs this)
-
-One per member — each token carries that member's identity, which becomes the
-commit attribution on everything they write:
+### 2.3 Hook login (once per machine)
 
 ```bash
-curl --tlsv1.2 -s -X POST https://<gateway>/admin/members \
-  -H "x-admin-secret: $ADMIN_SECRET" -H "content-type: application/json" \
-  -d '{
-    "space": "yourteam",
-    "installationId": <NUMBER>,
-    "owner": "<github-user>",
-    "repo": "yourteam-memory",
-    "author": "Ada Lovelace",
-    "authorEmail": "ada@yourteam.io"
-  }'
-# → {"token":"mlk_...","member":{...}}
+npm i -g wayform
+wayform init --remote --yes
+wayform login
+wayform doctor
 ```
 
-Notes for the operator:
+Restart the agent. Session-start hooks send a short-lived Bearer from the OS
+keychain. If you are logged out they fail-open (existing contract); doctor
+says `run: wayform login`.
 
-- `branch` defaults to `main`; pass it only for a non-default branch.
-- **The raw token is shown exactly once** and stored server-side only as a
-  SHA-256 hash. Before handing it off, record its hash so you can revoke it
-  later: `printf '%s' 'mlk_...' | shasum -a 256`.
-- Deliver tokens over a reasonable channel (password manager share, not group
-  chat).
+### 2.4 Verify the space works (~1 minute)
 
-### 2.4 Hand each member their config
+Ask the agent to record a test decision, start a new chat, and confirm it is
+already in context. Check the memory repo on GitHub: a new commit, authored
+as you.
 
-Each member gets: the gateway URL + their personal `mlk_...` token. That's the
-entire onboarding. See Part 3.
-
-### 2.5 Verify the space works (leader smoke test, ~1 minute)
-
-```bash
-TOK=mlk_...   # your own member token
-curl --tlsv1.2 -s -X POST https://<gateway>/mcp \
-  -H "authorization: Bearer $TOK" -H "content-type: application/json" \
-  -d '{"jsonrpc":"2.0","id":1,"method":"tools/call","params":{"name":"write_context","arguments":{"project":"onboarding","type":"context","payload":"space is live"}}}'
-```
-
-Expect `"Recorded context in 'onboarding' as <you> ..."` — then check your
-space repo on GitHub: there's a new commit, authored by you, containing
-`context/onboarding/<you>/....md`. That commit is the product working.
-
-### 2.6 Ongoing space administration
+### 2.5 Ongoing space administration (in-agent, no dashboard)
 
 | Need | How |
 |---|---|
-| Add a member | Operator mints another token (2.3). |
-| Remove a member | Operator deletes their KV record: `npx wrangler kv key delete --namespace-id <KV_ID> "member:<sha256-of-token>"` (this is why 2.3 records hashes). Takes effect immediately. |
-| Member lost their token | Revoke the old one (above), mint a new one. Tokens are never recoverable — only replaceable. |
-| Nuke the whole space | Uninstall the App from the repo (repo → Settings → GitHub Apps). Every member's access dies at once; your repo and its history remain yours, untouched. |
-| Read the memory as a human | It's a git repo — browse it on GitHub or clone it. Entries are plain markdown with frontmatter. |
-| Use hosted + local together | Fine by design: local (git-token) members and hosted members can share one space repo — entries are byte-identical. |
+| Add a member | In Cursor: `invite <github-username> to this Wayform space` (`invite_member`). They click Connect. |
+| Org teammate | Installing the App on an org repo auto-joins org members who OAuth in. |
+| Remove a member | `revoke_member` with their GitHub username. |
+| Nuke the whole space | Uninstall the App from the repo. Every member's GitHub writes die; the repo stays yours. |
+| Read the memory as a human | It's a git repo — browse it on GitHub or clone it. |
 
 ---
 
 ## Part 3 — Member: connect your client
 
-Any MCP client that speaks Streamable HTTP. The token can travel two ways:
+Config files contain **only** the MCP URL. Tokens live in the client / OS
+keychain after browser OAuth.
 
-**Header (preferred).** For clients that let you set request headers (Claude
-Code, Cursor):
+**Cursor**
 
 ```json
-{
-  "url": "https://<gateway>/mcp",
-  "headers": { "Authorization": "Bearer mlk_..." }
-}
+{ "mcpServers": { "wayform": { "url": "https://memorylayer-gateway.memory-layer.workers.dev/mcp" } } }
 ```
 
-**Token in the URL.** For clients whose connector UI takes *only* a URL and no
-header field — **ChatGPT's custom connector** is the common case (its auth
-dropdown offers only "No Auth" or "OAuth"). Put the token in the path and pick
-**No Auth**:
+Click **Connect**.
 
+**Claude Code**
+
+```bash
+claude mcp add --transport http wayform https://memorylayer-gateway.memory-layer.workers.dev/mcp
+claude mcp login wayform
 ```
-https://<gateway>/mcp/mlk_...
+
+No `--header`.
+
+**Codex**
+
+```toml
+[mcp_servers.wayform]
+url = "https://memorylayer-gateway.memory-layer.workers.dev/mcp"
+auth = "oauth"
 ```
 
-(A `?key=mlk_...` query param works too.) The header wins if both are present.
+Then `codex mcp login wayform`.
 
-> ⚠️ A token in a URL is more exposed than a header — it lands in browser
-> history, proxy/access logs, and screenshots. Mint a **client-specific token**
-> for URL use (Part 2.3) so a leak is revocable on its own, without cutting off
-> your header-based members.
+**Hooks**
 
-For Claude Code, the header form is an entry in `.mcp.json`; most other MCP
-clients have an equivalent HTTP-server config. Either way you get
-`read_context` and `write_context` immediately.
+`.memorylayer-hook.env` has URL + project + author only. Once per machine:
+`wayform login`. Commit the URL-only MCP configs to the **product** repo so
+later teammates only click Connect.
 
-Session-start auto-injection for hosted members (the `/hook/read` endpoint
-below) has a thin client shim coming in the next increment (`init --remote`);
-until then, hosted members read via the MCP tool.
-
----
+ChatGPT custom connectors with a path token (`/mcp/mlk_…`) are **out of
+scope**. Headless grants are not part of this onboarding.
 
 ## Relevance index (Phase A)
 
@@ -241,21 +246,18 @@ The `[ai]` binding (Workers AI, model `@cf/baai/bge-base-en-v1.5`) and the
 binding the pipeline still runs keyword (BM25) ranking; embeddings just make
 paraphrase matches work too.
 
-### GitHub App webhook (indexes local-plane `git push` writes)
+### GitHub App webhook events
 
-In the App settings → **Webhook**: set **Active**, **Payload URL**
-`https://<gateway>/webhook/github`, **Content type** `application/json`,
-**Secret** = the same `WEBHOOK_SECRET`, and subscribe to **Pushes only**. A
-member's `git push` is then indexed within seconds; a missed webhook is caught
+Part 1.2 already enables the webhook. Subscribe to **Pushes**, **Installation**,
+and **Installation repositories** (plus **Pull request** if you use the merged-PR
+recorder). Pushes index the ledger within seconds; a missed webhook is caught
 by the cron reconciler within 15 minutes (it compares each space's indexed sha
-to the ledger HEAD).
+to the ledger HEAD). Installation events provision the space.
 
 ### Backfill existing entries
 
-The spaces registry is populated as members are minted. For spaces minted
-before this release, re-run the mint (2.3) once per space (or re-POST the same
-member body) so the repo registers, then rebuild every registered space from
-the ledger:
+The spaces registry is populated when a GitHub App installation is activated.
+Rebuild every registered space from the ledger:
 
 ```bash
 curl --tlsv1.2 -s -X POST https://<gateway>/admin/reindex \
@@ -277,16 +279,10 @@ curl --tlsv1.2 -s -X POST https://<gateway>/admin/reindex \
 
 ### Local client: turn on remote-first reads
 
-Set these in a project's `.memorylayer-hook.env` (or the environment):
-
-```
-MEMORYLAYER_GATEWAY_URL=https://<gateway>
-MEMORYLAYER_GATEWAY_TOKEN=mlk_...
-```
-
-The session hook and `read_context`/`search_memory` then read from the gateway
-index, falling back to the local clone when the gateway is unreachable. Without
-these vars (or offline), the CLI behaves exactly as before.
+`.memorylayer-hook.env` keeps the gateway URL + identity only. After
+`wayform login`, the session hook and `read_context`/`search_memory` send a
+short-lived Bearer from the OS keychain, falling back to the local clone when
+the gateway is unreachable (hosted-only members fail-open to empty context).
 
 ### Degradation (every layer fails open)
 
@@ -397,60 +393,74 @@ false supersessions on the sample at pilot scale).
 
 ### Endpoints
 
-- `POST /mcp` — MCP Streamable HTTP (stateless JSON). Token via
-  `Authorization: Bearer mlk_...`, or `POST /mcp/mlk_...` / `?key=mlk_...` for
-  header-less clients (header wins if both are sent).
-- `GET /hook/read?project=<name>[&budget=<n>]` — plain-text, ready-to-inject
-  session context (60s per-space cache, invalidated on write; empty 200 body
-  when the project has no entries)
+OAuth 2.1 (MCP clients; `workers-oauth-provider`):
+
+- `GET /.well-known/oauth-protected-resource` — RFC 9728 metadata
+- `GET /.well-known/oauth-authorization-server` — AS metadata (PKCE S256)
+- `POST /oauth/register` — dynamic client registration
+- `GET /authorize`, `POST /authorize/consent`, `GET /callback` — GitHub App user OAuth
+- `POST /oauth/token` — authorization_code / refresh_token
+
+Member plane (OAuth access token required; unauthenticated and `mlk_` bearers get `401` + `WWW-Authenticate`):
+
+- `POST /mcp` — MCP Streamable HTTP
+- `GET /hook/read?project=<name>[&budget=<n>]` — session-start briefing
+- `POST /hook/prompt` — Claude UserPromptSubmit injection
 - `GET /api/read?project=<name>[&query=<q>][&budget=<n>][&kinds=a,b][&trigger=<t>]`
-  — JSON read (`{text,total,matched}`); `query` runs the relevance pipeline,
-  absent = recency read. `Authorization: Bearer mlk_...`
-- `POST /webhook/github` — GitHub push webhook (HMAC-signed, `WEBHOOK_SECRET`)
-- `POST /admin/reindex` — rebuild spaces from the ledger (`x-admin-secret`);
-  optional body `{"repo":"owner/name","clearSupersession":true}` to wipe
-  `superseded_by` edges before rebuild
-- `GET /admin/supersession-audit?space=<s>&limit=<n>[&auto_linked_only=0]` —
-  supersession audit log (`x-admin-secret`)
-- `POST /admin/clear-supersession` — body `{"space":"<s>"}`; clears all
-  `superseded_by` edges (`x-admin-secret`)
-- `POST /admin/members` — mint a member token (`x-admin-secret` header)
+
+Outside the member OAuth plane:
+
+- `POST /webhook/github` — GitHub App webhook (HMAC-signed, `WEBHOOK_SECRET`)
+- `POST /admin/allowlist` — `{ "add": ["login-or-org"] }` (`x-admin-secret`)
+- `GET /admin/allowlist`
+- `POST /admin/reindex` — rebuild spaces from the ledger (`x-admin-secret`)
+- `GET /admin/supersession-audit`, `POST /admin/clear-supersession`
+- `POST /admin/product-repos` — merged-PR recorder registry
+- `GET /admin/installations?owner=` — lookup App installation id
 - `GET /health`
+
+Retired (404): `POST /admin/members`, `POST /admin/invites`, `POST /join`.
+`ADMIN_SECRET` is **not** used to mint members.
 
 ### Tenancy model
 
 One private GitHub repo per space; the App is installed on exactly that repo.
-A member token maps (via SHA-256 hash in Workers KV) to one space record;
-every GitHub call uses a per-installation token that **GitHub itself** scopes
-to that one repo. No authenticated API surface accepts a repo/space parameter
-— a routing bug cannot cross tenants because the credential can't.
-`write_context.author` is ignored: attribution always comes from the
-authenticated token, so members cannot write as each other.
+Members are keyed by `github_id` after GitHub App user-to-server OAuth. Every
+GitHub call uses a per-installation token that **GitHub itself** scopes to that
+one repo. No authenticated API surface accepts a repo/space parameter.
+`write_context.author` is ignored: attribution comes from the GitHub user.
 
-### Limits (Workers free plan — $0 at pilot scale)
+New spaces activate only if the repo owner or org is on the KV allowlist
+(`signup:allowlist`). Teammates of an already-active space OAuth in without
+being on the list (org membership or `invite_member`). Unknown installers see
+a design-partner preview page — no space, no writes, no extract. Space records
+carry `plan=pilot` for later billing; extract spend stays on the account-wide
+neuron cap.
+
+### Limits (Workers free plan)
 
 - 100k requests/day, no cold-sleep (isolates, not containers).
 - 50 subrequests/request → reads fetch at most the **40 newest** entry files
   (`MAX_ENTRY_FETCH`); `total` still reports the full count.
 - GitHub API: 5,000 req/hr **per installation** — every space gets its own
   quota by design.
+- Workers AI: account-wide neuron budget (see `neuron-budget.ts`).
 
 ### Troubleshooting
 
 | Symptom | Likely cause |
 |---|---|
 | `curl` TLS handshake failure on macOS | Add `--tlsv1.2` (LibreSSL quirk; workers.dev only). |
-| `401` on `/mcp` or `/hook/read` | Missing/typo'd `Authorization: Bearer` header, or the token was revoked. |
-| ChatGPT "Error creating connector" with No Auth on `/mcp` | No token — ChatGPT's connector has no header field, so it sends none and the `initialize` probe 401s. Use the URL-token form: `/mcp/mlk_...`. |
-| `403` on `/admin/members` | Wrong `x-admin-secret`. |
-| Write fails with `404`/`installation token exchange failed` | App not installed on that repo, wrong `installationId`, or owner/repo typo in the member record. Re-check 2.2's number. |
-| Write fails with `409`/branch error | Space repo has no commits, or member record's `branch` doesn't exist. Initialize the repo with a README. |
-| Reads return nothing but writes work | Project names are slugged (lowercased, punctuation → `-`): `"My Project"` and `my-project` are the same space-project; a different spelling is a different one. |
+| `401` on `/mcp` or `/hook/read` | Not logged in, or the OAuth grant expired. Click Connect / `wayform login`. `mlk_` bearers are rejected. |
+| Browser shows design-partner preview | GitHub user/org is not on the allowlist and they are not joining an existing space. |
+| `403` on `/admin/allowlist` | Wrong `x-admin-secret`. |
+| Write fails with `404`/`installation token exchange failed` | App not installed on that repo, or the installation was suspended/deleted. |
+| Write fails with `409`/branch error | Space repo has no commits, or the space record's `branch` doesn't exist. Initialize the repo with a README. |
+| Reads return nothing but writes work | Project names are slugged (lowercased, punctuation → `-`). |
 | Team leader can't install the App | App is set to "Only on this account" — operator flips it to "Any account" (App settings → Advanced). |
 
 ### Deploy internals
 
-Full provisioning + smoke runbook (with expected outputs):
-`docs/plans/2026-07-05-hosted-gateway-core.md`, Task 8. Development:
-`npm test` in this directory (Node ≥ 20); the Worker entry is
-`dist/gateway/src/worker.js` after `npm run build`.
+Full provisioning notes live with the Worker. Development: `npm test` in this
+directory (Node ≥ 20); the Worker entry is `dist/gateway/src/worker.js` after
+`npm run build`.
