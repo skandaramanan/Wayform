@@ -29,8 +29,8 @@ regexes = [
   '''<token>''',
   '''your_''',
 ]
-# The token *prefixes* live in gateway source (newToken/newInviteCode) and in
-# docs as literal strings — those are patterns, not secrets.
+# The token *prefixes* used to be minted in gateway source. Minting is gone;
+# keep the regexes during migration so a leaked leftover still fails CI.
 paths = [
   '''gateway/src/tenancy\.ts''',
   '''gateway/src/invites\.ts''',

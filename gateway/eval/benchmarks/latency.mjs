@@ -3,7 +3,7 @@
  * Gateway latency harness (remote MCP / HTTP only).
  *
  * Usage:
- *   MEMORYLAYER_GATEWAY_URL=https://… MEMORYLAYER_GATEWAY_TOKEN=mlk_… \
+ *   MEMORYLAYER_GATEWAY_URL=https://… MEMORYLAYER_GATEWAY_TOKEN=<oauth access token> \
  *     node gateway/eval/benchmarks/latency.mjs [--project memorylayer] [--runs 5]
  *
  * Measures cold vs warm /hook/read, queryless vs queried /api/read, and MCP

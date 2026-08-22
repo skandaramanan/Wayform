@@ -43,7 +43,7 @@ export async function resolveMember(
 }
 
 /** Single-key registry mapping "owner/repo" -> SpaceRepo, maintained on
- *  member mint. Powers webhook repo->space lookup and cron reconciliation.
+ *  member placement. Powers webhook repo->space lookup and cron reconciliation.
  *  One JSON blob is fine at pilot scale (a handful of spaces). */
 const REGISTRY_KEY = "spaces:registry";
 

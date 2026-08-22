@@ -13,7 +13,8 @@ Product plane is the **hosted gateway**. Do not measure local stdio MCP.
 
 ```bash
 export MEMORYLAYER_GATEWAY_URL=https://your-gateway
-export MEMORYLAYER_GATEWAY_TOKEN=mlk_…
+# short-lived OAuth access token from `wayform login` (never commit)
+export MEMORYLAYER_GATEWAY_TOKEN=…access_token…
 node gateway/eval/benchmarks/latency.mjs --project memorylayer --runs 5
 node gateway/eval/benchmarks/invocation-rate.mjs
 # optional auto-run:

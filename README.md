@@ -75,7 +75,7 @@ or SSH. No accounts, no separate auth.
 From your project repo:
 
 ```bash
-memorylayer init
+wayform init
 ```
 
 `init` writes, idempotently and without clobbering existing config:
@@ -89,7 +89,7 @@ memorylayer init
 - Your per-user, **gitignored** `.memorylayer-hook.env` (identity + repo URL —
   secrets never enter git)
 
-One person commits the project configs; each teammate runs `memorylayer init`
+One person commits the project configs; each teammate runs `wayform init`
 once to set their own identity. Done — the next coding session in that project
 starts with the team's context already loaded.
 
@@ -100,33 +100,59 @@ anyone pasting it. That round-trip is the product.
 
 ---
 
-## Hosted gateway (beta)
+## Hosted gateway
 
 The local mode above needs each member to hold a git token. The **hosted
-gateway** removes even that: a stateless Cloudflare Worker exposes the same two
-tools over MCP Streamable HTTP, storing to the same kind of private GitHub repo
-via a GitHub App — so joining a team space becomes *paste a URL and a token*.
+gateway** removes even that: a stateless Cloudflare Worker exposes the same
+tools over MCP Streamable HTTP. Identity is **GitHub OAuth** (the same App that
+writes the memory repo). Members never copy, paste, or store a Wayform
+credential.
+
+Every customer is a new team. The operator allowlists their GitHub user or org;
+they create their own private memory repo, click Connect, and install the App
+on that repo only. Teammates are invited in-agent by GitHub username — not with
+a join code.
+
+**Operator (once per client):** add their GitHub login or org to the allowlist,
+then send the MCP URL. Never send a token.
+
+**They do:**
+
+1. On GitHub, create a private repo for team memory (empty is fine).
+2. In Cursor → MCP, add a server with URL
+   `https://memorylayer-gateway.memory-layer.workers.dev/mcp` only — no token,
+   no Authorization header.
+3. Click Connect, log in with GitHub, approve the app. When GitHub asks,
+   install it on **only** that memory repo.
+4. In a terminal: `npm i -g wayform && wayform login` then restart the agent.
+5. Ask it to record a test decision, open a new chat, and check the decision
+   is already there.
+6. Commit that URL-only MCP config to the product repo so teammates only have
+   to click Connect.
+
+Claude Code: `claude mcp add --transport http wayform https://memorylayer-gateway.memory-layer.workers.dev/mcp`
+(no `--header`), then `claude mcp login wayform`. Codex: `url` + `auth = "oauth"`,
+then `codex mcp login wayform`.
 
 - **Same store, same format.** Gateway-written entries are byte-identical to
-  local ones (both planes compile the same serialization module). A space's
-  repo can serve hosted members and local git-token members simultaneously.
+  local ones. Attribution is the GitHub identity that signed in.
 - **Tenant isolation by construction.** One private repo per space; the GitHub
   App is installed on exactly that repo; every request resolves to a
   per-installation token that GitHub itself scopes to that one repo. No API
-  surface accepts a repo/space parameter, so a routing bug cannot cross
-  tenants. Member tokens are stored only as SHA-256 hashes.
-- **Works with closed clients.** Anything that speaks MCP over HTTP — including
-  clients that can't run local hooks — configures:
+  surface accepts a repo/space parameter.
+- **Config files are secret-free and committable:**
 
 ```json
-{ "url": "https://<your-gateway>/mcp",
-  "headers": { "Authorization": "Bearer mlk_..." } }
+{ "mcpServers": { "wayform": { "url": "https://memorylayer-gateway.memory-layer.workers.dev/mcp" } } }
 ```
 
-Endpoints, tenancy model, limits, and the deploy runbook live in
-[gateway/README.md](gateway/README.md). Client-side hook shims for the gateway
-ship today: `wayform init --remote --gateway <url> --invite <code>` wires an
-agent to a hosted space, and `wayform doctor` verifies the round trip.
+`wayform init --remote` writes those configs plus URL-only hook env.
+`wayform login` puts the short-lived access token in the OS keychain.
+`wayform doctor` says "run wayform login" when the session is missing — never
+"paste a token".
+
+Endpoints, allowlist, and the deploy runbook live in
+[gateway/README.md](gateway/README.md).
 
 ---
 
@@ -171,8 +197,9 @@ coding session. (The flip side: failures are quiet — that's what `doctor` is
 for.)
 
 **Claude Desktop** has no hook system, so it's MCP-pull-only: register
-`memorylayer` as a stdio server (or point Desktop at the hosted gateway) and it
-reads when the model chooses to — path 1 is your write path there.
+`wayform` as a stdio server (or point Desktop at the hosted gateway URL and
+Connect) and it reads when the model chooses to — path 1 is your write path
+there.
 
 ## Configuration (`.memorylayer-hook.env`)
 
@@ -182,7 +209,8 @@ into hook subprocesses:
 
 | Var | Required | Meaning |
 |-----|----------|---------|
-| `CONTEXT_REPO_URL` | yes | Shared context repo URL (may embed a token). |
+| `CONTEXT_REPO_URL` | local mode | Shared context repo URL (may embed a git token). |
+| `MEMORYLAYER_GATEWAY_URL` | hosted mode | Gateway base URL. Presence selects hosted (no clone). |
 | `MEMORYLAYER_AUTHOR` | yes | Your name — commit author / attribution. |
 | `MEMORYLAYER_AUTHOR_EMAIL` | no | Commit email. Defaults from author name. |
 | `MEMORYLAYER_PROJECT` | no | Project/space name. Default: repo directory name. |
@@ -190,10 +218,13 @@ into hook subprocesses:
 | `MEMORYLAYER_READ_BUDGET_TOKENS` | no | Read token budget. Default 4000; `<=0` = unlimited. |
 | `MEMORYLAYER_AUTO_PUSH` | no | `false` to skip pushing (local smoke tests). |
 
+Hosted hook env has **no** `MEMORYLAYER_GATEWAY_TOKEN`. Session tokens live in
+the OS keychain after `wayform login`.
+
 ## Diagnostics
 
 ```bash
-memorylayer doctor
+wayform doctor
 ```
 
 Read-only. Checks the env file, resolved config, clone health and origin,
@@ -209,9 +240,9 @@ write "silently" does nothing — fail-open means problems hide here first.
   `context/`; error output redacts embedded tokens.
 - **Hosted mode:** the gateway is a stateless proxy — the source of truth stays
   a private GitHub repo in *your* account. The App holds Contents-only
-  permission on exactly one repo per space; member bearer tokens are stored
-  only as SHA-256 hashes; the Worker holds secrets in Cloudflare's secret
-  store, never in code or git.
+  permission on exactly one repo per space; members are keyed by GitHub user
+  id after OAuth. The Worker holds operator secrets in Cloudflare's secret
+  store, never in code or git. Members never see a Wayform API key.
 - **Trust boundary to know about:** everything a space member writes is
   injected into every member's sessions. You trust the people in your space —
   that's the model, stated plainly.
@@ -220,24 +251,19 @@ write "silently" does nothing — fail-open means problems hide here first.
 
 | Symptom | Cause & fix |
 |---|---|
-| `memorylayer: command not found` right after `npm install -g github:...` | npm 10 git-global-install bug: the global bin points at an ephemeral cache clone with no files. Fix: the clone-then-install path from the Quickstart, or `npm pack` + `npm install -g ./memorylayer-*.tgz`. |
+| `wayform: command not found` right after `npm install -g github:...` | npm 10 git-global-install bug: the global bin points at an ephemeral cache clone with no files. Fix: the clone-then-install path from the Quickstart, or `npm pack` + `npm install -g ./wayform-*.tgz`. |
 | `ENOTDIR` reinstalling over a previous failed install | Same bug, stale symlink. Remove the target dir shown in the error, then clone-then-install. |
-| Reads/writes silently do nothing | `memorylayer doctor`. Most common: missing `.memorylayer-hook.env`, no repo access, or unpushed local commits (self-heals on next read). |
+| Reads/writes silently do nothing | `wayform doctor`. Hosted: usually `wayform login`. Local: missing `.memorylayer-hook.env`, no repo access, or unpushed local commits (self-heals on next read). |
 | Teammates still see old behavior after an upgrade | The fix lives in the **global binary** — each teammate must reinstall it (committed project configs aren't enough), and a running MCP server needs a restart to pick it up. |
 | macOS `curl` fails TLS against the hosted gateway (`workers.dev`) | LibreSSL negotiation quirk — add `--tlsv1.2`. Client-side only; SDK-based MCP clients are unaffected. |
 
 ## Project status
 
-Working and in daily two-person dogfood; hosted gateway deployed and
-smoke-tested end-to-end (including live interop: a gateway-written entry read
-byte-intact by the local tool). Currently running a multi-week reliance pilot —
-the success signal is a collaborator who **stops re-explaining decisions**
-because they trust the shared space.
+Working and in daily two-person dogfood on GitHub OAuth (no member API keys).
+Hosted onboarding is Connect + GitHub App install on your private memory repo.
 
-**Deliberately not built yet** (gated on the pilot proving pull): context
-graph/index, dashboard UI, accounts/RBAC, summarization/RAG, custom merge
-engine (git *is* the merge engine). Next increments: gateway client shims
-(`init --remote`), space-provisioning CLI.
+**Deliberately not built yet:** Stripe/paid plans, per-space extract caps,
+dashboard UI, custom merge engine (git *is* the merge engine).
 
 ## Repo layout
 
@@ -255,7 +281,7 @@ test/           node:test suites (gateway has its own under gateway/test/)
 ```bash
 npm test                # build + full local suite, lint: npm run lint
 npm run test:gateway    # gateway suite (Node >= 20)
-memorylayer --help      # subcommands: init, hook, stop-review, doctor
+wayform --help          # subcommands: init, login, hook, doctor, space
 ```
 
 Both planes share the entry format modules (`src/frontmatter.ts`,
