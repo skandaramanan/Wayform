@@ -1,6 +1,6 @@
 {
   "name": "wayform",
-  "version": "0.1.8",
+  "version": "0.2.0",
   "description": "Vendor-neutral multiplayer planning memory: a git-backed MCP server that shares planning context across Claude, Cursor, and Codex.",
   "type": "module",
   "bin": {

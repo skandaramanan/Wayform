@@ -32,7 +32,6 @@ test("tracked onboarding artifacts enforce the credential-free contract", () => 
     "gateway/README.md",
     "gateway/eval/benchmarks/README.md",
     "gateway/eval/benchmarks/latency.mjs",
-    "docs/superpowers/specs/2026-07-20-invite-code-join-design.md",
     ".claude/settings.json",
   ];
   for (const relative of artifacts) {
