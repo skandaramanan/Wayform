@@ -18,6 +18,7 @@
  * client's empty no-op and exit 0, so the session starts as if no hook existed.
  */
 import { loadConfig, defaultProject } from "./config.js";
+import { hydrateGatewayTokenFromKeychain } from "./keychain.js";
 import { ContextStore } from "./store.js";
 import { remoteHookRead } from "./remote-read.js";
 import { projectContext } from "./context-format.js";
@@ -59,6 +60,7 @@ export async function runHook(): Promise<void> {
 
     const project = process.env.MEMORYLAYER_PROJECT?.trim() || defaultProject();
 
+    hydrateGatewayTokenFromKeychain();
     const cfg = loadConfig();
 
     // Remote-first (§2.2): the gateway's index serves the read; the local

@@ -344,6 +344,21 @@ test("loadConfig reads gateway url/token; url is trailing-slash-normalized", () 
   );
 });
 
+test("loadConfig treats a gateway URL without a token as hosted (no clone)", () => {
+  withEnv(
+    {
+      MEMORYLAYER_AUTHOR: "A",
+      MEMORYLAYER_GATEWAY_URL: "https://gw.example.com/",
+    },
+    () => {
+      const cfg = loadConfig();
+      assert.equal(cfg.gatewayUrl, "https://gw.example.com");
+      assert.equal(cfg.gatewayToken, undefined);
+      assert.equal(cfg.repoUrl, "");
+    },
+  );
+});
+
 test("loadConfig leaves gateway fields undefined when unset", () => {
   withEnv({ MEMORYLAYER_AUTHOR: "A", CONTEXT_REPO_URL: "u" }, () => {
     const cfg = loadConfig();

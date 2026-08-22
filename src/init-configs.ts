@@ -214,43 +214,26 @@ args = []
 
 /**
  * Native HTTP MCP for a hosted member, written into a project's `.cursor/mcp.json`.
- * This file carries the member token, so `init --remote` MUST gitignore it — it is
- * per-member and never committed. Non-clobbering + idempotent on `wayform`.
+ * URL only — Cursor Connect runs OAuth; no token in the file.
  */
 export function mergeCursorRemoteMcp(
   existing: unknown,
   gatewayUrl: string,
-  token: string,
 ): Json {
   const root = asObject(existing);
   const servers = asObject(root.mcpServers);
-  servers.wayform = {
-    url: `${gatewayUrl}/mcp`,
-    headers: { Authorization: `Bearer ${token}` },
-  };
+  servers.wayform = { url: `${gatewayUrl}/mcp` };
   root.mcpServers = servers;
   return root;
 }
 
 /**
- * Project-scoped Codex MCP block for a HOSTED (gateway) member, written to
- * `.codex/config.toml`. Codex 0.144+ speaks native streamable-HTTP and applies
- * project config for trusted repos, so no global paste and no `mcp-remote`
- * bridge are needed. The member token is inlined as a literal Authorization
- * header via `http_headers` — the same pattern as `.cursor/mcp.json` — because
- * the env-var alternative (`bearer_token_env_var`) requires exporting the token
- * before every launch and fails SILENTLY for IDE-launched Codex (the MCP client
- * never initializes and the model just sees no tools). Codex rejects a literal
- * `bearer_token` field for HTTP servers; `http_headers` is the sanctioned
- * literal path. This file therefore CARRIES THE TOKEN: `init --remote` MUST
- * gitignore it and harden it to 0600.
+ * Project-scoped Codex MCP block for a HOSTED (gateway) member. URL + OAuth;
+ * `codex mcp login wayform` stores tokens outside this file.
  */
-export function codexRemoteConfigToml(
-  gatewayUrl: string,
-  token: string,
-): string {
+export function codexRemoteConfigToml(gatewayUrl: string): string {
   return `[mcp_servers.wayform]
 url = "${gatewayUrl}/mcp"
-http_headers = { Authorization = "Bearer ${token}" }
+auth = "oauth"
 `;
 }

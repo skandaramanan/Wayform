@@ -1,9 +1,8 @@
 /**
  * `wayform init --remote` — wire a HOSTED (gateway) member into the current
- * project. Same LOUD, idempotent posture as local `init`, but writes gateway
- * creds + native HTTP MCP instead of a local clone. Token never touches a
- * committed file (gitignored env + gitignored .cursor/mcp.json and
- * .codex/config.toml + Claude's user-scoped ~/.claude.json).
+ * project. Same LOUD, idempotent posture as local `init`, but writes a gateway
+ * URL + native HTTP MCP instead of a local clone. No member token is written
+ * anywhere: Cursor/Claude/Codex run OAuth; hooks use `wayform login` + keychain.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -22,9 +21,9 @@ import {
   gitConfigDefault,
   ensureGitignore,
   writeSecretFile,
-  hardenSecretFile,
   trustCodexHooks,
 } from "./init-env.js";
+import { DEFAULT_GATEWAY_URL } from "./oauth-login.js";
 
 export type Runner = (cmd: string, args: string[]) => void;
 
@@ -56,13 +55,11 @@ const defaultRunner: Runner = (cmd, args) => {
 
 /**
  * Register the gateway as a project-scoped (`--scope local`) HTTP MCP server for
- * Claude Code. `--scope local` stores config in ~/.claude.json (NOT the repo), so
- * it is project-scoped AND token-safe. Non-fatal: if `claude` is absent the
- * returned command is printed for the member to run by hand.
+ * Claude Code. URL only — `claude mcp login wayform` stores tokens in the
+ * keychain. Non-fatal: if `claude` is absent the returned command is printed.
  */
 export function registerClaudeCodeMcp(
   gatewayUrl: string,
-  token: string,
   run: Runner = defaultRunner,
 ): { ok: boolean; command: string } {
   const args = [
@@ -74,11 +71,8 @@ export function registerClaudeCodeMcp(
     "local",
     "wayform",
     `${gatewayUrl}/mcp`,
-    "--header",
-    `Authorization: Bearer ${token}`,
   ];
-  // Shell-quote the header arg so the printed fallback is copy-paste safe.
-  const command = `claude ${args.map((a) => (a.includes(" ") ? `"${a}"` : a)).join(" ")}`;
+  const command = `claude ${args.join(" ")}`;
   try {
     run("claude", args);
     return { ok: true, command };
@@ -119,32 +113,6 @@ function writeText(cwd: string, rel: string, text: string): void {
   console.log(`  wrote ${rel}`);
 }
 
-/**
- * Exchange a team invite for this member's own personal token via the
- * gateway's public /join. The token is minted server-side and returned
- * exactly once — it exists nowhere but this process until init writes it
- * to the 0600 secret files.
- */
-export async function joinGateway(
-  gatewayUrl: string,
-  invite: string,
-  author: string,
-  email: string,
-  fetchImpl: typeof fetch = fetch,
-): Promise<string> {
-  const res = await fetchImpl(`${gatewayUrl}/join`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ invite, author, authorEmail: email }),
-  });
-  if (!res.ok) {
-    const detail = await res.text();
-    throw new Error(`invite join failed (${res.status}): ${detail}`);
-  }
-  const { token } = (await res.json()) as { token: string };
-  return token;
-}
-
 export async function runInitRemote(args: string[]): Promise<void> {
   const cwd = process.cwd();
   if (!fs.existsSync(path.join(cwd, ".git"))) {
@@ -153,16 +121,11 @@ export async function runInitRemote(args: string[]): Promise<void> {
     );
   }
 
-  const gatewayUrl = (flag(args, "gateway") ?? "").replace(/\/+$/, "");
-  let token = flag(args, "token") ?? "";
-  const inviteCode = flag(args, "invite") ?? "";
-  if (!gatewayUrl || (!token && !inviteCode)) {
-    throw new Error(
-      "wayform init --remote requires --gateway <url> and --token <mlk_...> or --invite <wfi_...>",
-    );
-  }
+  const gatewayUrl = (flag(args, "gateway") ?? DEFAULT_GATEWAY_URL).replace(
+    /\/+$/,
+    "",
+  );
 
-  // Identity (attribution/display; the gateway is authoritative on write).
   const useDefaults = has(args, "yes");
   const rl =
     useDefaults || (flag(args, "author") && flag(args, "email"))
@@ -182,12 +145,6 @@ export async function runInitRemote(args: string[]): Promise<void> {
   const project = flag(args, "project") ?? path.basename(cwd);
   rl?.close();
 
-  if (!token) {
-    token = await joinGateway(gatewayUrl, inviteCode, author, email);
-    console.log("  joined via invite — minted your personal member token");
-  }
-
-  // --- Project tier: session + (Claude) UserPromptSubmit hooks ---
   writeJson(
     cwd,
     ".claude/settings.json",
@@ -206,47 +163,31 @@ export async function runInitRemote(args: string[]): Promise<void> {
     "wayform",
   );
   writeJson(cwd, ".codex/hooks.json", codexHooks);
-  // User tier: codex requires per-hook trust in ~/.codex/config.toml and
-  // silently skips untrusted hooks — grant it for the hooks we just wrote.
   trustCodexHooks(cwd, codexHooks);
 
-  // --- Cursor native HTTP MCP (gitignored — carries the token) ---
   writeJson(
     cwd,
     ".cursor/mcp.json",
     mergeCursorRemoteMcp(
       readJson(path.join(cwd, ".cursor/mcp.json")),
       gatewayUrl,
-      token,
     ),
   );
-  // Token-bearing: tighten to owner-only (writeJson creates at umask default).
-  hardenSecretFile(path.join(cwd, ".cursor/mcp.json"));
+  writeText(cwd, ".codex/config.toml", codexRemoteConfigToml(gatewayUrl));
 
-  // --- Codex native HTTP MCP (project-scoped, gitignored — carries the token) ---
-  writeText(
-    cwd,
-    ".codex/config.toml",
-    codexRemoteConfigToml(gatewayUrl, token),
-  );
-  hardenSecretFile(path.join(cwd, ".codex/config.toml"));
-
-  // --- User tier: gitignored gateway env (hosted-only, no CONTEXT_REPO_URL) ---
   const envFile = path.join(cwd, ".memorylayer-hook.env");
   if (fs.existsSync(envFile) && !has(args, "force")) {
-    hardenSecretFile(envFile); // retro-tighten a pre-existing 0644 file
     console.log(
       "  .memorylayer-hook.env exists — leaving it (use --force to rewrite).",
     );
   } else {
     writeSecretFile(
       envFile,
-      buildRemoteHookEnv({ gatewayUrl, token, project, author, email }),
+      buildRemoteHookEnv({ gatewayUrl, project, author, email }),
     );
-    console.log("  wrote .memorylayer-hook.env (gitignored)");
+    console.log("  wrote .memorylayer-hook.env");
   }
 
-  // --- Gitignore secrets: env + local settings + the token-bearing cursor mcp ---
   const giPath = path.join(cwd, ".gitignore");
   const gi = fs.existsSync(giPath) ? fs.readFileSync(giPath, "utf8") : "";
   fs.writeFileSync(
@@ -254,14 +195,11 @@ export async function runInitRemote(args: string[]): Promise<void> {
     ensureGitignore(gi, [
       ".memorylayer-hook.env",
       ".claude/settings.local.json",
-      ".cursor/mcp.json",
-      ".codex/config.toml",
     ]),
   );
   console.log("  updated .gitignore");
 
-  // --- Claude Code native HTTP MCP (project-scoped, token in ~/.claude.json) ---
-  const claude = registerClaudeCodeMcp(gatewayUrl, token);
+  const claude = registerClaudeCodeMcp(gatewayUrl);
   if (claude.ok) {
     console.log("  registered Claude Code MCP (claude mcp add --scope local)");
   } else {
@@ -269,35 +207,20 @@ export async function runInitRemote(args: string[]): Promise<void> {
       "  ! Couldn't find the Claude Code CLI — finish setup by running this in your project root:\n",
     );
     console.log(`    ${claude.command}\n`);
-    console.log(
-      '    then restart Claude Code and check /mcp shows "wayform" connected.\n',
-    );
+    console.log("    then run: claude mcp login wayform\n");
   }
 
   console.log("\nNext steps:");
-  console.log("  1. Verify the round trip:");
+  console.log("  1. wayform login");
   console.log(
-    "       wayform doctor        (gateway reachable + token accepted)",
+    "     then click Connect in Cursor, or: claude mcp login wayform",
+  );
+  console.log("     Codex: codex mcp login wayform");
+  console.log("  2. wayform doctor");
+  console.log(
+    "  3. Commit URL-only MCP configs so teammates only click Connect:",
   );
   console.log(
-    '     then restart your agent and ask it to "read the shared context" —',
-  );
-  console.log(
-    "     you should see your team's entries. (Claude Code: /mcp shows wayform connected.)",
-  );
-  console.log(
-    "  2. Commit the project hook configs so teammates inherit them:",
-  );
-  console.log(
-    "       git add .claude .cursor/hooks.json .codex/hooks.json .gitignore && git commit -m 'chore: wire Wayform (remote)'",
-  );
-  console.log(
-    "     (.cursor/mcp.json, .codex/config.toml and .memorylayer-hook.env are gitignored — each member runs init --remote.)",
-  );
-  console.log(
-    "  3. Codex users: mark the project trusted (Codex only loads project-scoped",
-  );
-  console.log(
-    "     config for trusted repos) — then wayform tools appear on next launch.",
+    "       git add .claude .cursor .codex .gitignore && git commit -m 'chore: wire Wayform (remote)'",
   );
 }

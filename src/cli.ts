@@ -7,14 +7,16 @@
  *   wayform hook <client>         -> read hook
  *   wayform prompt-hook <client>  -> Claude UserPromptSubmit → /hook/prompt
  *   wayform stop-review <client>  -> Stop no-op (legacy; re-engagement removed)
+ *   wayform login                 -> GitHub OAuth; tokens go to the OS keychain
  *   wayform init [flags]          -> installer (add --remote for hosted members)
  *   wayform doctor                -> local diagnostics
- *   wayform space create [flags]  -> Plan C: provision a new hosted space
+ *   wayform space create [flags]  -> print App install URL + allowlist reminder
  *
  * `hook`/`prompt-hook`/`stop-review` set MEMORYLAYER_HOOK_CLIENT from the positional arg, then
  * delegate to the neutral run functions (which self-load .memorylayer-hook.env).
  */
 import { loadHookEnv } from "./config.js";
+import { hydrateGatewayTokenFromKeychain } from "./keychain.js";
 import { runServer } from "./index.js";
 import { runHook } from "./hook.js";
 import { runPromptHook } from "./prompt-hook.js";
@@ -22,11 +24,13 @@ import { runStopHook } from "./stop-hook.js";
 import { runInit } from "./init.js";
 import { runDoctor } from "./doctor.js";
 import { runSpaceCreate } from "./space-create.js";
+import { runLogin } from "./oauth-login.js";
 
 async function main(): Promise<void> {
   // Self-load .memorylayer-hook.env from the project cwd for every subcommand,
   // so the command is self-contained (no bash launcher). loadConfig stays pure.
   loadHookEnv();
+  hydrateGatewayTokenFromKeychain();
 
   const [sub, ...rest] = process.argv.slice(2);
 
@@ -49,13 +53,16 @@ async function main(): Promise<void> {
     case "doctor":
       await runDoctor();
       return;
+    case "login":
+      await runLogin(rest);
+      return;
     case "space":
       if (rest[0] === "create") {
         await runSpaceCreate(rest.slice(1));
         return;
       }
       console.error(
-        `Unknown "space" subcommand "${rest[0]}". Use: wayform space create --space <name> --owner <owner> --repo <repo> --gateway <url>`,
+        `Unknown "space" subcommand "${rest[0]}". Use: wayform space create --owner <github-login>`,
       );
       process.exit(1);
       return;
@@ -64,7 +71,7 @@ async function main(): Promise<void> {
       return;
     default:
       console.error(
-        `Unknown command "${sub}". Use: wayform [hook|prompt-hook|stop-review|init|doctor|space] …`,
+        `Unknown command "${sub}". Use: wayform [hook|prompt-hook|stop-review|init|doctor|login|space] …`,
       );
       process.exit(1);
   }

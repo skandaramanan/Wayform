@@ -509,7 +509,7 @@ test("gateway-only hook fails open (no clone, unreachable gateway) and writes no
   }
 });
 
-test("init --remote writes hosted config set, gitignores the token file, no committed .mcp.json", () => {
+test("init --remote writes URL-only configs and never a member token", () => {
   const cwd = fs.mkdtempSync(path.join(os.tmpdir(), "ml-initremote-"));
   execFileSync("git", ["init", "-q"], { cwd });
   try {
@@ -521,8 +521,6 @@ test("init --remote writes hosted config set, gitignores the token file, no comm
         "--remote",
         "--gateway",
         "https://gw.example.com",
-        "--token",
-        "mlk_x",
         "--project",
         "acme-eng",
         "--author",
@@ -531,9 +529,6 @@ test("init --remote writes hosted config set, gitignores the token file, no comm
         "dana@acme.com",
         "--yes",
       ],
-      // Empty PATH so the Claude-CLI shell-out ENOENTs immediately: the helper
-      // fails open (prints the manual command) and init completes — with no real
-      // `claude mcp add` invocation mutating the developer's ~/.claude.json.
       { cwd, encoding: "utf8", env: { PATH: "" } },
     );
 
@@ -542,7 +537,8 @@ test("init --remote writes hosted config set, gitignores the token file, no comm
       "utf8",
     );
     assert.match(env, /MEMORYLAYER_GATEWAY_URL=https:\/\/gw\.example\.com/);
-    assert.match(env, /MEMORYLAYER_GATEWAY_TOKEN=mlk_x/);
+    assert.doesNotMatch(env, /MEMORYLAYER_GATEWAY_TOKEN/);
+    assert.doesNotMatch(env, /mlk_/);
     assert.ok(!/CONTEXT_REPO_URL/.test(env));
 
     const cursorMcp = JSON.parse(
@@ -552,21 +548,10 @@ test("init --remote writes hosted config set, gitignores the token file, no comm
       cursorMcp.mcpServers.wayform.url,
       "https://gw.example.com/mcp",
     );
-    assert.equal(
-      cursorMcp.mcpServers.wayform.headers.Authorization,
-      "Bearer mlk_x",
-    );
-
-    const claude = JSON.parse(
-      fs.readFileSync(path.join(cwd, ".claude/settings.json"), "utf8"),
-    );
-    assert.equal(
-      claude.hooks.SessionStart[0].hooks[0].command,
-      "wayform hook claude-code",
-    );
+    assert.equal(cursorMcp.mcpServers.wayform.headers, undefined);
 
     const gi = fs.readFileSync(path.join(cwd, ".gitignore"), "utf8");
-    assert.match(gi, /^\.cursor\/mcp\.json$/m);
+    assert.doesNotMatch(gi, /^\.cursor\/mcp\.json$/m);
     assert.match(gi, /^\.memorylayer-hook\.env$/m);
 
     assert.ok(

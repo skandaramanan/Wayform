@@ -7,6 +7,7 @@
  * FAIL-OPEN: any error / empty injection → client empty no-op, exit 0.
  */
 import { loadConfig, defaultProject } from "./config.js";
+import { hydrateGatewayTokenFromKeychain } from "./keychain.js";
 import { remoteHookPrompt } from "./remote-read.js";
 import {
   resolveClient,
@@ -42,6 +43,7 @@ export async function runPromptHook(): Promise<void> {
     if (client !== "claude-code") emitEmpty();
 
     const project = process.env.MEMORYLAYER_PROJECT?.trim() || defaultProject();
+    hydrateGatewayTokenFromKeychain();
     const cfg = loadConfig();
     const text = await remoteHookPrompt(
       cfg,
