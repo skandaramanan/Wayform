@@ -66,10 +66,55 @@ export function makeEnv(githubFetch, extra = {}) {
     GITHUB_APP_ID: "12345",
     GITHUB_APP_PRIVATE_KEY: TEST_KEYPAIR.pem,
     GITHUB_CLIENT_ID: "Iv1.testoauth",
+    GITHUB_CLIENT_SECRET: "gh-client-secret",
     ADMIN_SECRET: "test-admin-secret",
     githubFetch,
     ...extra,
   };
+}
+
+/** Seed a github_id member + space registry. Sets env.oauthProps for handler tests. */
+export async function seedGithubMember(env, member) {
+  const rec = {
+    branch: "main",
+    role: "member",
+    githubLogin: member.githubLogin ?? String(member.author ?? "user").toLowerCase(),
+    ...member,
+  };
+  await env.ROUTING.put(
+    `member:github:${rec.githubId}`,
+    JSON.stringify(rec),
+  );
+  if (rec.githubLogin) {
+    await env.ROUTING.put(
+      `github:login:${String(rec.githubLogin).toLowerCase()}`,
+      String(rec.githubId),
+    );
+  }
+  const raw = await env.ROUTING.get("spaces:registry");
+  const reg = raw ? JSON.parse(raw) : {};
+  reg[`${rec.owner}/${rec.repo}`] = {
+    space: rec.space,
+    installationId: rec.installationId,
+    owner: rec.owner,
+    repo: rec.repo,
+    branch: rec.branch,
+  };
+  await env.ROUTING.put("spaces:registry", JSON.stringify(reg));
+  await env.ROUTING.put(
+    `space:inst:${rec.installationId}`,
+    JSON.stringify({
+      space: rec.space,
+      installationId: rec.installationId,
+      owner: rec.owner,
+      repo: rec.repo,
+      branch: rec.branch,
+      plan: rec.plan ?? "pilot",
+      createdByGithubId: rec.createdByGithubId ?? rec.githubId,
+      status: "active",
+    }),
+  );
+  return rec;
 }
 
 /** Deterministic 16-dim embedding: token-hash bag, so shared vocabulary =>

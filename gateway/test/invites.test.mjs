@@ -1,124 +1,79 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
+import { handleRequest } from "../dist/gateway/src/router.js";
 import {
-  handleAdminCreateInvite,
-  handleJoin,
-  INVITE_MAX_USES,
-} from "../dist/gateway/src/invites.js";
-import { resolveMember, sha256Hex } from "../dist/gateway/src/tenancy.js";
-import { makeEnv } from "./helpers.mjs";
+  inviteGithubUser,
+  getGithubInvite,
+  revokeGithubUser,
+} from "../dist/gateway/src/spaces.js";
+import { makeEnv, seedGithubMember } from "./helpers.mjs";
 
-const INVITE_BODY = {
-  space: "team-a",
-  owner: "acme",
-  repo: "team-a-memory",
-  installationId: 777,
-};
-
-function post(url, body, headers = {}) {
-  return new Request(url, {
-    method: "POST",
-    headers: { "content-type": "application/json", ...headers },
-    body: JSON.stringify(body),
-  });
-}
-
-async function createInvite(
-  env,
-  body = INVITE_BODY,
-  secret = "test-admin-secret",
-) {
-  return handleAdminCreateInvite(
-    post("https://gw.test/admin/invites", body, { "x-admin-secret": secret }),
-    env,
-  );
-}
-
-async function join(env, body) {
-  return handleJoin(post("https://gw.test/join", body), env);
-}
-
-test("admin invite mint: returns a wfi_ code once; only the hash lands in KV", async () => {
+test("in-agent GitHub-username invite is stored by login, not as a wfi_ secret", async () => {
   const env = makeEnv();
-  const res = await createInvite(env);
-  assert.equal(res.status, 200);
-  const { invite, usesLeft } = await res.json();
-  assert.match(invite, /^wfi_/);
-  assert.equal(usesLeft, INVITE_MAX_USES);
+  await inviteGithubUser(env, "dberquist", {
+    space: "team-a",
+    installationId: 777,
+    owner: "acme",
+    repo: "team-a-memory",
+    branch: "main",
+    invitedByGithubId: 101,
+  });
+  const invite = await getGithubInvite(env, "dberquist");
+  assert.equal(invite.space, "team-a");
+  assert.ok(env.ROUTING.map.has("invite:github:dberquist"));
   for (const key of env.ROUTING.map.keys()) {
-    assert.ok(
-      !key.includes(invite),
-      "raw invite code must not appear in KV keys",
-    );
+    assert.doesNotMatch(key, /^invite:[0-9a-f]{64}$/);
   }
 });
 
-test("admin invite mint rejects wrong secret and missing fields", async () => {
+test("POST /join and POST /admin/invites are retired", async () => {
   const env = makeEnv();
-  assert.equal((await createInvite(env, INVITE_BODY, "wrong")).status, 403);
-  const { space: _drop, ...incomplete } = INVITE_BODY;
-  assert.equal((await createInvite(env, incomplete)).status, 400);
-});
-
-test("join: mints a working member token and decrements usesLeft", async () => {
-  const env = makeEnv();
-  const { invite } = await (await createInvite(env)).json();
-  const res = await join(env, {
-    invite,
-    author: "David",
-    authorEmail: "d@spear.ai",
-  });
-  assert.equal(res.status, 200);
-  const { token, member } = await res.json();
-  assert.match(token, /^mlk_/);
-  assert.equal(member.space, "team-a");
-  assert.equal(member.branch, "main");
-  assert.equal(member.author, "David");
-
-  const resolved = await resolveMember(
-    new Request("https://gw.test/mcp", {
-      headers: { authorization: `Bearer ${token}` },
+  const join = await handleRequest(
+    new Request("https://gw.test/join", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ invite: "wfi_nope", author: "A", authorEmail: "a@x.io" }),
     }),
     env,
   );
-  assert.equal(resolved.space, "team-a");
-
-  const record = JSON.parse(
-    await env.ROUTING.get(`invite:${await sha256Hex(invite)}`),
+  assert.equal(join.status, 404);
+  const admin = await handleRequest(
+    new Request("https://gw.test/admin/invites", {
+      method: "POST",
+      headers: {
+        "x-admin-secret": "test-admin-secret",
+        "content-type": "application/json",
+      },
+      body: "{}",
+    }),
+    env,
   );
-  assert.equal(record.usesLeft, INVITE_MAX_USES - 1);
+  assert.equal(admin.status, 404);
 });
 
-test("join: unknown, expired, and exhausted invites all fail with the same generic 400", async () => {
+test("revoke drops both a pending invite and a live github member", async () => {
   const env = makeEnv();
-  const who = { author: "Eve", authorEmail: "e@x.io" };
-
-  const unknown = await join(env, { invite: "wfi_nope", ...who });
-  assert.equal(unknown.status, 400);
-  assert.equal((await unknown.json()).error, "invalid or expired invite");
-
-  const { invite } = await (await createInvite(env)).json();
-  const key = `invite:${await sha256Hex(invite)}`;
-
-  const live = JSON.parse(await env.ROUTING.get(key));
-  await env.ROUTING.put(
-    key,
-    JSON.stringify({ ...live, expiresAt: Date.now() - 1 }),
-  );
-  const expired = await join(env, { invite, ...who });
-  assert.equal(expired.status, 400);
-  assert.equal((await expired.json()).error, "invalid or expired invite");
-
-  await env.ROUTING.put(key, JSON.stringify({ ...live, usesLeft: 0 }));
-  const exhausted = await join(env, { invite, ...who });
-  assert.equal(exhausted.status, 400);
-  assert.equal((await exhausted.json()).error, "invalid or expired invite");
-});
-
-test("join: missing author/email is a distinct 400 (caller bug, not invite probing)", async () => {
-  const env = makeEnv();
-  const { invite } = await (await createInvite(env)).json();
-  const res = await join(env, { invite, author: "NoEmail" });
-  assert.equal(res.status, 400);
-  assert.match((await res.json()).error, /missing/);
+  await seedGithubMember(env, {
+    space: "team-a",
+    installationId: 777,
+    owner: "acme",
+    repo: "mem",
+    author: "bo",
+    authorEmail: "b@x.io",
+    githubId: 2,
+    githubLogin: "bo",
+    role: "member",
+  });
+  await inviteGithubUser(env, "casey", {
+    space: "team-a",
+    installationId: 777,
+    owner: "acme",
+    repo: "mem",
+    branch: "main",
+    invitedByGithubId: 1,
+  });
+  await revokeGithubUser(env, "bo");
+  await revokeGithubUser(env, "casey");
+  assert.equal(await env.ROUTING.get("member:github:2"), null);
+  assert.equal(await getGithubInvite(env, "casey"), null);
 });
