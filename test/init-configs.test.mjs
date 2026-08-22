@@ -6,6 +6,8 @@ import {
   mergeCodexHooks,
   mergeMcpJson,
   mergeCursorRemoteMcp,
+  mergeDevinRemoteMcp,
+  mergeAntigravityRemoteMcp,
   codexRemoteConfigToml,
   codexHookTrust,
   mergeCodexTrustToml,
@@ -188,6 +190,21 @@ test("mergeCursorRemoteMcp preserves unrelated servers and is idempotent", () =>
   const twice = mergeCursorRemoteMcp(once, "https://gw");
   assert.equal(twice.mcpServers.other.url, "x");
   assert.deepEqual(twice.mcpServers.wayform, { url: "https://gw/mcp" });
+});
+
+test("mergeDevinRemoteMcp is project HTTP + transport, no headers", () => {
+  const out = mergeDevinRemoteMcp(undefined, "https://gw");
+  assert.deepEqual(out.mcpServers.wayform, {
+    url: "https://gw/mcp",
+    transport: "http",
+  });
+});
+
+test("mergeAntigravityRemoteMcp uses serverUrl (not url) and no headers", () => {
+  const out = mergeAntigravityRemoteMcp(undefined, "https://gw");
+  assert.deepEqual(out.mcpServers.wayform, { serverUrl: "https://gw/mcp" });
+  assert.equal(out.mcpServers.wayform.url, undefined);
+  assert.equal(out.mcpServers.wayform.headers, undefined);
 });
 
 test("codexRemoteConfigToml renders native HTTP with OAuth, no headers", () => {

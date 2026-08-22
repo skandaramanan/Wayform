@@ -13,7 +13,9 @@ import {
   mergeClaudeSettings,
   mergeCursorHooks,
   mergeCodexHooks,
-  mergeCursorRemoteMcp,
+  mergeRemoteHttpMcp,
+  mergeDevinRemoteMcp,
+  mergeAntigravityRemoteMcp,
   codexRemoteConfigToml,
 } from "./init-configs.js";
 import {
@@ -54,9 +56,9 @@ const defaultRunner: Runner = (cmd, args) => {
 };
 
 /**
- * Register the gateway as a project-scoped (`--scope local`) HTTP MCP server for
- * Claude Code. URL only — `claude mcp login wayform` stores tokens in the
- * keychain. Non-fatal: if `claude` is absent the returned command is printed.
+ * Recommended Claude Code CLI if someone adds the server by hand.
+ * `--scope project` writes `.mcp.json` in this repo. Never `--scope user`
+ * (that would load Wayform in every folder they open).
  */
 export function registerClaudeCodeMcp(
   gatewayUrl: string,
@@ -68,7 +70,7 @@ export function registerClaudeCodeMcp(
     "--transport",
     "http",
     "--scope",
-    "local",
+    "project",
     "wayform",
     `${gatewayUrl}/mcp`,
   ];
@@ -168,12 +170,33 @@ export async function runInitRemote(args: string[]): Promise<void> {
   writeJson(
     cwd,
     ".cursor/mcp.json",
-    mergeCursorRemoteMcp(
+    mergeRemoteHttpMcp(
       readJson(path.join(cwd, ".cursor/mcp.json")),
       gatewayUrl,
     ),
   );
+  writeJson(
+    cwd,
+    ".mcp.json",
+    mergeRemoteHttpMcp(readJson(path.join(cwd, ".mcp.json")), gatewayUrl),
+  );
   writeText(cwd, ".codex/config.toml", codexRemoteConfigToml(gatewayUrl));
+  writeJson(
+    cwd,
+    ".devin/mcp_config.json",
+    mergeDevinRemoteMcp(
+      readJson(path.join(cwd, ".devin/mcp_config.json")),
+      gatewayUrl,
+    ),
+  );
+  writeJson(
+    cwd,
+    ".agents/mcp_config.json",
+    mergeAntigravityRemoteMcp(
+      readJson(path.join(cwd, ".agents/mcp_config.json")),
+      gatewayUrl,
+    ),
+  );
 
   const envFile = path.join(cwd, ".memorylayer-hook.env");
   if (fs.existsSync(envFile) && !has(args, "force")) {
@@ -199,28 +222,17 @@ export async function runInitRemote(args: string[]): Promise<void> {
   );
   console.log("  updated .gitignore");
 
-  const claude = registerClaudeCodeMcp(gatewayUrl);
-  if (claude.ok) {
-    console.log("  registered Claude Code MCP (claude mcp add --scope local)");
-  } else {
-    console.log(
-      "  ! Couldn't find the Claude Code CLI — finish setup by running this in your project root:\n",
-    );
-    console.log(`    ${claude.command}\n`);
-    console.log("    then run: claude mcp login wayform\n");
-  }
-
-  console.log("\nNext steps:");
-  console.log("  1. wayform login");
+  console.log("\nNext steps (this product repo only — not a global MCP):");
+  console.log("  1. wayform login   # OS keychain for session-start hooks");
+  console.log("  2. In this folder, authenticate the client you use:");
+  console.log("       Cursor:        Connect on the wayform server");
+  console.log("       Claude Code:   claude mcp login wayform");
+  console.log("       Codex:         codex mcp login wayform");
+  console.log("       Devin CLI:     devin mcp login wayform");
+  console.log("       Antigravity:   Authenticate wayform in MCP settings");
+  console.log("  3. wayform doctor");
+  console.log("  4. Commit the project MCP files so teammates inherit them:");
   console.log(
-    "     then click Connect in Cursor, or: claude mcp login wayform",
-  );
-  console.log("     Codex: codex mcp login wayform");
-  console.log("  2. wayform doctor");
-  console.log(
-    "  3. Commit URL-only MCP configs so teammates only click Connect:",
-  );
-  console.log(
-    "       git add .claude .cursor .codex .gitignore && git commit -m 'chore: wire Wayform (remote)'",
+    "       git add .mcp.json .cursor/mcp.json .codex/config.toml .devin .agents .claude .codex/hooks.json .cursor/hooks.json .gitignore && git commit -m 'chore: wire Wayform (remote)'",
   );
 }

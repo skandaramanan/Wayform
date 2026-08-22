@@ -16,7 +16,7 @@ test("registerClaudeCodeMcp invokes claude mcp add with no Authorization header"
     "--transport",
     "http",
     "--scope",
-    "local",
+    "project",
     "wayform",
     "https://gw.example.com/mcp",
   ]);
@@ -31,7 +31,10 @@ test("registerClaudeCodeMcp fails open to a printable command when claude is abs
   };
   const res = registerClaudeCodeMcp("https://gw", run);
   assert.equal(res.ok, false);
-  assert.match(res.command, /^claude mcp add --transport http --scope local /);
+  assert.match(
+    res.command,
+    /^claude mcp add --transport http --scope project /,
+  );
   assert.doesNotMatch(res.command, /--header/);
   assert.doesNotMatch(res.command, /mlk_/);
 });

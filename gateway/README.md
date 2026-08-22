@@ -126,15 +126,19 @@ is fine, but it must have at least one commit on `main` (initialize with a
 README). This repo **is** your team's memory: every decision lands here as a
 commit, and you keep full ownership and history.
 
-### 2.2 Connect and install the GitHub App
+### 2.2 Connect from this product repo and install the GitHub App
 
-In Cursor (or Claude/Codex), add an MCP server with this URL and nothing else:
+In **the product repo** (the codebase you work in, not the memory repo), add
+an MCP server with this URL and nothing else:
 
 `https://memorylayer-gateway.memory-layer.workers.dev/mcp`
 
-Click **Connect**. Browser opens GitHub. Log in and authorize. When GitHub
-asks which repos to install the Wayform app on, pick **only** that private
-memory repo.
+Use that client's **project** config — see [Part 3](#part-3--member-connect-your-client).
+Do not add Wayform to a user-global MCP file, or it will load in every folder
+you open.
+
+Then connect / log in with GitHub. When GitHub asks which repos to install the
+Wayform app on, pick **only** that private memory repo.
 
 Because the operator already allowlisted you, Wayform activates the space.
 You are admin. Writes are attributed to your GitHub name.
@@ -170,7 +174,7 @@ as you.
 
 | Need | How |
 |---|---|
-| Add a member | In Cursor: `invite <github-username> to this Wayform space` (`invite_member`). They click Connect. |
+| Add a member | In the agent: `invite <github-username> to this Wayform space` (`invite_member`). They authenticate in their client. |
 | Org teammate | Installing the App on an org repo auto-joins org members who OAuth in. |
 | Remove a member | `revoke_member` with their GitHub username. |
 | Nuke the whole space | Uninstall the App from the repo. Every member's GitHub writes die; the repo stays yours. |
@@ -180,27 +184,28 @@ as you.
 
 ## Part 3 — Member: connect your client
 
-Config files contain **only** the MCP URL. Tokens live in the client / OS
-keychain after browser OAuth.
+Config files contain **only** the MCP URL and live **in this product repo**.
+OAuth tokens live in the client / OS keychain. Do not put Wayform in a
+user-global MCP file.
 
-**Cursor**
+**Cursor** — `.cursor/mcp.json` (not `~/.cursor/mcp.json`)
 
 ```json
 { "mcpServers": { "wayform": { "url": "https://memorylayer-gateway.memory-layer.workers.dev/mcp" } } }
 ```
 
-Click **Connect**.
+Then Connect.
 
-**Claude Code**
+**Claude Code** — `.mcp.json` (same JSON), or:
 
 ```bash
-claude mcp add --transport http wayform https://memorylayer-gateway.memory-layer.workers.dev/mcp
+claude mcp add --transport http --scope project wayform https://memorylayer-gateway.memory-layer.workers.dev/mcp
 claude mcp login wayform
 ```
 
-No `--header`.
+Never `--scope user`. No `--header`.
 
-**Codex**
+**Codex** — `.codex/config.toml` (trusted project; not `~/.codex/config.toml`)
 
 ```toml
 [mcp_servers.wayform]
@@ -210,11 +215,30 @@ auth = "oauth"
 
 Then `codex mcp login wayform`.
 
-**Hooks**
+**Devin CLI** — `.devin/mcp_config.json` (not `--scope user`)
+
+```json
+{ "mcpServers": { "wayform": { "url": "https://memorylayer-gateway.memory-layer.workers.dev/mcp", "transport": "http" } } }
+```
+
+Then `devin mcp login wayform`. Skip Devin Cloud org-wide MCP unless you
+intentionally want Wayform in every Devin session for the org.
+
+**Antigravity** — `.agents/mcp_config.json` (not `~/.gemini/config/mcp_config.json`)
+
+```json
+{ "mcpServers": { "wayform": { "serverUrl": "https://memorylayer-gateway.memory-layer.workers.dev/mcp" } } }
+```
+
+Then Authenticate in MCP settings. DCR OAuth; no headers.
+
+**Hooks** (any client that runs them)
 
 `.memorylayer-hook.env` has URL + project + author only. Once per machine:
-`wayform login`. Commit the URL-only MCP configs to the **product** repo so
-later teammates only click Connect.
+`wayform login`. Commit the project MCP files so later teammates only
+authenticate.
+
+`wayform init --remote` writes all of the files above.
 
 ChatGPT custom connectors with a path token (`/mcp/mlk_…`) are **out of
 scope**. Headless grants are not part of this onboarding.

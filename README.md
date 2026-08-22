@@ -82,8 +82,8 @@ wayform init
 
 - **Session-start read hooks + MCP registration** for Claude Code
   (`.claude/settings.json`, `.mcp.json`), Cursor (`.cursor/hooks.json`,
-  `.cursor/mcp.json`), and Codex (`.codex/hooks.json`; MCP is a printed block
-  to paste into `~/.codex/config.toml`, since Codex registers MCP globally)
+  `.cursor/mcp.json`), and Codex (`.codex/hooks.json` and project
+  `.codex/config.toml`)
 - **End-of-turn write-review hooks** (the Stop hook — see
   [The loop](#the-loop-how-reads-and-writes-actually-happen))
 - Your per-user, **gitignored** `.memorylayer-hook.env` (identity + repo URL —
@@ -104,52 +104,59 @@ anyone pasting it. That round-trip is the product.
 
 The local mode above needs each member to hold a git token. The **hosted
 gateway** removes even that: a stateless Cloudflare Worker exposes the same
-tools over MCP Streamable HTTP. Identity is **GitHub OAuth** (the same App that
-writes the memory repo). Members never copy, paste, or store a Wayform
+tools over **MCP Streamable HTTP**. Identity is **GitHub OAuth** (the same App
+that writes the memory repo). Members never copy, paste, or store a Wayform
 credential.
 
+Wayform is **vendor-neutral**. The same URL works in Cursor, Claude Code,
+Codex, Devin, Antigravity, or any MCP client that speaks Streamable HTTP +
+OAuth. Configure it in **this product repo** (the codebase you work in) — never
+as a user-global MCP, or it will follow you into unrelated folders.
+
 Every customer is a new team. The operator allowlists their GitHub user or org;
-they create their own private memory repo, click Connect, and install the App
-on that repo only. Teammates are invited in-agent by GitHub username — not with
-a join code.
+they create their own private memory repo, add the MCP URL in the product
+repo, and install the App on that memory repo only. Teammates are invited
+in-agent by GitHub username.
 
 **Operator (once per client):** add their GitHub login or org to the allowlist,
 then send the MCP URL. Never send a token.
 
 **They do:**
 
-1. On GitHub, create a private repo for team memory (empty is fine).
-2. In Cursor → MCP, add a server with URL
-   `https://memorylayer-gateway.memory-layer.workers.dev/mcp` only — no token,
-   no Authorization header.
-3. Click Connect, log in with GitHub, approve the app. When GitHub asks,
-   install it on **only** that memory repo.
-4. In a terminal: `npm i -g wayform && wayform login` then restart the agent.
-5. Ask it to record a test decision, open a new chat, and check the decision
-   is already there.
-6. Commit that URL-only MCP config to the product repo so teammates only have
-   to click Connect.
+1. On GitHub, create a **private** repo for team memory (empty is fine).
+2. In **this product repo**, add a remote MCP server with URL only — no token,
+   no Authorization header:
 
-Claude Code: `claude mcp add --transport http wayform https://memorylayer-gateway.memory-layer.workers.dev/mcp`
-(no `--header`), then `claude mcp login wayform`. Codex: `url` + `auth = "oauth"`,
-then `codex mcp login wayform`.
+   `https://memorylayer-gateway.memory-layer.workers.dev/mcp`
 
-- **Same store, same format.** Gateway-written entries are byte-identical to
-  local ones. Attribution is the GitHub identity that signed in.
-- **Tenant isolation by construction.** One private repo per space; the GitHub
-  App is installed on exactly that repo; every request resolves to a
-  per-installation token that GitHub itself scopes to that one repo. No API
-  surface accepts a repo/space parameter.
-- **Config files are secret-free and committable:**
+   Put that URL in the **project** config for your client (table below). Do not
+   add it under a user/global MCP file.
+3. Connect / log in with GitHub. When GitHub asks which repos to install the
+   Wayform app on, pick **only** that private memory repo.
+4. Once per machine: `npm i -g wayform && wayform login` then restart the agent
+   (session-start hooks need this).
+5. Ask the agent to record a test decision, open a new chat, and confirm the
+   decision is already there.
+6. Commit the project MCP files so teammates only authenticate — they do not
+   re-add the URL.
 
-```json
-{ "mcpServers": { "wayform": { "url": "https://memorylayer-gateway.memory-layer.workers.dev/mcp" } } }
-```
+### Client setup (project-scoped, OAuth)
 
-`wayform init --remote` writes those configs plus URL-only hook env.
-`wayform login` puts the short-lived access token in the OS keychain.
-`wayform doctor` says "run wayform login" when the session is missing — never
-"paste a token".
+Same URL everywhere. Tokens stay in the client or OS keychain after login.
+
+| Client | Project file (commit this) | Do **not** use (global) | Authenticate |
+|---|---|---|---|
+| **Cursor** | `.cursor/mcp.json` → `{ "mcpServers": { "wayform": { "url": "…" } } }` | `~/.cursor/mcp.json` | Connect |
+| **Claude Code** | `.mcp.json` (same JSON), or `claude mcp add --transport http --scope project wayform <url>` | `--scope user` | `claude mcp login wayform` |
+| **Codex** | `.codex/config.toml` → `url` + `auth = "oauth"` | `~/.codex/config.toml` | `codex mcp login wayform` |
+| **Devin CLI** | `.devin/mcp_config.json` → `{ "url": "…", "transport": "http" }` | `--scope user` / `~/.config/devin/mcp_config.json` | `devin mcp login wayform` |
+| **Antigravity** | `.agents/mcp_config.json` → `{ "serverUrl": "…" }` | `~/.gemini/config/mcp_config.json` | Authenticate in MCP settings (DCR) |
+
+`wayform init --remote` writes all of those files. `wayform doctor` says
+"run wayform login" when the hook session is missing — never "paste a token".
+
+Do **not** add Wayform as a Devin Cloud **organization-wide** MCP if you only
+want it in this repo — that surface is shared across the org, not one folder.
 
 Endpoints, allowlist, and the deploy runbook live in
 [gateway/README.md](gateway/README.md).

@@ -213,10 +213,11 @@ args = []
 `;
 
 /**
- * Native HTTP MCP for a hosted member, written into a project's `.cursor/mcp.json`.
- * URL only — Cursor Connect runs OAuth; no token in the file.
+ * Native HTTP MCP for a hosted member. URL only — the client runs OAuth;
+ * no token in the file. Used for Cursor `.cursor/mcp.json` and Claude Code
+ * project-scope `.mcp.json` (never `~/.cursor/mcp.json` or `--scope user`).
  */
-export function mergeCursorRemoteMcp(
+export function mergeRemoteHttpMcp(
   existing: unknown,
   gatewayUrl: string,
 ): Json {
@@ -227,13 +228,49 @@ export function mergeCursorRemoteMcp(
   return root;
 }
 
+export const mergeCursorRemoteMcp = mergeRemoteHttpMcp;
+
 /**
- * Project-scoped Codex MCP block for a HOSTED (gateway) member. URL + OAuth;
- * `codex mcp login wayform` stores tokens outside this file.
+ * Project-scoped Codex MCP block for a HOSTED (gateway) member. Lives in
+ * `.codex/config.toml` (trusted project only) — not `~/.codex/config.toml`.
  */
 export function codexRemoteConfigToml(gatewayUrl: string): string {
   return `[mcp_servers.wayform]
 url = "${gatewayUrl}/mcp"
 auth = "oauth"
 `;
+}
+
+/**
+ * Devin CLI project MCP (`.devin/mcp_config.json`). Not `--scope user` /
+ * `~/.config/devin/mcp_config.json`, which would load in every repo.
+ */
+export function mergeDevinRemoteMcp(
+  existing: unknown,
+  gatewayUrl: string,
+): Json {
+  const root = asObject(existing);
+  const servers = asObject(root.mcpServers);
+  servers.wayform = {
+    url: `${gatewayUrl}/mcp`,
+    transport: "http",
+  };
+  root.mcpServers = servers;
+  return root;
+}
+
+/**
+ * Antigravity workspace MCP (`.agents/mcp_config.json`). Uses `serverUrl`
+ * per Google's schema. Not `~/.gemini/config/mcp_config.json` (global).
+ * DCR OAuth: URL only, no headers.
+ */
+export function mergeAntigravityRemoteMcp(
+  existing: unknown,
+  gatewayUrl: string,
+): Json {
+  const root = asObject(existing);
+  const servers = asObject(root.mcpServers);
+  servers.wayform = { serverUrl: `${gatewayUrl}/mcp` };
+  root.mcpServers = servers;
+  return root;
 }
