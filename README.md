@@ -255,6 +255,29 @@ write "silently" does nothing — fail-open means problems hide here first.
 - **Trust boundary to know about:** everything a space member writes is
   injected into every member's sessions. You trust the people in your space —
   that's the model, stated plainly.
+- **Rate limits:** the gateway limits auth surfaces (`/authorize`, `/callback`,
+  `/oauth/register`, `/oauth/token`, `/install/*`, `/admin/*`) to 20 requests
+  per minute per caller, and `/mcp` to 240. `/health` and the signed GitHub
+  webhook are never throttled — dropping a webhook would stall indexing
+  silently, which is worse than the abuse it would prevent. Limits are keyed
+  per member token where one is present, so a team behind one NAT does not
+  share a budget. If the limiter is unavailable the gateway serves normally
+  rather than refusing traffic.
+
+### Managing your own sessions
+
+Every editor you connect is a separate OAuth grant. You can review and
+disconnect them yourself, from any agent — no operator involved:
+
+> "list my wayform sessions"
+> "revoke wayform session <id>"
+
+`list_sessions` shows each connected client, when it was connected, and marks
+the one you are currently using. `revoke_session` disconnects one and takes
+effect immediately; that client must sign in again. Both act only on **your**
+account — removing a *teammate* from the space is `revoke_member`, and is
+admin-only. A revoke that cannot be confirmed reports an error rather than
+claiming success, so "revoked" always means revoked.
 
 ## Troubleshooting
 

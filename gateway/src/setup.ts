@@ -438,7 +438,6 @@ function cookieValue(request: Request, name: string): string | null {
   return null;
 }
 
-
 async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest(
     "SHA-256",
