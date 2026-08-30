@@ -1,3 +1,5 @@
+import { page, escapeHtml } from "./page.js";
+
 /** Cloudflare securing-MCP cookie names: __Host- blocks subdomain attacks on workers.dev. */
 export const CSRF_COOKIE = "__Host-CSRF_TOKEN";
 export const CONSENTED_STATE_COOKIE = "__Host-CONSENTED_STATE";
@@ -51,29 +53,28 @@ export function renderConsentPage(opts: {
   const clientName = escapeHtml(opts.clientName);
   const csrfToken = escapeHtml(opts.csrfToken);
   const state = escapeHtml(opts.state);
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Authorize Wayform</title>
-  <style>
-    body { font-family: ui-sans-serif, system-ui, sans-serif; max-width: 32rem; margin: 4rem auto; padding: 0 1.25rem; color: #111; }
-    h1 { font-size: 1.35rem; }
-    p { line-height: 1.45; color: #333; }
-    button { font: inherit; padding: 0.55rem 1rem; cursor: pointer; }
-  </style>
-</head>
-<body>
-  <h1>Connect to Wayform</h1>
-  <p><strong>${clientName}</strong> wants to access this team's memory via MCP. Authorize only if you started this from Cursor, Claude, or Codex.</p>
-  <form method="post" action="/authorize">
-    <input type="hidden" name="csrf_token" value="${csrfToken}">
-    <input type="hidden" name="state" value="${state}">
-    <button type="submit">Authorize</button>
-  </form>
-</body>
-</html>`;
+  // "Cancel" submits the same form with deny=1 so the gateway can return a
+  // proper OAuth `access_denied` to the client. A consent screen whose only
+  // options are Approve or close-the-tab leaves the waiting client hanging.
+  return page({
+    title: "Authorize",
+    heading: "Connect to Wayform",
+    body: `<p class="lead"><strong>${clientName}</strong> is asking to connect to your team's shared planning memory.</p>
+    <ul class="scopes">
+      <li>Read decisions and context your team has recorded</li>
+      <li>Write new decisions, attributed to your GitHub account</li>
+      <li>Sign in with GitHub to confirm who you are</li>
+    </ul>
+    <form method="post" action="/authorize">
+      <input type="hidden" name="csrf_token" value="${csrfToken}">
+      <input type="hidden" name="state" value="${state}">
+      <div class="actions">
+        <button type="submit">Continue with GitHub</button>
+        <button type="submit" name="deny" value="1" class="btn-secondary">Cancel</button>
+      </div>
+    </form>`,
+    note: "Only continue if you started this from your editor — Cursor, Claude Code, Codex, or another MCP client.",
+  });
 }
 
 export function githubAuthorizeUrl(opts: {
@@ -136,23 +137,13 @@ export function clearConsentedCookie(): string {
 }
 
 export function renderPreviewPage(): string {
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Wayform preview</title>
-  <style>
-    body { font-family: ui-sans-serif, system-ui, sans-serif; max-width: 32rem; margin: 4rem auto; padding: 0 1.25rem; color: #111; }
-    h1 { font-size: 1.35rem; }
-    p { line-height: 1.45; color: #333; }
-  </style>
-</head>
-<body>
-  <h1>Wayform is in design-partner preview</h1>
-  <p>Your GitHub account is signed in, but no team space was created and nothing was indexed. If a teammate already uses Wayform, ask them to invite your GitHub username from their agent. If you were told you should have access, ping whoever sent you the MCP URL.</p>
-</body>
-</html>`;
+  return page({
+    title: "Preview",
+    heading: "Wayform is in design-partner preview",
+    body: `<p class="lead">You're signed in with GitHub, but no team space was created and nothing was indexed yet.</p>
+    <p>If a teammate already uses Wayform, ask them to invite your GitHub username from their agent. If you were told you should have access, contact whoever sent you the MCP URL.</p>`,
+    note: "You can close this tab.",
+  });
 }
 
 export function encodeAuthState(oauthReqInfo: unknown): string {
@@ -170,15 +161,6 @@ function cookieValue(request: Request, name: string): string | null {
     if (trimmed.startsWith(`${name}=`)) return trimmed.slice(name.length + 1);
   }
   return null;
-}
-
-function escapeHtml(text: string): string {
-  return text
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
 }
 
 async function sha256Hex(s: string): Promise<string> {

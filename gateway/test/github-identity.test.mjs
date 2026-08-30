@@ -504,3 +504,141 @@ async function authorizePath(clientId) {
   });
   return `/authorize?${q}`;
 }
+
+test("GitHub code exchange posts form-encoded trimmed credentials", async () => {
+  const { exchangeGithubCode } =
+    await import("../dist/gateway/src/github-oauth.js");
+  const calls = [];
+  const env = makeEnv(
+    ghFetch(calls, [
+      [
+        "/login/oauth/access_token",
+        () => Response.json({ access_token: "ghu_test" }),
+      ],
+    ]),
+    {
+      GITHUB_CLIENT_ID: " Iv23abc\n",
+      GITHUB_CLIENT_SECRET: "secret-value\n",
+    },
+  );
+  const token = await exchangeGithubCode(
+    env,
+    "code-1",
+    "https://gw.test/callback",
+  );
+  assert.equal(token, "ghu_test");
+  assert.equal(calls.length, 1);
+  assert.match(
+    String(calls[0].init.headers["content-type"]),
+    /application\/x-www-form-urlencoded/,
+  );
+  const body = new URLSearchParams(calls[0].init.body);
+  assert.equal(body.get("client_id"), "Iv23abc");
+  assert.equal(body.get("client_secret"), "secret-value");
+  assert.equal(body.get("code"), "code-1");
+  assert.equal(body.get("redirect_uri"), "https://gw.test/callback");
+});
+
+test("Cancel on the consent screen returns access_denied to the client", async () => {
+  const env = makeEnv(ghFetch([], []), {});
+  const client = await registerClient(env);
+  const shown = await fetchGw(await authorizePath(client.client_id), {}, env);
+  const html = await shown.text();
+  // The consent screen must offer a decline control at all.
+  assert.match(html, /name="deny"/);
+  const csrfCookie = cookieNamed(shown, "__Host-CSRF_TOKEN");
+  const csrfToken = csrfCookie.split("=")[1];
+  const state = html.match(/name="state"\s+value="([^"]+)"/)?.[1];
+  const denied = await fetchGw(
+    "/authorize",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        cookie: csrfCookie,
+      },
+      body: new URLSearchParams({
+        csrf_token: csrfToken,
+        state,
+        deny: "1",
+      }).toString(),
+    },
+    env,
+  );
+  // A decline must reach the waiting client as a real OAuth error, not a
+  // closed tab the client waits out.
+  assert.equal(denied.status, 302);
+  const redirect = new URL(denied.headers.get("location"));
+  assert.equal(redirect.origin + redirect.pathname, "http://127.0.0.1:9876/callback");
+  assert.equal(redirect.searchParams.get("error"), "access_denied");
+  assert.equal(redirect.searchParams.get("state"), "client-state");
+});
+
+test("authorization dead ends render a styled page, not bare text", async () => {
+  const env = makeEnv(ghFetch([], []), {});
+  const expired = await fetchGw(
+    "/authorize",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        cookie: "__Host-CSRF_TOKEN=t",
+      },
+      body: new URLSearchParams({ csrf_token: "t", state: "" }).toString(),
+    },
+    env,
+  );
+  assert.equal(expired.status, 400);
+  assert.match(expired.headers.get("content-type") ?? "", /text\/html/);
+  const html = await expired.text();
+  assert.match(html, /<!doctype html>/i);
+  assert.match(html, /prefers-color-scheme/); // theme-aware, not a white slab
+  assert.match(html, /rel="icon"/); // no generic globe on an auth screen
+  assert.match(html, /start the connection again/i); // tells the user what to do
+});
+
+test("a failing GitHub exchange never leaks the internal error to the browser", async () => {
+  const env = makeEnv(
+    ghFetch(
+      [],
+      [
+        [
+          "/login/oauth/access_token",
+          () => {
+            throw new Error("SECRET_INTERNAL_DETAIL kv binding xyz");
+          },
+        ],
+      ],
+    ),
+    {},
+  );
+  const client = await registerClient(env);
+  const shown = await fetchGw(await authorizePath(client.client_id), {}, env);
+  const html = await shown.text();
+  const csrfCookie = cookieNamed(shown, "__Host-CSRF_TOKEN");
+  const csrfToken = csrfCookie.split("=")[1];
+  const state = html.match(/name="state"\s+value="([^"]+)"/)?.[1];
+  const approved = await fetchGw(
+    "/authorize",
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        cookie: csrfCookie,
+      },
+      body: new URLSearchParams({ csrf_token: csrfToken, state }).toString(),
+    },
+    env,
+  );
+  const ghUrl = new URL(approved.headers.get("location"));
+  const consented = cookieNamed(approved, "__Host-CONSENTED_STATE");
+  const failed = await fetchGw(
+    `/callback?code=gh-code&state=${ghUrl.searchParams.get("state")}`,
+    { headers: { cookie: consented } },
+    env,
+  );
+  assert.equal(failed.status, 502);
+  const body = await failed.text();
+  assert.equal(body.includes("SECRET_INTERNAL_DETAIL"), false);
+  assert.match(body, /could not complete the sign-in/i);
+});

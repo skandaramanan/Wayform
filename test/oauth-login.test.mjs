@@ -189,3 +189,48 @@ test("wayform login rejects a mismatched localhost OAuth state", async () => {
   assert.equal(tokenExchangeCalled, false);
   assert.equal(loadStoredOAuth("https://gw.test", store), null);
 });
+
+test("a failed authorization renders a failure page, not a success page", async () => {
+  let capture;
+  const captured = new Promise((resolve) => {
+    capture = resolve;
+  });
+  await assert.rejects(
+    runLogin(["--gateway", "https://gw.test"], {
+      fetchImpl: async (url) => {
+        if (String(url).endsWith("/oauth/register")) {
+          return Response.json({ client_id: "cli-1" });
+        }
+        throw new Error(`unexpected fetch ${url}`);
+      },
+      log: () => {},
+      listen: async (handler) => {
+        const server = http.createServer(handler);
+        await new Promise((resolve) => server.listen(0, "127.0.0.1", resolve));
+        const { port } = server.address();
+        return { port, close: () => server.close() };
+      },
+      openUrl: (url) => {
+        const redirectUri = new URL(url).searchParams.get("redirect_uri");
+        queueMicrotask(async () => {
+          try {
+            // GitHub declined: the browser lands back with ?error=access_denied.
+            const res = await fetch(`${redirectUri}?error=access_denied&state=x`);
+            capture({ status: res.status, body: await res.text() });
+          } catch (e) {
+            capture({ status: 0, body: String(e) });
+          }
+        });
+      },
+    }),
+    /authorization/,
+  );
+  // Regression: this page used to say "you can close this tab" on EVERY
+  // outcome, telling a user whose sign-in had just failed that it worked.
+  const page = await captured;
+  assert.equal(page.status, 400);
+  assert.match(page.body, /Sign-in failed/);
+  assert.doesNotMatch(page.body, /You&rsquo;re signed in/);
+  assert.match(page.body, /wayform login/); // tells them how to retry
+  assert.match(page.body, /prefers-color-scheme/); // themed, not raw HTML
+});

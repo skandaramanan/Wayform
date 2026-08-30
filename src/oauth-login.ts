@@ -42,13 +42,54 @@ async function defaultListen(
 }
 
 function defaultOpen(url: string): void {
+  // One command per platform. Previously darwin-only, which meant `wayform
+  // login` on Linux or Windows just printed a URL and appeared to hang.
+  const [cmd, args]: [string, string[]] =
+    process.platform === "darwin"
+      ? ["open", [url]]
+      : process.platform === "win32"
+        ? ["cmd", ["/c", "start", "", url]]
+        : ["xdg-open", [url]];
   try {
-    if (process.platform === "darwin") {
-      execFileSync("open", [url], { stdio: "ignore" });
-    }
+    execFileSync(cmd, args, { stdio: "ignore" });
   } catch {
-    // printed for the user to open by hand
+    // Non-fatal by design: the URL is also printed for the user to open by hand.
   }
+}
+
+/**
+ * The last screen of `wayform login`. Self-contained (the published CLI must
+ * not depend on gateway source) and deliberately mirrors the gateway's shell,
+ * since the user sees both within seconds of each other.
+ */
+function callbackPage(ok: boolean, message: string): string {
+  return `<!doctype html>
+<html lang="en"><head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>${ok ? "Signed in" : "Sign-in failed"} \u00b7 Wayform</title>
+<style>
+:root { color-scheme: light dark; --bg:#f6f6f7; --card:#fff; --border:#e4e4e7;
+  --text:#18181b; --muted:#62626b; --ok:#067647; --err:#b42318; }
+@media (prefers-color-scheme: dark) { :root { --bg:#0b0b0d; --card:#141417;
+  --border:#26262c; --text:#f4f4f5; --muted:#a1a1aa; --ok:#4ade80; --err:#f97066; } }
+body { margin:0; min-height:100vh; display:flex; align-items:center;
+  justify-content:center; padding:2rem 1.25rem; background:var(--bg);
+  color:var(--text); font:15px/1.55 ui-sans-serif, system-ui, -apple-system,
+  "Segoe UI", Roboto, sans-serif; -webkit-font-smoothing:antialiased; }
+main { width:100%; max-width:26rem; background:var(--card);
+  border:1px solid var(--border); border-radius:14px; padding:2rem;
+  box-shadow:0 1px 2px rgba(16,16,20,.04), 0 8px 24px rgba(16,16,20,.06); }
+h1 { font-size:1.15rem; letter-spacing:-.015em; margin:0 0 .5rem;
+  color:${ok ? "var(--ok)" : "var(--err)"}; }
+p { margin:0; color:var(--muted); }
+code { font-family:ui-monospace, SFMono-Regular, Menlo, monospace; font-size:.875em;
+  background:var(--bg); border:1px solid var(--border); border-radius:5px; padding:.1rem .35rem; }
+</style></head>
+<body><main>
+<h1>${ok ? "You&rsquo;re signed in" : "Sign-in failed"}</h1>
+<p>${message}</p>
+</main></body></html>`;
 }
 
 /**
@@ -93,17 +134,34 @@ export async function runLogin(
       const err = url.searchParams.get("error");
       const code = url.searchParams.get("code");
       const returnedState = url.searchParams.get("state");
-      res.writeHead(200, { "content-type": "text/html; charset=utf-8" });
+      // Decide the outcome BEFORE writing, so a failed authorization no longer
+      // renders "you can close this tab" as if it had succeeded.
+      const failure =
+        returnedState !== oauthState
+          ? new Error("authorization state mismatch")
+          : err
+            ? new Error(`authorization failed: ${err}`)
+            : !code
+              ? new Error("authorization missing code")
+              : null;
+      res.writeHead(failure ? 400 : 200, {
+        "content-type": "text/html; charset=utf-8",
+      });
       res.end(
-        "<!doctype html><title>Wayform</title><p>You can close this tab and return to the terminal.</p>",
+        failure
+          ? callbackPage(
+              false,
+              "Wayform could not complete the sign-in. Return to your terminal for the details, then run <code>wayform login</code> again.",
+            )
+          : callbackPage(
+              true,
+              "You can close this tab and return to your terminal.",
+            ),
       );
       clearTimeout(timeout);
       listener.close();
-      if (returnedState !== oauthState) {
-        fail(new Error("authorization state mismatch"));
-      } else if (err) fail(new Error(`authorization failed: ${err}`));
-      else if (!code) fail(new Error("authorization missing code"));
-      else settle(code);
+      if (failure) fail(failure);
+      else settle(code as string);
     } catch (e) {
       fail(e instanceof Error ? e : new Error(String(e)));
     }

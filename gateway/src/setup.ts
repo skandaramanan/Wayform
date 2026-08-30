@@ -2,6 +2,7 @@ import type {
   AuthRequest,
   OAuthHelpers,
 } from "@cloudflare/workers-oauth-provider";
+import { page as sharedPage, escapeHtml, errorPage } from "./page.js";
 import type { Env } from "./env.js";
 import type { GithubIdentity } from "./spaces.js";
 import { activateInstallation, getMemberByGithubId } from "./spaces.js";
@@ -122,9 +123,15 @@ export async function handleInstallCallback(
       expirationTtl: remainingTtl(updated),
     });
     return pickerResponse(handle, repositories, await bindSetupCookie(handle));
-  } catch (error) {
-    return new Response(errorMessage(error, "GitHub App setup failed"), {
+  } catch {
+    // Our copy, never the exception text: internal error strings are
+    // meaningless to the reader and can disclose gateway internals.
+    return errorPage({
       status: 502,
+      title: "GitHub App setup did not finish",
+      message:
+        "Wayform could not read the repositories for that installation. This is usually temporary.",
+      hint: "Close this tab and start the connection again from your editor.",
     });
   }
 }
@@ -230,9 +237,13 @@ export async function handleRepositorySelection(
     headers.append("set-cookie", clearCookie(SETUP_COOKIE));
     headers.append("set-cookie", clearCookie("__Host-CSRF_TOKEN"));
     return new Response(null, { status: 302, headers });
-  } catch (error) {
-    return new Response(errorMessage(error, "repository setup failed"), {
+  } catch {
+    return errorPage({
       status: 400,
+      title: "That repository could not be set up",
+      message:
+        "Wayform could not prepare the repository you selected as this team's memory store.",
+      hint: "Close this tab and start the connection again from your editor. If it keeps failing, try a different repository.",
     });
   }
 }
@@ -298,24 +309,9 @@ function renderRepositoryPicker(
   );
 }
 
+/** Delegates to the one shared shell so install steps match the consent screen. */
 function page(title: string, body: string): string {
-  return `<!doctype html>
-<html lang="en">
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>${escapeHtml(title)}</title>
-  <style>
-    body { font-family: ui-sans-serif, system-ui, sans-serif; max-width: 36rem; margin: 4rem auto; padding: 0 1.25rem; color: #111; }
-    p, label { line-height: 1.5; }
-    button, a { font: inherit; }
-  </style>
-</head>
-<body>
-  <h1>${escapeHtml(title)}</h1>
-  ${body}
-</body>
-</html>`;
+  return sharedPage({ title, body });
 }
 
 async function readPending(
@@ -379,7 +375,12 @@ function oauthError(
   redirect.searchParams.set("error_description", description);
   if (request.state) redirect.searchParams.set("state", request.state);
   if (request.issuer) redirect.searchParams.set("iss", request.issuer);
-  return Response.redirect(redirect, 302);
+  // `new Response`, not Response.redirect: the latter is immutable, so any
+  // caller appending a cookie-clearing header would throw at runtime.
+  return new Response(null, {
+    status: 302,
+    headers: { Location: redirect.href },
+  });
 }
 
 function isExpired(pending: PendingSetup): boolean {
@@ -437,18 +438,6 @@ function cookieValue(request: Request, name: string): string | null {
   return null;
 }
 
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;")
-    .replace(/"/g, "&quot;")
-    .replace(/'/g, "&#39;");
-}
-
-function errorMessage(error: unknown, fallback: string): string {
-  return error instanceof Error ? error.message : fallback;
-}
 
 async function sha256Hex(value: string): Promise<string> {
   const digest = await crypto.subtle.digest(
