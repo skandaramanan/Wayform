@@ -178,9 +178,11 @@ test("re-merging with a different binary name does not duplicate hooks (marker i
   assert.equal(twice.hooks.SessionStart.length, 1);
 });
 
-test("mergeCursorRemoteMcp writes a URL-only HTTP server", () => {
+test("mergeCursorRemoteMcp writes a typed, token-free HTTP server", () => {
   const out = mergeCursorRemoteMcp(undefined, "https://gw.example.com");
+  // `type` is load-bearing: Claude Code skips a url-only entry outright.
   assert.deepEqual(out.mcpServers.wayform, {
+    type: "http",
     url: "https://gw.example.com/mcp",
   });
 });
@@ -190,7 +192,10 @@ test("mergeCursorRemoteMcp preserves unrelated servers and is idempotent", () =>
   const once = mergeCursorRemoteMcp(existing, "https://gw");
   const twice = mergeCursorRemoteMcp(once, "https://gw");
   assert.equal(twice.mcpServers.other.url, "x");
-  assert.deepEqual(twice.mcpServers.wayform, { url: "https://gw/mcp" });
+  assert.deepEqual(twice.mcpServers.wayform, {
+    type: "http",
+    url: "https://gw/mcp",
+  });
 });
 
 test("mergeDevinRemoteMcp is project HTTP + transport, no headers", () => {

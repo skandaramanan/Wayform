@@ -59,12 +59,13 @@ test("tracked onboarding artifacts enforce the credential-free contract", () => 
   assert.match(gatewayReadme, /internally managed OAuth credentials/i);
 });
 
-test("Cursor Connect config is URL-only (no Authorization header)", () => {
+test("Cursor Connect config is token-free (no Authorization header)", () => {
   const cfg = mergeCursorRemoteMcp(
     undefined,
     "https://memorylayer-gateway.memory-layer.workers.dev",
   );
   assert.deepEqual(cfg.mcpServers.wayform, {
+    type: "http",
     url: "https://memorylayer-gateway.memory-layer.workers.dev/mcp",
   });
   assert.equal(JSON.stringify(cfg).includes("mlk_"), false);
