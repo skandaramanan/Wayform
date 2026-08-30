@@ -38,21 +38,6 @@ async function currentGrantId(env: Env, req: Request): Promise<string | null> {
   }
 }
 
-function describe(
-  grant: {
-    id: string;
-    clientId: string;
-    createdAt: number;
-    metadata?: unknown;
-  },
-  clientName: string | undefined,
-  isCurrent: boolean,
-): string {
-  const when = new Date(grant.createdAt * 1000).toISOString().slice(0, 10);
-  const name = clientName?.trim() || grant.clientId;
-  return `- ${name} — connected ${when}${isCurrent ? " (this session)" : ""}\n  id: ${grant.id}`;
-}
-
 export async function listSessions(
   env: Env,
   member: SpaceMember,
@@ -86,7 +71,12 @@ export async function listSessions(
         } catch {
           // Fall back to the raw client id in describe().
         }
-        return describe(grant, clientName, grant.id === current);
+        const when = new Date(grant.createdAt * 1000)
+          .toISOString()
+          .slice(0, 10);
+        const name = clientName?.trim() || grant.clientId;
+        const mark = grant.id === current ? " (this session)" : "";
+        return `- ${name} — connected ${when}${mark}\n  id: ${grant.id}`;
       }),
     );
     return {
