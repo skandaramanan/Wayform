@@ -213,9 +213,13 @@ args = []
 `;
 
 /**
- * Native HTTP MCP for a hosted member. URL only — the client runs OAuth;
- * no token in the file. Used for Cursor `.cursor/mcp.json` and Claude Code
- * project-scope `.mcp.json` (never `~/.cursor/mcp.json` or `--scope user`).
+ * Native HTTP MCP for a hosted member. No token in the file — the client runs
+ * OAuth. Used for Cursor `.cursor/mcp.json` and Claude Code project-scope
+ * `.mcp.json` (never `~/.cursor/mcp.json` or `--scope user`).
+ *
+ * `type` is REQUIRED, not decorative: Claude Code skips a `url` entry that
+ * omits it ("has a url but no type; add type: http"), so a URL-only file
+ * silently yields no tools. Cursor ignores the extra key.
  */
 export function mergeRemoteHttpMcp(
   existing: unknown,
@@ -223,7 +227,7 @@ export function mergeRemoteHttpMcp(
 ): Json {
   const root = asObject(existing);
   const servers = asObject(root.mcpServers);
-  servers.wayform = { url: `${gatewayUrl}/mcp` };
+  servers.wayform = { type: "http", url: `${gatewayUrl}/mcp` };
   root.mcpServers = servers;
   return root;
 }
