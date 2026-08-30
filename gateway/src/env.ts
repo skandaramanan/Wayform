@@ -42,6 +42,7 @@ export interface MembershipClaimStore {
 }
 
 import type { D1Like, IndexDb } from "./index-db.js";
+import type { RateLimitEnv } from "./rate-limit.js";
 import type { Embedder } from "./retrieval.js";
 
 /** Minimal Workers AI surface: embeddings and text generation. */
@@ -53,7 +54,7 @@ export interface AiBinding {
   ): Promise<{ response: string }>;
 }
 
-export interface Env {
+export interface Env extends RateLimitEnv {
   ROUTING: KVStore;
   /** OAuth grants/clients. Same Cloudflare namespace as ROUTING is fine. */
   OAUTH_KV: OauthKvStore;

@@ -14,6 +14,7 @@ import { indexDeps } from "./deps.js";
 import { retrieve, renderSearchResults } from "./retrieval.js";
 import { ingestEntries } from "./ingest.js";
 import { inviteGithubUser, revokeGithubUser } from "./spaces.js";
+import { listSessions, revokeSession } from "./sessions.js";
 import {
   detectWriteConflicts,
   formatDuplicateResult,
@@ -216,6 +217,29 @@ const TOOLS = [
       required: ["github_username"],
     },
   },
+  {
+    name: "list_sessions",
+    title: "List the apps connected to your Wayform account",
+    description:
+      "Use this when the user asks which apps, clients, or devices are connected to their Wayform account, or wants to review or audit their own access. Shows every active session for YOUR account only, and marks the one you are using now. No arguments.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "revoke_session",
+    title: "Disconnect one app from your Wayform account",
+    description:
+      "Use this when the user wants to disconnect, sign out, or revoke an app's access to their own Wayform account — for example after losing a laptop. Call list_sessions first to get the session id. Affects only YOUR account; use revoke_member instead to remove a teammate from the space.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        session_id: {
+          type: "string",
+          description: "Session id from list_sessions.",
+        },
+      },
+      required: ["session_id"],
+    },
+  },
 ];
 
 /** Cache key for /hook/read's per-space projection cache (Task 7 reads it). */
@@ -277,7 +301,7 @@ export async function handleMcp(
     case "tools/list":
       return rpcResult(msg.id, { tools: TOOLS });
     case "tools/call":
-      return toolsCall(msg, member, env, ctx);
+      return toolsCall(msg, member, env, req, ctx);
     default:
       return rpcError(
         msg.id,
@@ -291,6 +315,7 @@ async function toolsCall(
   msg: RpcMessage,
   member: SpaceMember,
   env: Env,
+  req: Request,
   ctx?: HandlerCtx,
 ): Promise<Response> {
   const fetchImpl = env.githubFetch ?? fetch;
@@ -603,6 +628,19 @@ async function toolsCall(
             ),
           );
         }
+      }
+      case "list_sessions": {
+        const out = await listSessions(env, member, req);
+        return finish(rpcResult(msg.id, toolText(out.text, out.isError)));
+      }
+      case "revoke_session": {
+        const out = await revokeSession(
+          env,
+          member,
+          req,
+          typeof args.session_id === "string" ? args.session_id : "",
+        );
+        return finish(rpcResult(msg.id, toolText(out.text, out.isError)));
       }
       case "invite_member":
       case "revoke_member": {

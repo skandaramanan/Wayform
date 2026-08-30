@@ -215,7 +215,9 @@ test("a failed authorization renders a failure page, not a success page", async 
         queueMicrotask(async () => {
           try {
             // GitHub declined: the browser lands back with ?error=access_denied.
-            const res = await fetch(`${redirectUri}?error=access_denied&state=x`);
+            const res = await fetch(
+              `${redirectUri}?error=access_denied&state=x`,
+            );
             capture({ status: res.status, body: await res.text() });
           } catch (e) {
             capture({ status: 0, body: String(e) });

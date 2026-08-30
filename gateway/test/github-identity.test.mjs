@@ -569,7 +569,10 @@ test("Cancel on the consent screen returns access_denied to the client", async (
   // closed tab the client waits out.
   assert.equal(denied.status, 302);
   const redirect = new URL(denied.headers.get("location"));
-  assert.equal(redirect.origin + redirect.pathname, "http://127.0.0.1:9876/callback");
+  assert.equal(
+    redirect.origin + redirect.pathname,
+    "http://127.0.0.1:9876/callback",
+  );
   assert.equal(redirect.searchParams.get("error"), "access_denied");
   assert.equal(redirect.searchParams.get("state"), "client-state");
 });
