@@ -1,4 +1,4 @@
-import type { Env } from "./env.js";
+import type { Env, HandlerCtx } from "./env.js";
 import { resolveMember } from "./tenancy.js";
 import { indexDeps } from "./deps.js";
 import { retrieve, type Retrieved } from "./retrieval.js";
@@ -36,8 +36,9 @@ export function renderPromptInjection(
 export async function handleHookPrompt(
   req: Request,
   env: Env,
+  ctx?: HandlerCtx,
 ): Promise<Response> {
-  const member = await resolveMember(req, env);
+  const member = await resolveMember(req, env, ctx);
   if (!member) return new Response("unauthorized", { status: 401 });
 
   const asText = (body: string) =>

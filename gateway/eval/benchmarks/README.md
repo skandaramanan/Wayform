@@ -6,14 +6,14 @@ Product plane is the **hosted gateway**. Do not measure local stdio MCP.
 
 | Script | Purpose |
 |--------|---------|
-| `latency.mjs` | p50/p95 for `/hook/read`, `/api/read`, MCP `read_context` / `search_memory` |
+| `latency.mjs` | p50/p95 for `/mcp/hook/read`, `/mcp/api/read`, MCP `read_context` / `search_memory` |
 | `invocation-rate.mjs` + `invocation-prompts.json` | Soft-write / search should-trigger fixtures (method from memory `16fa6187`) |
 
 ## Env
 
 ```bash
 export MEMORYLAYER_GATEWAY_URL=https://your-gateway
-export MEMORYLAYER_GATEWAY_TOKEN=mlk_…
+wayform login # uses the native OS credential store
 node gateway/eval/benchmarks/latency.mjs --project memorylayer --runs 5
 node gateway/eval/benchmarks/invocation-rate.mjs
 # optional auto-run:

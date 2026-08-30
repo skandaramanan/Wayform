@@ -4,6 +4,7 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { checkEnvFile, redactSecrets, runDoctor } from "../dist/doctor.js";
+import { saveStoredOAuth } from "../dist/keychain.js";
 
 function cfg(repoPath, repoUrl = "https://token@github.com/org/memory.git") {
   return {
@@ -102,8 +103,31 @@ function remoteCfg(gatewayUrl = "https://gw.example.com") {
     autoPush: true,
     readBudgetTokens: 4000,
     gatewayUrl,
-    gatewayToken: "mlk_test_token",
   };
+}
+
+function memoryStore(loggedIn = true) {
+  const values = new Map();
+  const store = {
+    get: (account) => values.get(account) ?? null,
+    set: (account, value) => values.set(account, value),
+    delete: (account) => values.delete(account),
+  };
+  if (loggedIn) {
+    saveStoredOAuth(
+      "https://gw.example.com",
+      {
+        client_id: "cli-1",
+        access_token: "oauth-access",
+        refresh_token: "oauth-refresh",
+        expires_at: Date.now() + 3_600_000,
+        token_endpoint: "https://gw.example.com/oauth/token",
+        resource: "https://gw.example.com/mcp",
+      },
+      store,
+    );
+  }
+  return store;
 }
 
 function writeRemoteEnv(cwd) {
@@ -111,8 +135,7 @@ function writeRemoteEnv(cwd) {
     path.join(cwd, ".memorylayer-hook.env"),
     [
       "MEMORYLAYER_GATEWAY_URL=https://gw.example.com",
-      "MEMORYLAYER_GATEWAY_TOKEN=mlk_test_token",
-      "MEMORYLAYER_AUTHOR=Alice",
+      "MEMORYLAYER_PROJECT=product",
       "",
     ].join("\n"),
     { mode: 0o600 },
@@ -143,10 +166,14 @@ test("runDoctor passes for a healthy hosted member and skips git checks", async 
         throw new Error("git must not run in gateway-only mode");
       },
       fetchImpl: async (url, init) => {
-        assert.match(String(url), /\/hook\/read\?/);
-        assert.equal(init.headers.authorization, "Bearer mlk_test_token");
+        assert.match(String(url), /\/mcp\/hook\/read\?/);
+        assert.equal(
+          new Headers(init.headers).get("authorization"),
+          "Bearer oauth-access",
+        );
         return new Response("briefing", { status: 200 });
       },
+      credentialStore: memoryStore(),
       write: (line) => lines.push(line),
       setExitCode: false,
     });
@@ -160,7 +187,7 @@ test("runDoctor passes for a healthy hosted member and skips git checks", async 
   }
 });
 
-test("runDoctor fails when the gateway rejects the token", async () => {
+test("runDoctor fails when the gateway rejects the session", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ml-doc-"));
   try {
     writeRemoteEnv(tmp);
@@ -169,11 +196,34 @@ test("runDoctor fails when the gateway rejects the token", async () => {
       cwd: tmp,
       config: remoteCfg(),
       fetchImpl: async () => new Response("nope", { status: 401 }),
+      credentialStore: memoryStore(),
       write: (line) => lines.push(line),
       setExitCode: false,
     });
     assert.equal(code, 1);
-    assert.match(lines.join("\n"), /token rejected/);
+    assert.match(lines.join("\n"), /wayform login/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("runDoctor fails with wayform login when hosted and not logged in", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ml-doc-"));
+  try {
+    writeRemoteEnv(tmp);
+    const lines = [];
+    const code = await runDoctor({
+      cwd: tmp,
+      config: remoteCfg(),
+      credentialStore: memoryStore(false),
+      fetchImpl: async () => {
+        throw new Error("must not fetch without a token");
+      },
+      write: (line) => lines.push(line),
+      setExitCode: false,
+    });
+    assert.equal(code, 1);
+    assert.match(lines.join("\n"), /wayform login/);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }
@@ -189,6 +239,7 @@ test("runDoctor warns on loose secret-file perms", async () => {
       cwd: tmp,
       config: remoteCfg(),
       fetchImpl: async () => new Response("ok", { status: 200 }),
+      credentialStore: memoryStore(),
       write: (line) => lines.push(line),
       setExitCode: false,
     });

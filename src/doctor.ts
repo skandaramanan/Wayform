@@ -2,6 +2,8 @@ import fs from "node:fs";
 import path from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import type { CredentialStore } from "./credential-store.js";
+import { oauthFetch } from "./oauth-session.js";
 import {
   defaultProject,
   loadConfig,
@@ -11,12 +13,8 @@ import {
 
 const execFileAsync = promisify(execFile);
 const GATEWAY_PROBE_TIMEOUT_MS = 4000;
-/** Files init writes with a member credential inside — must stay 0600. */
-const SECRET_FILES = [
-  ".memorylayer-hook.env",
-  ".cursor/mcp.json",
-  ".codex/config.toml",
-];
+/** Files that used to carry a member credential. Hook env is URL-only now. */
+const SECRET_FILES = [".memorylayer-hook.env"];
 
 export type CheckStatus = "ok" | "warn" | "fail";
 
@@ -37,6 +35,7 @@ interface DoctorOptions {
   config?: Config;
   gitRunner?: GitRunner;
   fetchImpl?: typeof fetch;
+  credentialStore?: CredentialStore;
   write?: (line: string) => void;
   setExitCode?: boolean;
 }
@@ -74,8 +73,15 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<number> {
   // Hosted (gateway) members have repoUrl="" — the git checks would run
   // against an empty URL and fail a perfectly healthy setup. Probe the
   // gateway instead; run the git checks only when a clone is configured.
-  if (cfg.gatewayUrl && cfg.gatewayToken) {
-    results.push(await checkGateway(cfg, cwd, options.fetchImpl ?? fetch));
+  if (cfg.gatewayUrl) {
+    results.push(
+      await checkGateway(
+        cfg,
+        cwd,
+        options.fetchImpl ?? fetch,
+        options.credentialStore,
+      ),
+    );
   }
   if (cfg.repoUrl) {
     results.push(await checkClone(cfg, gitRunner));
@@ -112,14 +118,9 @@ export function checkEnvFile(cwd: string, env: NodeJS.ProcessEnv): CheckResult {
   const has = (key: string) => keys.has(key) || Boolean(env[key]?.trim());
   // Hosted members get a gateway-only env (init --remote writes no
   // CONTEXT_REPO_URL); local members need the repo URL instead.
-  const hosted =
-    has("MEMORYLAYER_GATEWAY_URL") || has("MEMORYLAYER_GATEWAY_TOKEN");
+  const hosted = has("MEMORYLAYER_GATEWAY_URL");
   const required = hosted
-    ? [
-        "MEMORYLAYER_GATEWAY_URL",
-        "MEMORYLAYER_GATEWAY_TOKEN",
-        "MEMORYLAYER_AUTHOR",
-      ]
+    ? ["MEMORYLAYER_GATEWAY_URL"]
     : ["CONTEXT_REPO_URL", "MEMORYLAYER_AUTHOR"];
   const missing = required.filter((key) => !has(key));
   if (missing.length > 0) {
@@ -164,35 +165,44 @@ export function checkSecretPerms(cwd: string): CheckResult[] {
 }
 
 /**
- * One authed GET /hook/read proves reachability AND that the member token is
- * accepted — the same call the session hook makes, so an [ok] here means the
- * hooks will actually get context.
+ * One authed GET /hook/read proves reachability AND that the OAuth session is
+ * accepted — the same call the session hook makes. Missing/expired session
+ * tells the user to run `wayform login`, never to paste a token.
  */
 export async function checkGateway(
   cfg: Config,
   cwd: string,
   fetchImpl: typeof fetch,
+  credentialStore?: CredentialStore,
 ): Promise<CheckResult> {
-  const url = new URL(`${cfg.gatewayUrl}/hook/read`);
+  if (!cfg.gatewayUrl)
+    return {
+      status: "fail",
+      name: "gateway",
+      message: "gateway URL is not configured",
+    };
+  const url = new URL(`${cfg.gatewayUrl}/mcp/hook/read`);
   url.searchParams.set("project", defaultProject(cwd));
   url.searchParams.set("budget", "1");
   try {
-    const res = await fetchImpl(url.toString(), {
-      headers: { authorization: `Bearer ${cfg.gatewayToken}` },
-      signal: AbortSignal.timeout(GATEWAY_PROBE_TIMEOUT_MS),
-    });
+    const res = await oauthFetch(
+      cfg.gatewayUrl,
+      url.toString(),
+      { signal: AbortSignal.timeout(GATEWAY_PROBE_TIMEOUT_MS) },
+      { fetchImpl, store: credentialStore },
+    );
     if (res.ok) {
       return {
         status: "ok",
         name: "gateway",
-        message: `reachable and token accepted (${cfg.gatewayUrl})`,
+        message: `reachable (${cfg.gatewayUrl})`,
       };
     }
     if (res.status === 401 || res.status === 403) {
       return {
         status: "fail",
         name: "gateway",
-        message: "token rejected — ask your admin for a new member token",
+        message: "logged-out or expired — run: wayform login",
       };
     }
     return {
@@ -201,10 +211,18 @@ export async function checkGateway(
       message: `unexpected HTTP ${res.status} from ${cfg.gatewayUrl}`,
     };
   } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    if (/run: wayform login/i.test(message)) {
+      return {
+        status: "fail",
+        name: "gateway",
+        message: "not logged in — run: wayform login",
+      };
+    }
     return {
       status: "fail",
       name: "gateway",
-      message: `unreachable: ${redactSecrets(err instanceof Error ? err.message : String(err))}`,
+      message: `unreachable: ${redactSecrets(message)}`,
     };
   }
 }

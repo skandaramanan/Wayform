@@ -3,14 +3,32 @@ export class FakeKV {
   constructor() {
     this.map = new Map();
   }
-  async get(key) {
-    return this.map.has(key) ? this.map.get(key) : null;
+  async get(key, typeOrOpts) {
+    if (!this.map.has(key)) return null;
+    const value = this.map.get(key);
+    const type = typeof typeOrOpts === "string" ? typeOrOpts : typeOrOpts?.type;
+    if (type === "json") return JSON.parse(value);
+    return value;
   }
   async put(key, value, _opts) {
     this.map.set(key, value);
   }
   async delete(key) {
     this.map.delete(key);
+  }
+  async list({ prefix = "", limit = 1000, cursor } = {}) {
+    const names = [...this.map.keys()]
+      .filter((k) => k.startsWith(prefix))
+      .sort();
+    const start = cursor ? Number(cursor) : 0;
+    const page = names.slice(start, start + limit);
+    const next =
+      start + limit < names.length ? String(start + limit) : undefined;
+    return {
+      keys: page.map((name) => ({ name })),
+      list_complete: !next,
+      cursor: next,
+    };
   }
 }
 
@@ -38,17 +56,90 @@ async function genKeypair() {
 
 export const TEST_KEYPAIR = await genKeypair();
 
+function memoryMembershipClaims() {
+  const users = new Map();
+  const invites = new Map();
+  return {
+    async claimUser(githubId, space) {
+      if (!users.has(githubId)) users.set(githubId, space);
+      return users.get(githubId);
+    },
+    async releaseUser(githubId, space) {
+      if (users.get(githubId) === space) users.delete(githubId);
+    },
+    async claimInvite(login, space) {
+      if (!invites.has(login)) invites.set(login, space);
+      return invites.get(login);
+    },
+    async releaseInvite(login, space) {
+      if (invites.get(login) === space) invites.delete(login);
+    },
+  };
+}
+
 /** Env with a FakeKV and the test keypair; pass a mock fetch for GitHub calls.
  *  extra: { indexDb, embedder, WEBHOOK_SECRET, ... } merged onto the env. */
 export function makeEnv(githubFetch, extra = {}) {
+  const routing = extra.ROUTING ?? new FakeKV();
   return {
-    ROUTING: new FakeKV(),
+    ROUTING: routing,
+    OAUTH_KV: routing,
     GITHUB_APP_ID: "12345",
     GITHUB_APP_PRIVATE_KEY: TEST_KEYPAIR.pem,
+    GITHUB_CLIENT_ID: "Iv1.testoauth",
+    GITHUB_CLIENT_SECRET: "gh-client-secret",
     ADMIN_SECRET: "test-admin-secret",
     githubFetch,
+    membershipClaims: memoryMembershipClaims(),
     ...extra,
   };
+}
+
+/** Seed a github_id member + space registry. Sets env.oauthProps for handler tests. */
+export async function seedGithubMember(env, member) {
+  const rec = {
+    branch: "main",
+    role: "member",
+    githubLogin:
+      member.githubLogin ?? String(member.author ?? "user").toLowerCase(),
+    ...member,
+  };
+  await env.ROUTING.put(`member:github:${rec.githubId}`, JSON.stringify(rec));
+  const membersKey = `space:members:${rec.space}`;
+  const membersRaw = await env.ROUTING.get(membersKey);
+  const members = membersRaw ? JSON.parse(membersRaw) : [];
+  if (!members.includes(rec.githubId)) members.push(rec.githubId);
+  await env.ROUTING.put(membersKey, JSON.stringify(members));
+  if (rec.githubLogin) {
+    await env.ROUTING.put(
+      `github:login:${String(rec.githubLogin).toLowerCase()}`,
+      String(rec.githubId),
+    );
+  }
+  const raw = await env.ROUTING.get("spaces:registry");
+  const reg = raw ? JSON.parse(raw) : {};
+  reg[`${rec.owner}/${rec.repo}`] = {
+    space: rec.space,
+    installationId: rec.installationId,
+    owner: rec.owner,
+    repo: rec.repo,
+    branch: rec.branch,
+  };
+  await env.ROUTING.put("spaces:registry", JSON.stringify(reg));
+  await env.ROUTING.put(
+    `space:inst:${rec.installationId}`,
+    JSON.stringify({
+      space: rec.space,
+      installationId: rec.installationId,
+      owner: rec.owner,
+      repo: rec.repo,
+      branch: rec.branch,
+      plan: rec.plan ?? "pilot",
+      createdByGithubId: rec.createdByGithubId ?? rec.githubId,
+      status: "active",
+    }),
+  );
+  return rec;
 }
 
 /** Deterministic 16-dim embedding: token-hash bag, so shared vocabulary =>

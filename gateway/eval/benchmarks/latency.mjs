@@ -3,14 +3,16 @@
  * Gateway latency harness (remote MCP / HTTP only).
  *
  * Usage:
- *   MEMORYLAYER_GATEWAY_URL=https://… MEMORYLAYER_GATEWAY_TOKEN=mlk_… \
- *     node gateway/eval/benchmarks/latency.mjs [--project memorylayer] [--runs 5]
+ *   wayform login
+ *   MEMORYLAYER_GATEWAY_URL=https://… node gateway/eval/benchmarks/latency.mjs \
+ *     [--project memorylayer] [--runs 5]
  *
- * Measures cold vs warm /hook/read, queryless vs queried /api/read, and MCP
+ * Measures cold vs warm /mcp/hook/read, queryless vs queried /mcp/api/read, and MCP
  * tools/call read_context / search_memory wall times. Does not write.
  */
+import { oauthFetch } from "../../../dist/oauth-session.js";
+
 const urlBase = (process.env.MEMORYLAYER_GATEWAY_URL ?? "").replace(/\/$/, "");
-const token = process.env.MEMORYLAYER_GATEWAY_TOKEN ?? "";
 const args = process.argv.slice(2);
 function flag(name, fallback) {
   const i = args.indexOf(name);
@@ -19,15 +21,12 @@ function flag(name, fallback) {
 const project = flag("--project", "memorylayer");
 const runs = Number(flag("--runs", "5")) || 5;
 
-if (!urlBase || !token) {
-  console.error(
-    "Set MEMORYLAYER_GATEWAY_URL and MEMORYLAYER_GATEWAY_TOKEN (remote MCP plane).",
-  );
+if (!urlBase) {
+  console.error("Set MEMORYLAYER_GATEWAY_URL, then run wayform login.");
   process.exit(1);
 }
 
 const headers = {
-  authorization: `Bearer ${token}`,
   "content-type": "application/json",
 };
 
@@ -57,7 +56,7 @@ async function timed(label, fn) {
 }
 
 async function mcpCall(name, arguments_) {
-  const res = await fetch(`${urlBase}/mcp`, {
+  const res = await oauthFetch(urlBase, `${urlBase}/mcp`, {
     method: "POST",
     headers,
     body: JSON.stringify({
@@ -74,33 +73,27 @@ async function mcpCall(name, arguments_) {
 // Best-effort cold: delete is not public; first call after a quiet period is
 // treated as cold for hook/read by busting via unique budget param + sleep note.
 await timed("hook_read", async (i) => {
-  const u = new URL(`${urlBase}/hook/read`);
+  const u = new URL(`${urlBase}/mcp/hook/read`);
   u.searchParams.set("project", project);
   u.searchParams.set("budget", String(4000 + (i === 0 ? 0 : 0)));
-  const res = await fetch(u, {
-    headers: { authorization: headers.authorization },
-  });
+  const res = await oauthFetch(urlBase, u);
   const text = await res.text();
   return { status: res.status, bytes: text.length };
 });
 
 await timed("api_read_queryless", async () => {
-  const u = new URL(`${urlBase}/api/read`);
+  const u = new URL(`${urlBase}/mcp/api/read`);
   u.searchParams.set("project", project);
-  const res = await fetch(u, {
-    headers: { authorization: headers.authorization },
-  });
+  const res = await oauthFetch(urlBase, u);
   const text = await res.text();
   return { status: res.status, bytes: text.length };
 });
 
 await timed("api_read_query", async () => {
-  const u = new URL(`${urlBase}/api/read`);
+  const u = new URL(`${urlBase}/mcp/api/read`);
   u.searchParams.set("project", project);
   u.searchParams.set("query", "remote MCP latency tool invocation");
-  const res = await fetch(u, {
-    headers: { authorization: headers.authorization },
-  });
+  const res = await oauthFetch(urlBase, u);
   const text = await res.text();
   return { status: res.status, bytes: text.length };
 });

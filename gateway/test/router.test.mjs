@@ -20,9 +20,9 @@ test("unknown path returns 404", async () => {
   assert.equal(res.status, 404);
 });
 
-test("OPTIONS preflight on /mcp/<token> returns 204 with CORS headers", async () => {
+test("OPTIONS preflight on /mcp returns 204 with CORS headers", async () => {
   const res = await handleRequest(
-    new Request("https://gw.test/mcp/mlk_x", {
+    new Request("https://gw.test/mcp", {
       method: "OPTIONS",
       headers: {
         origin: "https://chatgpt.com",
@@ -112,39 +112,37 @@ test("POST /admin/clear-supersession clears edges", async () => {
   assert.equal((await db.listDocs("s1")).length, 2);
 });
 
-test("routes POST /admin/invites and POST /join", async () => {
+test("POST /admin/allowlist is operator-gated; /join is gone", async () => {
   const env = makeEnv();
-  const inviteRes = await handleRequest(
-    new Request("https://gw.test/admin/invites", {
+  const denied = await handleRequest(
+    new Request("https://gw.test/admin/allowlist", {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ add: ["ada"] }),
+    }),
+    env,
+  );
+  assert.equal(denied.status, 403);
+  const added = await handleRequest(
+    new Request("https://gw.test/admin/allowlist", {
       method: "POST",
       headers: {
         "x-admin-secret": "test-admin-secret",
         "content-type": "application/json",
       },
-      body: JSON.stringify({
-        space: "team-a",
-        owner: "acme",
-        repo: "team-a-memory",
-        installationId: 777,
-      }),
+      body: JSON.stringify({ add: ["ada"] }),
     }),
     env,
   );
-  assert.equal(inviteRes.status, 200);
-  const { invite } = await inviteRes.json();
-
-  const joinRes = await handleRequest(
+  assert.equal(added.status, 200);
+  assert.deepEqual((await added.json()).allowlist, ["ada"]);
+  const join = await handleRequest(
     new Request("https://gw.test/join", {
       method: "POST",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        invite,
-        author: "David",
-        authorEmail: "d@spear.ai",
-      }),
+      body: "{}",
     }),
     env,
   );
-  assert.equal(joinRes.status, 200);
-  assert.match((await joinRes.json()).token, /^mlk_/);
+  assert.equal(join.status, 404);
 });

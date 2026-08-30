@@ -11,9 +11,38 @@ export interface KVStore {
     opts?: { expirationTtl?: number },
   ): Promise<void>;
   delete(key: string): Promise<void>;
+  list(opts?: { prefix?: string; limit?: number; cursor?: string }): Promise<{
+    keys: { name: string }[];
+    list_complete: boolean;
+    cursor?: string;
+  }>;
+}
+
+/** workers-oauth-provider's KV surface (get-with-type + list). */
+export interface OauthKvStore {
+  get(key: string, opts?: { type?: string } | string): Promise<unknown>;
+  put(
+    key: string,
+    value: string,
+    opts?: { expirationTtl?: number },
+  ): Promise<void>;
+  delete(key: string): Promise<void>;
+  list(opts?: { prefix?: string; limit?: number; cursor?: string }): Promise<{
+    keys: { name: string }[];
+    list_complete: boolean;
+    cursor?: string;
+  }>;
+}
+
+export interface MembershipClaimStore {
+  claimUser(githubId: number, space: string): Promise<string>;
+  releaseUser(githubId: number, space: string): Promise<void>;
+  claimInvite(login: string, space: string): Promise<string>;
+  releaseInvite(login: string, space: string): Promise<void>;
 }
 
 import type { D1Like, IndexDb } from "./index-db.js";
+import type { RateLimiter } from "./rate-limit.js";
 import type { Embedder } from "./retrieval.js";
 
 /** Minimal Workers AI surface: embeddings and text generation. */
@@ -26,10 +55,28 @@ export interface AiBinding {
 }
 
 export interface Env {
+  /** Abuse limiter for unauthenticated surfaces; absent = unlimited. */
+  RL_AUTH?: RateLimiter;
   ROUTING: KVStore;
+  /** OAuth grants/clients. Same Cloudflare namespace as ROUTING is fine. */
+  OAUTH_KV: OauthKvStore;
+  /** Injected by workers-oauth-provider on each request. */
+  OAUTH_PROVIDER?: import("@cloudflare/workers-oauth-provider").OAuthHelpers;
   GITHUB_APP_ID: string;
   /** PKCS#8 PEM. GitHub downloads PKCS#1 — convert before `wrangler secret put`. */
   GITHUB_APP_PRIVATE_KEY: string;
+  /** Public GitHub App slug used to construct the guided installation URL. */
+  GITHUB_APP_SLUG?: string;
+  /** GitHub App user-to-server OAuth client id (Iv1.…), not the numeric App ID. */
+  GITHUB_CLIENT_ID?: string;
+  /** GitHub App OAuth client secret, used only on /callback code exchange. */
+  GITHUB_CLIENT_SECRET?: string;
+  /**
+   * Test seam: GitHub identity the OAuth wrapper would put on ctx.props.
+   * Production requests get props from workers-oauth-provider; handler tests
+   * that call handleRequest directly set this instead of minting credentials.
+   */
+  oauthProps?: { githubId: number; githubLogin?: string };
   ADMIN_SECRET: string;
   /** D1 index database. Optional: absent = index plane disabled, recency reads only. */
   DB?: D1Like;
@@ -42,9 +89,17 @@ export interface Env {
   /** Test seams: injected index store / embedder. Production leaves unset. */
   indexDb?: IndexDb;
   embedder?: Embedder;
+  /** Test seam for D1-backed identity uniqueness. */
+  membershipClaims?: MembershipClaimStore;
   /** Test seam: injected text-gen. Production leaves it unset (uses AI). */
   genText?: (prompt: string) => Promise<string>;
   /** Test seam: force the near-duplicate write gate on/off. Production
    *  leaves it unset (behavior comes from DUP_GATE_ENFORCE in supersede.ts). */
   dupGateEnforce?: boolean;
+}
+
+/** waitUntil plus OAuth grant props injected by workers-oauth-provider. */
+export interface HandlerCtx {
+  waitUntil(p: Promise<unknown>): void;
+  props?: { githubId?: number; githubLogin?: string };
 }

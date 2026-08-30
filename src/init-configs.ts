@@ -213,44 +213,97 @@ args = []
 `;
 
 /**
- * Native HTTP MCP for a hosted member, written into a project's `.cursor/mcp.json`.
- * This file carries the member token, so `init --remote` MUST gitignore it — it is
- * per-member and never committed. Non-clobbering + idempotent on `wayform`.
+ * Native HTTP MCP for a hosted member. No token in the file — the client runs
+ * OAuth. Used for Cursor `.cursor/mcp.json` and Claude Code project-scope
+ * `.mcp.json` (never `~/.cursor/mcp.json` or `--scope user`).
+ *
+ * `type` is REQUIRED, not decorative: Claude Code skips a `url` entry that
+ * omits it ("has a url but no type; add type: http"), so a URL-only file
+ * silently yields no tools. Cursor ignores the extra key.
  */
-export function mergeCursorRemoteMcp(
+export function mergeRemoteHttpMcp(
   existing: unknown,
   gatewayUrl: string,
-  token: string,
+): Json {
+  const root = asObject(existing);
+  const servers = asObject(root.mcpServers);
+  servers.wayform = { type: "http", url: `${gatewayUrl}/mcp` };
+  root.mcpServers = servers;
+  return root;
+}
+
+export const mergeCursorRemoteMcp = mergeRemoteHttpMcp;
+
+/**
+ * Project-scoped Codex MCP block for a HOSTED (gateway) member. Lives in
+ * `.codex/config.toml` (trusted project only) — not `~/.codex/config.toml`.
+ */
+export function codexRemoteConfigToml(gatewayUrl: string): string {
+  return `[mcp_servers.wayform]
+url = "${gatewayUrl}/mcp"
+auth = "oauth"
+`;
+}
+
+/**
+ * Replace only Codex's project-scoped Wayform table. Keeping the operation
+ * text-based preserves comments, model settings, trust, and unrelated MCP
+ * servers without introducing a TOML serializer that rewrites user config.
+ */
+export function mergeCodexRemoteConfigToml(
+  existing: string,
+  gatewayUrl: string,
+): string {
+  const replacement = codexRemoteConfigToml(gatewayUrl);
+  const header = /^\[mcp_servers\.wayform\]\s*$/m;
+  const found = header.exec(existing);
+  if (!found) {
+    let out = existing;
+    if (out && !out.endsWith("\n")) out += "\n";
+    if (out && !out.endsWith("\n\n")) out += "\n";
+    return out + replacement;
+  }
+
+  const nextHeader = /^\[/gm;
+  nextHeader.lastIndex = found.index + found[0].length;
+  const next = nextHeader.exec(existing);
+  const end = next?.index ?? existing.length;
+  const suffix = existing.slice(end);
+  return (
+    existing.slice(0, found.index) + replacement + (suffix ? "\n" : "") + suffix
+  );
+}
+
+/**
+ * Devin CLI project MCP (`.devin/mcp_config.json`). Not `--scope user` /
+ * `~/.config/devin/mcp_config.json`, which would load in every repo.
+ */
+export function mergeDevinRemoteMcp(
+  existing: unknown,
+  gatewayUrl: string,
 ): Json {
   const root = asObject(existing);
   const servers = asObject(root.mcpServers);
   servers.wayform = {
     url: `${gatewayUrl}/mcp`,
-    headers: { Authorization: `Bearer ${token}` },
+    transport: "http",
   };
   root.mcpServers = servers;
   return root;
 }
 
 /**
- * Project-scoped Codex MCP block for a HOSTED (gateway) member, written to
- * `.codex/config.toml`. Codex 0.144+ speaks native streamable-HTTP and applies
- * project config for trusted repos, so no global paste and no `mcp-remote`
- * bridge are needed. The member token is inlined as a literal Authorization
- * header via `http_headers` — the same pattern as `.cursor/mcp.json` — because
- * the env-var alternative (`bearer_token_env_var`) requires exporting the token
- * before every launch and fails SILENTLY for IDE-launched Codex (the MCP client
- * never initializes and the model just sees no tools). Codex rejects a literal
- * `bearer_token` field for HTTP servers; `http_headers` is the sanctioned
- * literal path. This file therefore CARRIES THE TOKEN: `init --remote` MUST
- * gitignore it and harden it to 0600.
+ * Antigravity workspace MCP (`.agents/mcp_config.json`). Uses `serverUrl`
+ * per Google's schema. Not `~/.gemini/config/mcp_config.json` (global).
+ * DCR OAuth: URL only, no headers.
  */
-export function codexRemoteConfigToml(
+export function mergeAntigravityRemoteMcp(
+  existing: unknown,
   gatewayUrl: string,
-  token: string,
-): string {
-  return `[mcp_servers.wayform]
-url = "${gatewayUrl}/mcp"
-http_headers = { Authorization = "Bearer ${token}" }
-`;
+): Json {
+  const root = asObject(existing);
+  const servers = asObject(root.mcpServers);
+  servers.wayform = { serverUrl: `${gatewayUrl}/mcp` };
+  root.mcpServers = servers;
+  return root;
 }

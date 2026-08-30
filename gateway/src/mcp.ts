@@ -1,4 +1,4 @@
-import type { Env } from "./env.js";
+import type { Env, HandlerCtx } from "./env.js";
 import { resolveMember, type SpaceMember } from "./tenancy.js";
 import {
   readEntriesCached,
@@ -13,6 +13,8 @@ import type { EntryType } from "../../src/frontmatter.js";
 import { indexDeps } from "./deps.js";
 import { retrieve, renderSearchResults } from "./retrieval.js";
 import { ingestEntries } from "./ingest.js";
+import { inviteGithubUser, revokeGithubUser } from "./spaces.js";
+import { listSessions, revokeSession } from "./sessions.js";
 import {
   detectWriteConflicts,
   formatDuplicateResult,
@@ -181,6 +183,63 @@ const TOOLS = [
       required: ["fact_id", "verdict"],
     },
   },
+  {
+    name: "invite_member",
+    title: "Invite a GitHub user to this space",
+    description:
+      "Grant a teammate access to this Wayform space by GitHub username. " +
+      "They sign in with GitHub (Connect / wayform login); you never send them a token. " +
+      "Admin only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        github_username: {
+          type: "string",
+          description: "GitHub login to invite, e.g. 'dberquist'.",
+        },
+      },
+      required: ["github_username"],
+    },
+  },
+  {
+    name: "revoke_member",
+    title: "Revoke a GitHub user's access to this space",
+    description:
+      "Remove a GitHub username from this Wayform space (pending invite or live member). Admin only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        github_username: {
+          type: "string",
+          description: "GitHub login to revoke.",
+        },
+      },
+      required: ["github_username"],
+    },
+  },
+  {
+    name: "list_sessions",
+    title: "List the apps connected to your Wayform account",
+    description:
+      "Use this when the user asks which apps, clients, or devices are connected to their Wayform account, or wants to review or audit their own access. Shows every active session for YOUR account only, and marks the one you are using now. No arguments.",
+    inputSchema: { type: "object", properties: {} },
+  },
+  {
+    name: "revoke_session",
+    title: "Disconnect one app from your Wayform account",
+    description:
+      "Use this when the user wants to disconnect, sign out, or revoke an app's access to their own Wayform account — for example after losing a laptop. Call list_sessions first to get the session id. Affects only YOUR account; use revoke_member instead to remove a teammate from the space.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        session_id: {
+          type: "string",
+          description: "Session id from list_sessions.",
+        },
+      },
+      required: ["session_id"],
+    },
+  },
 ];
 
 /** Cache key for /hook/read's per-space projection cache (Task 7 reads it). */
@@ -213,9 +272,9 @@ function toolText(text: string, isError = false): unknown {
 export async function handleMcp(
   req: Request,
   env: Env,
-  ctx?: { waitUntil(p: Promise<unknown>): void },
+  ctx?: HandlerCtx,
 ): Promise<Response> {
-  const member = await resolveMember(req, env);
+  const member = await resolveMember(req, env, ctx);
   if (!member) return new Response("unauthorized", { status: 401 });
 
   let msg: RpcMessage | RpcMessage[];
@@ -242,7 +301,7 @@ export async function handleMcp(
     case "tools/list":
       return rpcResult(msg.id, { tools: TOOLS });
     case "tools/call":
-      return toolsCall(msg, member, env, ctx);
+      return toolsCall(msg, member, env, req, ctx);
     default:
       return rpcError(
         msg.id,
@@ -256,7 +315,8 @@ async function toolsCall(
   msg: RpcMessage,
   member: SpaceMember,
   env: Env,
-  ctx?: { waitUntil(p: Promise<unknown>): void },
+  req: Request,
+  ctx?: HandlerCtx,
 ): Promise<Response> {
   const fetchImpl = env.githubFetch ?? fetch;
   const args = msg.params?.arguments ?? {};
@@ -568,6 +628,65 @@ async function toolsCall(
             ),
           );
         }
+      }
+      case "list_sessions": {
+        const out = await listSessions(env, member, req);
+        return finish(rpcResult(msg.id, toolText(out.text, out.isError)));
+      }
+      case "revoke_session": {
+        const out = await revokeSession(
+          env,
+          member,
+          req,
+          typeof args.session_id === "string" ? args.session_id : "",
+        );
+        return finish(rpcResult(msg.id, toolText(out.text, out.isError)));
+      }
+      case "invite_member":
+      case "revoke_member": {
+        if (member.role !== "admin") {
+          return finish(
+            rpcResult(
+              msg.id,
+              toolText("only a space admin can invite or revoke members", true),
+            ),
+          );
+        }
+        const login =
+          typeof args.github_username === "string"
+            ? args.github_username.trim()
+            : "";
+        if (!login) {
+          return finish(
+            rpcResult(
+              msg.id,
+              toolText("missing required argument: github_username", true),
+            ),
+          );
+        }
+        if (toolName === "invite_member") {
+          await inviteGithubUser(env, member, login);
+          return finish(
+            rpcResult(
+              msg.id,
+              toolText(
+                `Invited @${login}. They click Connect (or run wayform login) with GitHub — no token to paste.`,
+              ),
+            ),
+          );
+        }
+        const revoked = await revokeGithubUser(env, member, login);
+        if (revoked === "not_found") {
+          return finish(
+            rpcResult(
+              msg.id,
+              toolText(`@${login} is not a member of this space.`, true),
+            ),
+          );
+        }
+        return finish(
+          rpcResult(msg.id, toolText(`Revoked @${login} from this space.`)),
+        );
       }
       default:
         return finish(

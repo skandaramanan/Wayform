@@ -5,7 +5,7 @@
  * `query` present = retrieval pipeline; absent = recency read (unchanged
  * contract with the local read).
  */
-import type { Env } from "./env.js";
+import type { Env, HandlerCtx } from "./env.js";
 import { resolveMember } from "./tenancy.js";
 import { readEntriesCached } from "./github-store.js";
 import { projectContext } from "../../src/context-format.js";
@@ -14,8 +14,12 @@ import { slug } from "../../src/slug.js";
 import { indexDeps } from "./deps.js";
 import { retrieve, renderSearchResults } from "./retrieval.js";
 
-export async function handleApiRead(req: Request, env: Env): Promise<Response> {
-  const member = await resolveMember(req, env);
+export async function handleApiRead(
+  req: Request,
+  env: Env,
+  ctx?: HandlerCtx,
+): Promise<Response> {
+  const member = await resolveMember(req, env, ctx);
   if (!member) return new Response("unauthorized", { status: 401 });
 
   const url = new URL(req.url);
