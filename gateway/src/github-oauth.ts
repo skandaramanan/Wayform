@@ -8,7 +8,9 @@ export async function exchangeGithubCode(
   code: string,
   redirectUri: string,
 ): Promise<string> {
-  if (!env.GITHUB_CLIENT_ID || !env.GITHUB_CLIENT_SECRET) {
+  const clientId = env.GITHUB_CLIENT_ID?.trim();
+  const clientSecret = env.GITHUB_CLIENT_SECRET?.trim();
+  if (!clientId || !clientSecret) {
     throw new Error("GitHub OAuth is not configured");
   }
   const fetchImpl = env.githubFetch ?? fetch;
@@ -16,15 +18,15 @@ export async function exchangeGithubCode(
     method: "POST",
     headers: {
       accept: "application/json",
-      "content-type": "application/json",
+      "content-type": "application/x-www-form-urlencoded",
       "user-agent": "memorylayer-gateway",
     },
-    body: JSON.stringify({
-      client_id: env.GITHUB_CLIENT_ID,
-      client_secret: env.GITHUB_CLIENT_SECRET,
+    body: new URLSearchParams({
+      client_id: clientId,
+      client_secret: clientSecret,
       code,
       redirect_uri: redirectUri,
-    }),
+    }).toString(),
   });
   if (!res.ok) {
     throw new Error(`github token exchange failed: ${res.status}`);
