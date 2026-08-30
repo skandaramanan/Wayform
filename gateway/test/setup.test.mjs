@@ -40,7 +40,7 @@ test("begin setup stores no GitHub credential and offers App installation", asyn
   const html = await response.text();
   assert.match(html, /github\.com\/apps\/wayform-test\/installations\/new/);
   const handle = new URL(
-    html.match(/href="([^"]+)"/)?.[1].replaceAll("&amp;", "&"),
+    html.match(/href="(https:\/\/[^"]+)"/)?.[1].replaceAll("&amp;", "&"),
   ).searchParams.get("state");
   assert.ok(handle);
   const stored = await env.OAUTH_KV.get(`oauth:setup:${handle}`);
@@ -67,7 +67,7 @@ test("install callback rejects a missing or mismatched setup cookie", async () =
   );
   const html = await started.text();
   const handle = new URL(
-    html.match(/href="([^"]+)"/)?.[1].replaceAll("&amp;", "&"),
+    html.match(/href="(https:\/\/[^"]+)"/)?.[1].replaceAll("&amp;", "&"),
   ).searchParams.get("state");
   const callback = `https://gw.test/install/callback?state=${handle}&installation_id=42`;
   assert.equal(
@@ -98,7 +98,7 @@ test("install callback rejects an installation not owned by the pending user", a
   );
   const html = await started.text();
   const handle = new URL(
-    html.match(/href="([^"]+)"/)?.[1].replaceAll("&amp;", "&"),
+    html.match(/href="(https:\/\/[^"]+)"/)?.[1].replaceAll("&amp;", "&"),
   ).searchParams.get("state");
   await env.ROUTING.put(
     "installation:inventory:99",
@@ -181,7 +181,7 @@ test("install callback renders a picker and valid selection completes OAuth", as
   );
   const installHtml = await started.text();
   const handle = new URL(
-    installHtml.match(/href="([^"]+)"/)?.[1].replaceAll("&amp;", "&"),
+    installHtml.match(/href="(https:\/\/[^"]+)"/)?.[1].replaceAll("&amp;", "&"),
   ).searchParams.get("state");
   const setupCookie = cookieNamed(started, "__Host-WAYFORM_SETUP");
   await env.ROUTING.put(
@@ -297,7 +297,7 @@ test("expired setup redirects access_denied to the original client", async () =>
   );
   const html = await started.text();
   const handle = new URL(
-    html.match(/href="([^"]+)"/)?.[1].replaceAll("&amp;", "&"),
+    html.match(/href="(https:\/\/[^"]+)"/)?.[1].replaceAll("&amp;", "&"),
   ).searchParams.get("state");
   const key = `oauth:setup:${handle}`;
   const pending = JSON.parse(await env.OAUTH_KV.get(key));
@@ -332,7 +332,7 @@ test("KV-expired setup still returns access_denied to the original client", asyn
   );
   const html = await started.text();
   const handle = new URL(
-    html.match(/href="([^"]+)"/)?.[1].replaceAll("&amp;", "&"),
+    html.match(/href="(https:\/\/[^"]+)"/)?.[1].replaceAll("&amp;", "&"),
   ).searchParams.get("state");
   await env.OAUTH_KV.delete(`oauth:setup:${handle}`);
   const response = await handleInstallCallback(
