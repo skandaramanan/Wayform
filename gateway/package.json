@@ -8,11 +8,14 @@
   },
   "scripts": {
     "build": "tsc",
-    "test": "npm run build && node --test test/*.test.mjs",
+    "test": "npm run build && node --import ./test/register-cf-workers.mjs --test test/*.test.mjs",
     "deploy": "npm run build && wrangler deploy"
   },
   "devDependencies": {
     "typescript": "^5.6.0",
     "wrangler": "^4.112.0"
+  },
+  "dependencies": {
+    "@cloudflare/workers-oauth-provider": "^0.10.3"
   }
 }

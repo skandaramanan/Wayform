@@ -1,10 +1,20 @@
 name = "memorylayer-gateway"
 main = "dist/gateway/src/worker.js"
 compatibility_date = "2026-06-01"
+# CIMD (RFC client_id metadata documents) requires this SSRF guard.
+compatibility_flags = ["global_fetch_strictly_public"]
+
+[vars]
+GITHUB_APP_SLUG = "memorylayer-gateway"
 
 # Created in Step 3; paste the id wrangler prints.
 [[kv_namespaces]]
 binding = "ROUTING"
+id = "799c559402d6472993dc63ed26b0fd5e"
+
+# OAuth grants/clients. Same namespace as ROUTING until grants need isolation.
+[[kv_namespaces]]
+binding = "OAUTH_KV"
 id = "799c559402d6472993dc63ed26b0fd5e"
 
 # Relevance index (Phase A). Create with `wrangler d1 create memorylayer-index`
@@ -15,6 +25,15 @@ binding = "DB"
 database_name = "memorylayer-index"
 database_id = "652dbc7f-b71e-4f88-804a-d33b6da2b07c"
 migrations_dir = "migrations"
+
+# Abuse protection for UNAUTHENTICATED surfaces (gateway/src/rate-limit.ts).
+# `period` accepts only 10 or 60; namespace_id is any positive integer unique
+# within the account. /mcp is not limited — it requires a valid token, so abuse
+# there is a revocation problem, not a throttling one.
+[[ratelimits]]
+name = "RL_AUTH"
+namespace_id = "1001"
+simple = { limit = 20, period = 60 }
 
 # Workers AI: embeddings (@cf/baai/bge-base-en-v1.5), free-tier allocation.
 [ai]

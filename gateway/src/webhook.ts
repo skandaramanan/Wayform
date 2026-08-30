@@ -8,6 +8,7 @@
  */
 import type { Env } from "./env.js";
 import { getSpaceRepo, getProductRepo, listSpaceRepos } from "./tenancy.js";
+import { deactivateInstallation, getSpaceByInstallation } from "./spaces.js";
 import { indexDeps } from "./deps.js";
 import { ingestFiles, ingestEntries } from "./ingest.js";
 import { writeEntry, warmRecencyCache } from "./github-store.js";
@@ -160,6 +161,80 @@ async function handleMergedPr(
   return new Response("ok", { status: 200 });
 }
 
+interface InstallationPayload {
+  action?: string;
+  installation?: {
+    id?: number;
+    account?: { login?: string; id?: number; type?: string };
+  };
+  repositories?: {
+    name?: string;
+    full_name?: string;
+    private?: boolean;
+    default_branch?: string | null;
+  }[];
+  repositories_added?: {
+    name?: string;
+    full_name?: string;
+    private?: boolean;
+    default_branch?: string | null;
+  }[];
+  repositories_removed?: { name?: string; full_name?: string }[];
+  sender?: { login?: string; id?: number };
+}
+
+async function handleInstallationEvent(
+  body: string,
+  env: Env,
+): Promise<Response> {
+  let payload: InstallationPayload;
+  try {
+    payload = JSON.parse(body) as InstallationPayload;
+  } catch {
+    return new Response("bad payload", { status: 400 });
+  }
+  const installationId = payload.installation?.id;
+  if (!installationId) return new Response("ignored event", { status: 200 });
+  if (payload.action === "deleted" || payload.action === "suspend") {
+    const result = await deactivateInstallation(env, installationId);
+    return new Response(result.deactivated ? "deactivated" : "ignored", {
+      status: 200,
+    });
+  }
+  if (payload.action === "removed" && payload.repositories_removed?.length) {
+    const space = await getSpaceByInstallation(env, installationId);
+    const memoryRepo = `${space?.owner}/${space?.repo}`;
+    const removed = payload.repositories_removed.some(
+      (repo) =>
+        repo.full_name === memoryRepo ||
+        (space != null && repo.name === space.repo),
+    );
+    if (removed) {
+      await deactivateInstallation(env, installationId);
+      return new Response("deactivated", { status: 200 });
+    }
+  }
+  const repos = [
+    ...(payload.repositories ?? []),
+    ...(payload.repositories_added ?? []),
+  ];
+  const owner = payload.installation?.account?.login;
+  await env.ROUTING.put(
+    `installation:inventory:${installationId}`,
+    JSON.stringify({
+      installationId,
+      owner,
+      senderGithubId: payload.sender?.id,
+      senderLogin: payload.sender?.login,
+      repositories: repos,
+      action: payload.action,
+      updatedAt: Date.now(),
+    }),
+    { expirationTtl: 60 * 60 },
+  );
+  return new Response("recorded", { status: 200 });
+}
+
 export async function handleWebhook(
   req: Request,
   env: Env,
@@ -178,6 +253,9 @@ export async function handleWebhook(
   }
   const event = req.headers.get("x-github-event");
   if (event === "pull_request") return handleMergedPr(body, env, ctx);
+  if (event === "installation" || event === "installation_repositories") {
+    return handleInstallationEvent(body, env);
+  }
   if (event !== "push") {
     return new Response("ignored event", { status: 200 });
   }

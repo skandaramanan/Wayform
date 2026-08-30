@@ -12,11 +12,8 @@ node_modules/
 .superpowers/
 docs/onboarding/self-onboarding.md
 docs/
-.cursor/mcp.json
 .cursor/settings.json
 
-# Codex project-scoped MCP config — regenerated per-member by `wayform init --remote`
-.codex/config.toml
 .gstack/
 docs/onboarding/pilot-onboarding.local.md
 second-brain-cloudflare-main/

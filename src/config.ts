@@ -26,8 +26,6 @@ export interface Config {
   readBudgetTokens: number;
   /** Hosted gateway base URL for remote-first reads (unset = local-only). */
   gatewayUrl?: string;
-  /** Member token for the hosted gateway. */
-  gatewayToken?: string;
 }
 
 function required(name: string): string {
@@ -59,7 +57,6 @@ const HOOK_ENV_ALLOWLIST = new Set([
   "MEMORYLAYER_HOOK_CLIENT",
   "MEMORYLAYER_READ_BUDGET_TOKENS",
   "MEMORYLAYER_GATEWAY_URL",
-  "MEMORYLAYER_GATEWAY_TOKEN",
 ]);
 
 /**
@@ -165,14 +162,10 @@ export function defaultProject(cwd: string = process.cwd()): string {
 }
 
 export function loadConfig(): Config {
-  const author = required("MEMORYLAYER_AUTHOR");
-
   const gatewayUrl =
     process.env.MEMORYLAYER_GATEWAY_URL?.trim().replace(/\/+$/, "") ||
     undefined;
-  const gatewayToken =
-    process.env.MEMORYLAYER_GATEWAY_TOKEN?.trim() || undefined;
-  const hasGateway = Boolean(gatewayUrl && gatewayToken);
+  const hasGateway = Boolean(gatewayUrl);
 
   // Gateway-only members have no local clone. CONTEXT_REPO_URL is optional when a
   // gateway is configured; without a gateway it stays required (local-only mode).
@@ -187,6 +180,9 @@ export function loadConfig(): Config {
     ? process.env.CONTEXT_REPO_PATH?.trim() ||
       path.join(dataHome(), "clones", cloneKey(repoUrl))
     : "";
+  const author =
+    process.env.MEMORYLAYER_AUTHOR?.trim() ||
+    (repoUrl ? required("MEMORYLAYER_AUTHOR") : "GitHub");
 
   const rawBudget = Number(process.env.MEMORYLAYER_READ_BUDGET_TOKENS);
   const readBudgetTokens =
@@ -200,10 +196,11 @@ export function loadConfig(): Config {
     author,
     authorEmail:
       process.env.MEMORYLAYER_AUTHOR_EMAIL?.trim() ||
-      `${author.replace(/\s+/g, ".").toLowerCase()}@memorylayer.local`,
+      (repoUrl
+        ? `${author.replace(/\s+/g, ".").toLowerCase()}@memorylayer.local`
+        : "github@users.noreply.github.com"),
     autoPush: (process.env.MEMORYLAYER_AUTO_PUSH?.trim() || "true") !== "false",
     readBudgetTokens,
     gatewayUrl,
-    gatewayToken,
   };
 }

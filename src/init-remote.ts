@@ -1,9 +1,9 @@
 /**
  * `wayform init --remote` — wire a HOSTED (gateway) member into the current
- * project. Same LOUD, idempotent posture as local `init`, but writes gateway
- * creds + native HTTP MCP instead of a local clone. Token never touches a
- * committed file (gitignored env + gitignored .cursor/mcp.json and
- * .codex/config.toml + Claude's user-scoped ~/.claude.json).
+ * project. Same LOUD, idempotent posture as local `init`, but writes a gateway
+ * URL + native HTTP MCP instead of a local clone. No member token is written
+ * anywhere: selected clients run OAuth; hooks use `wayform login` + keychain.
+ * `--clients` picks which vendor folders to write so unused tools are not dumped.
  */
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
@@ -14,17 +14,19 @@ import {
   mergeClaudeSettings,
   mergeCursorHooks,
   mergeCodexHooks,
-  mergeCursorRemoteMcp,
-  codexRemoteConfigToml,
+  mergeRemoteHttpMcp,
+  mergeDevinRemoteMcp,
+  mergeAntigravityRemoteMcp,
+  mergeCodexRemoteConfigToml,
 } from "./init-configs.js";
 import {
   buildRemoteHookEnv,
-  gitConfigDefault,
   ensureGitignore,
+  removeGitignoreEntries,
   writeSecretFile,
-  hardenSecretFile,
   trustCodexHooks,
 } from "./init-env.js";
+import { DEFAULT_GATEWAY_URL } from "./oauth-login.js";
 
 export type Runner = (cmd: string, args: string[]) => void;
 
@@ -55,14 +57,12 @@ const defaultRunner: Runner = (cmd, args) => {
 };
 
 /**
- * Register the gateway as a project-scoped (`--scope local`) HTTP MCP server for
- * Claude Code. `--scope local` stores config in ~/.claude.json (NOT the repo), so
- * it is project-scoped AND token-safe. Non-fatal: if `claude` is absent the
- * returned command is printed for the member to run by hand.
+ * Recommended Claude Code CLI if someone adds the server by hand.
+ * `--scope project` writes `.mcp.json` in this repo. Never `--scope user`
+ * (that would load Wayform in every folder they open).
  */
 export function registerClaudeCodeMcp(
   gatewayUrl: string,
-  token: string,
   run: Runner = defaultRunner,
 ): { ok: boolean; command: string } {
   const args = [
@@ -71,20 +71,64 @@ export function registerClaudeCodeMcp(
     "--transport",
     "http",
     "--scope",
-    "local",
+    "project",
     "wayform",
     `${gatewayUrl}/mcp`,
-    "--header",
-    `Authorization: Bearer ${token}`,
   ];
-  // Shell-quote the header arg so the printed fallback is copy-paste safe.
-  const command = `claude ${args.map((a) => (a.includes(" ") ? `"${a}"` : a)).join(" ")}`;
+  const command = `claude ${args.join(" ")}`;
   try {
     run("claude", args);
     return { ok: true, command };
   } catch {
     return { ok: false, command };
   }
+}
+
+export type RemoteClient =
+  "cursor" | "claude" | "codex" | "devin" | "antigravity";
+
+const CLIENT_ALIASES: Record<string, RemoteClient> = {
+  cursor: "cursor",
+  claude: "claude",
+  "claude-code": "claude",
+  codex: "codex",
+  devin: "devin",
+  antigravity: "antigravity",
+  agy: "antigravity",
+};
+
+export function parseRemoteClients(raw: string): RemoteClient[] {
+  const out: RemoteClient[] = [];
+  for (const part of raw.split(/[\s,]+/).filter(Boolean)) {
+    const id = CLIENT_ALIASES[part.toLowerCase()];
+    if (!id) {
+      throw new Error(
+        `Unknown client "${part}". Use: cursor, claude, codex, devin, antigravity`,
+      );
+    }
+    if (!out.includes(id)) out.push(id);
+  }
+  return out;
+}
+
+/** Clients that already have a project folder/file in this repo. */
+export function detectExistingClients(cwd: string): RemoteClient[] {
+  const found: RemoteClient[] = [];
+  if (fs.existsSync(path.join(cwd, ".cursor"))) found.push("cursor");
+  if (
+    fs.existsSync(path.join(cwd, ".claude")) ||
+    fs.existsSync(path.join(cwd, ".mcp.json"))
+  ) {
+    found.push("claude");
+  }
+  if (fs.existsSync(path.join(cwd, ".codex"))) found.push("codex");
+  if (fs.existsSync(path.join(cwd, ".devin"))) found.push("devin");
+  if (fs.existsSync(path.join(cwd, ".agents"))) found.push("antigravity");
+  return found;
+}
+
+function wants(clients: RemoteClient[], id: RemoteClient): boolean {
+  return clients.includes(id);
 }
 
 const flag = (args: string[], name: string): string | undefined => {
@@ -119,32 +163,6 @@ function writeText(cwd: string, rel: string, text: string): void {
   console.log(`  wrote ${rel}`);
 }
 
-/**
- * Exchange a team invite for this member's own personal token via the
- * gateway's public /join. The token is minted server-side and returned
- * exactly once — it exists nowhere but this process until init writes it
- * to the 0600 secret files.
- */
-export async function joinGateway(
-  gatewayUrl: string,
-  invite: string,
-  author: string,
-  email: string,
-  fetchImpl: typeof fetch = fetch,
-): Promise<string> {
-  const res = await fetchImpl(`${gatewayUrl}/join`, {
-    method: "POST",
-    headers: { "content-type": "application/json" },
-    body: JSON.stringify({ invite, author, authorEmail: email }),
-  });
-  if (!res.ok) {
-    const detail = await res.text();
-    throw new Error(`invite join failed (${res.status}): ${detail}`);
-  }
-  const { token } = (await res.json()) as { token: string };
-  return token;
-}
-
 export async function runInitRemote(args: string[]): Promise<void> {
   const cwd = process.cwd();
   if (!fs.existsSync(path.join(cwd, ".git"))) {
@@ -153,151 +171,197 @@ export async function runInitRemote(args: string[]): Promise<void> {
     );
   }
 
-  const gatewayUrl = (flag(args, "gateway") ?? "").replace(/\/+$/, "");
-  let token = flag(args, "token") ?? "";
-  const inviteCode = flag(args, "invite") ?? "";
-  if (!gatewayUrl || (!token && !inviteCode)) {
-    throw new Error(
-      "wayform init --remote requires --gateway <url> and --token <mlk_...> or --invite <wfi_...>",
-    );
-  }
+  const gatewayUrl = (flag(args, "gateway") ?? DEFAULT_GATEWAY_URL).replace(
+    /\/+$/,
+    "",
+  );
 
-  // Identity (attribution/display; the gateway is authoritative on write).
   const useDefaults = has(args, "yes");
-  const rl =
-    useDefaults || (flag(args, "author") && flag(args, "email"))
-      ? undefined
-      : readline.createInterface({ input, output });
+  const rl = useDefaults
+    ? undefined
+    : readline.createInterface({ input, output });
   const ask = async (q: string, def: string): Promise<string> => {
     if (!rl) return def;
     const a = (await rl.question(def ? `${q} [${def}]: ` : `${q}: `)).trim();
     return a || def;
   };
-  const author =
-    flag(args, "author") ??
-    (await ask("Author name", gitConfigDefault("user.name")));
-  const email =
-    flag(args, "email") ??
-    (await ask("Author email", gitConfigDefault("user.email")));
   const project = flag(args, "project") ?? path.basename(cwd);
+
+  const clientsFlag = flag(args, "clients");
+  let clients: RemoteClient[];
+  if (clientsFlag !== undefined) {
+    clients = parseRemoteClients(clientsFlag);
+  } else if (rl) {
+    const existing = detectExistingClients(cwd);
+    const picked = await ask(
+      "Clients to wire (cursor, claude, codex, devin, antigravity)",
+      existing.join(","),
+    );
+    clients = picked ? parseRemoteClients(picked) : existing;
+  } else {
+    clients = detectExistingClients(cwd);
+  }
   rl?.close();
 
-  if (!token) {
-    token = await joinGateway(gatewayUrl, inviteCode, author, email);
-    console.log("  joined via invite — minted your personal member token");
+  if (wants(clients, "claude")) {
+    writeJson(
+      cwd,
+      ".claude/settings.json",
+      mergeClaudeSettings(
+        readJson(path.join(cwd, ".claude/settings.json")),
+        "wayform",
+      ),
+    );
+    writeJson(
+      cwd,
+      ".mcp.json",
+      mergeRemoteHttpMcp(readJson(path.join(cwd, ".mcp.json")), gatewayUrl),
+    );
+  }
+  if (wants(clients, "cursor")) {
+    writeJson(
+      cwd,
+      ".cursor/hooks.json",
+      mergeCursorHooks(
+        readJson(path.join(cwd, ".cursor/hooks.json")),
+        "wayform",
+      ),
+    );
+    writeJson(
+      cwd,
+      ".cursor/mcp.json",
+      mergeRemoteHttpMcp(
+        readJson(path.join(cwd, ".cursor/mcp.json")),
+        gatewayUrl,
+      ),
+    );
+  }
+  if (wants(clients, "codex")) {
+    const codexHooks = mergeCodexHooks(
+      readJson(path.join(cwd, ".codex/hooks.json")),
+      "wayform",
+    );
+    writeJson(cwd, ".codex/hooks.json", codexHooks);
+    trustCodexHooks(cwd, codexHooks);
+    const codexConfig = path.join(cwd, ".codex/config.toml");
+    const existing = fs.existsSync(codexConfig)
+      ? fs.readFileSync(codexConfig, "utf8")
+      : "";
+    writeText(
+      cwd,
+      ".codex/config.toml",
+      mergeCodexRemoteConfigToml(existing, gatewayUrl),
+    );
+  }
+  if (wants(clients, "devin")) {
+    writeJson(
+      cwd,
+      ".devin/mcp_config.json",
+      mergeDevinRemoteMcp(
+        readJson(path.join(cwd, ".devin/mcp_config.json")),
+        gatewayUrl,
+      ),
+    );
+  }
+  if (wants(clients, "antigravity")) {
+    writeJson(
+      cwd,
+      ".agents/mcp_config.json",
+      mergeAntigravityRemoteMcp(
+        readJson(path.join(cwd, ".agents/mcp_config.json")),
+        gatewayUrl,
+      ),
+    );
   }
 
-  // --- Project tier: session + (Claude) UserPromptSubmit hooks ---
-  writeJson(
-    cwd,
-    ".claude/settings.json",
-    mergeClaudeSettings(
-      readJson(path.join(cwd, ".claude/settings.json")),
-      "wayform",
-    ),
+  const giPath = path.join(cwd, ".gitignore");
+  const initialGitignore = fs.existsSync(giPath)
+    ? fs.readFileSync(giPath, "utf8")
+    : "";
+  fs.writeFileSync(
+    giPath,
+    ensureGitignore(initialGitignore, [".memorylayer-hook.env.bak"]),
   );
-  writeJson(
-    cwd,
-    ".cursor/hooks.json",
-    mergeCursorHooks(readJson(path.join(cwd, ".cursor/hooks.json")), "wayform"),
-  );
-  const codexHooks = mergeCodexHooks(
-    readJson(path.join(cwd, ".codex/hooks.json")),
-    "wayform",
-  );
-  writeJson(cwd, ".codex/hooks.json", codexHooks);
-  // User tier: codex requires per-hook trust in ~/.codex/config.toml and
-  // silently skips untrusted hooks — grant it for the hooks we just wrote.
-  trustCodexHooks(cwd, codexHooks);
 
-  // --- Cursor native HTTP MCP (gitignored — carries the token) ---
-  writeJson(
-    cwd,
-    ".cursor/mcp.json",
-    mergeCursorRemoteMcp(
-      readJson(path.join(cwd, ".cursor/mcp.json")),
-      gatewayUrl,
-      token,
-    ),
-  );
-  // Token-bearing: tighten to owner-only (writeJson creates at umask default).
-  hardenSecretFile(path.join(cwd, ".cursor/mcp.json"));
-
-  // --- Codex native HTTP MCP (project-scoped, gitignored — carries the token) ---
-  writeText(
-    cwd,
-    ".codex/config.toml",
-    codexRemoteConfigToml(gatewayUrl, token),
-  );
-  hardenSecretFile(path.join(cwd, ".codex/config.toml"));
-
-  // --- User tier: gitignored gateway env (hosted-only, no CONTEXT_REPO_URL) ---
   const envFile = path.join(cwd, ".memorylayer-hook.env");
-  if (fs.existsSync(envFile) && !has(args, "force")) {
-    hardenSecretFile(envFile); // retro-tighten a pre-existing 0644 file
+  const existingEnv = fs.existsSync(envFile)
+    ? fs.readFileSync(envFile, "utf8")
+    : "";
+  const legacyEnv =
+    /MEMORYLAYER_GATEWAY_TOKEN\s*=|MEMORYLAYER_AUTHOR(?:_EMAIL)?\s*=|(?:mlk_|wfi_)[A-Za-z0-9_-]+/.test(
+      existingEnv,
+    );
+  if (legacyEnv) {
+    writeSecretFile(`${envFile}.bak`, existingEnv);
+    writeSecretFile(envFile, buildRemoteHookEnv({ gatewayUrl, project }));
+    console.log(
+      "  migrated .memorylayer-hook.env (legacy file backed up to .memorylayer-hook.env.bak)",
+    );
+  } else if (existingEnv && !has(args, "force")) {
     console.log(
       "  .memorylayer-hook.env exists — leaving it (use --force to rewrite).",
     );
   } else {
-    writeSecretFile(
-      envFile,
-      buildRemoteHookEnv({ gatewayUrl, token, project, author, email }),
-    );
-    console.log("  wrote .memorylayer-hook.env (gitignored)");
+    writeSecretFile(envFile, buildRemoteHookEnv({ gatewayUrl, project }));
+    console.log("  wrote .memorylayer-hook.env");
   }
 
-  // --- Gitignore secrets: env + local settings + the token-bearing cursor mcp ---
-  const giPath = path.join(cwd, ".gitignore");
   const gi = fs.existsSync(giPath) ? fs.readFileSync(giPath, "utf8") : "";
-  fs.writeFileSync(
-    giPath,
-    ensureGitignore(gi, [
-      ".memorylayer-hook.env",
-      ".claude/settings.local.json",
-      ".cursor/mcp.json",
-      ".codex/config.toml",
-    ]),
-  );
+  const cleaned = removeGitignoreEntries(gi, [
+    ".memorylayer-hook.env",
+    ".cursor/mcp.json",
+    ".codex/config.toml",
+  ]);
+  const ignore: string[] = [".memorylayer-hook.env.bak"];
+  if (wants(clients, "claude")) ignore.push(".claude/settings.local.json");
+  fs.writeFileSync(giPath, ensureGitignore(cleaned, ignore));
   console.log("  updated .gitignore");
 
-  // --- Claude Code native HTTP MCP (project-scoped, token in ~/.claude.json) ---
-  const claude = registerClaudeCodeMcp(gatewayUrl, token);
-  if (claude.ok) {
-    console.log("  registered Claude Code MCP (claude mcp add --scope local)");
-  } else {
+  if (clients.length === 0) {
     console.log(
-      "  ! Couldn't find the Claude Code CLI — finish setup by running this in your project root:\n",
+      "\nNo agent configs written. Pass --clients with the tools this team uses:",
     );
-    console.log(`    ${claude.command}\n`);
     console.log(
-      '    then restart Claude Code and check /mcp shows "wayform" connected.\n',
+      "  wayform init --remote --clients cursor,claude   # example — only those folders",
     );
   }
 
-  console.log("\nNext steps:");
-  console.log("  1. Verify the round trip:");
-  console.log(
-    "       wayform doctor        (gateway reachable + token accepted)",
-  );
-  console.log(
-    '     then restart your agent and ask it to "read the shared context" —',
-  );
-  console.log(
-    "     you should see your team's entries. (Claude Code: /mcp shows wayform connected.)",
-  );
-  console.log(
-    "  2. Commit the project hook configs so teammates inherit them:",
-  );
-  console.log(
-    "       git add .claude .cursor/hooks.json .codex/hooks.json .gitignore && git commit -m 'chore: wire Wayform (remote)'",
-  );
-  console.log(
-    "     (.cursor/mcp.json, .codex/config.toml and .memorylayer-hook.env are gitignored — each member runs init --remote.)",
-  );
-  console.log(
-    "  3. Codex users: mark the project trusted (Codex only loads project-scoped",
-  );
-  console.log(
-    "     config for trusted repos) — then wayform tools appear on next launch.",
-  );
+  console.log("\nNext steps (this product repo only — not a global MCP):");
+  console.log("  1. wayform login   # OS keychain for session-start hooks");
+  if (clients.length > 0) {
+    console.log("  2. In this folder, authenticate the client you use:");
+    if (wants(clients, "cursor")) {
+      console.log("       Cursor:        Connect on the wayform server");
+    }
+    if (wants(clients, "claude")) {
+      console.log("       Claude Code:   claude mcp login wayform");
+    }
+    if (wants(clients, "codex")) {
+      console.log("       Codex:         codex mcp login wayform");
+    }
+    if (wants(clients, "devin")) {
+      console.log("       Devin CLI:     devin mcp login wayform");
+    }
+    if (wants(clients, "antigravity")) {
+      console.log("       Antigravity:   Authenticate wayform in MCP settings");
+    }
+  }
+  console.log("  3. wayform doctor");
+  const add = commitPaths(clients);
+  if (add.length > 0) {
+    console.log("  4. Commit the project MCP files so teammates inherit them:");
+    console.log(
+      `       git add ${add.join(" ")} && git commit -m 'chore: wire Wayform (remote)'`,
+    );
+  }
+}
+
+function commitPaths(clients: RemoteClient[]): string[] {
+  const add: string[] = [".gitignore", ".memorylayer-hook.env"];
+  if (wants(clients, "claude")) add.push(".mcp.json", ".claude");
+  if (wants(clients, "cursor")) add.push(".cursor");
+  if (wants(clients, "codex")) add.push(".codex");
+  if (wants(clients, "devin")) add.push(".devin");
+  if (wants(clients, "antigravity")) add.push(".agents");
+  return add;
 }

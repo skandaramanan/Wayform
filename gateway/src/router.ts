@@ -1,9 +1,9 @@
-import type { Env } from "./env.js";
+import type { Env, HandlerCtx } from "./env.js";
 import {
-  handleAdminAddMember,
   handleAdminAddProductRepo,
   handleAdminListInstallations,
 } from "./tenancy.js";
+import { handleAdminAllowlist } from "./spaces.js";
 import { handleMcp } from "./mcp.js";
 import { handleHookRead } from "./hook-read.js";
 import { handleHookPrompt } from "./hook-prompt.js";
@@ -14,7 +14,6 @@ import {
   handleAdminSupersessionAudit,
 } from "./admin-supersession.js";
 import { handleApiRead } from "./api-read.js";
-import { handleAdminCreateInvite, handleJoin } from "./invites.js";
 import {
   handleAdminGoldenCandidate,
   handleAdminRetrievalLog,
@@ -49,7 +48,7 @@ function withCors(res: Response): Response {
 export async function handleRequest(
   req: Request,
   env: Env,
-  ctx?: { waitUntil(p: Promise<unknown>): void },
+  ctx?: HandlerCtx,
 ): Promise<Response> {
   if (req.method === "OPTIONS") {
     return new Response(null, { status: 204, headers: CORS_HEADERS });
@@ -60,16 +59,12 @@ export async function handleRequest(
 async function route(
   req: Request,
   env: Env,
-  ctx?: { waitUntil(p: Promise<unknown>): void },
+  ctx?: HandlerCtx,
 ): Promise<Response> {
   const url = new URL(req.url);
 
   if (url.pathname === "/health" && req.method === "GET") {
     return Response.json({ ok: true });
-  }
-
-  if (url.pathname === "/admin/members" && req.method === "POST") {
-    return handleAdminAddMember(req, env);
   }
 
   if (url.pathname === "/admin/installations" && req.method === "GET") {
@@ -80,12 +75,8 @@ async function route(
     return handleAdminAddProductRepo(req, env);
   }
 
-  if (url.pathname === "/admin/invites" && req.method === "POST") {
-    return handleAdminCreateInvite(req, env);
-  }
-
-  if (url.pathname === "/join" && req.method === "POST") {
-    return handleJoin(req, env);
+  if (url.pathname === "/admin/allowlist") {
+    return handleAdminAllowlist(req, env);
   }
 
   if (url.pathname === "/admin/reindex" && req.method === "POST") {
@@ -112,25 +103,32 @@ async function route(
     return handleWebhook(req, env, ctx);
   }
 
-  // `/mcp` (token in header/query) or `/mcp/<token>` (token in path, for
-  // header-less clients like ChatGPT's connector).
-  if (url.pathname === "/mcp" || url.pathname.startsWith("/mcp/")) {
+  if (url.pathname === "/mcp/hook/read" && req.method === "GET") {
+    return handleHookRead(req, env, ctx);
+  }
+
+  if (url.pathname === "/mcp/hook/prompt" && req.method === "POST") {
+    return handleHookPrompt(req, env, ctx);
+  }
+
+  if (url.pathname === "/mcp/api/read" && req.method === "GET") {
+    return handleApiRead(req, env, ctx);
+  }
+
+  if (url.pathname === "/mcp") {
     if (req.method === "POST") return handleMcp(req, env, ctx);
     return new Response("stateless server: POST one JSON-RPC message", {
       status: 405,
     });
   }
 
-  if (url.pathname === "/hook/read" && req.method === "GET") {
-    return handleHookRead(req, env);
-  }
-
-  if (url.pathname === "/hook/prompt" && req.method === "POST") {
-    return handleHookPrompt(req, env);
-  }
-
-  if (url.pathname === "/api/read" && req.method === "GET") {
-    return handleApiRead(req, env);
+  const legacyPath = new Map([
+    ["/hook/read", "/mcp/hook/read"],
+    ["/hook/prompt", "/mcp/hook/prompt"],
+    ["/api/read", "/mcp/api/read"],
+  ]).get(url.pathname);
+  if (legacyPath) {
+    return new Response(`moved to ${legacyPath}`, { status: 410 });
   }
 
   return new Response("not found", { status: 404 });

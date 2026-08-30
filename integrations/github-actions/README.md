@@ -1,7 +1,7 @@
 # MemoryLayer GitHub Actions
 
 > **Hosted-gateway teams:** you likely don't need this Action. Install the
-> MemoryLayer GitHub App on your product repos and have the operator register
+> Wayform GitHub App on your product repos and have the operator register
 > them (`POST /admin/product-repos`) — merged PRs are then recorded by the
 > gateway itself: no yml to copy, no token secrets in your repo. This Action
 > remains the path for self-hosters running without the App.
@@ -25,7 +25,7 @@ tools directly.
    | Secret | Value |
    | --- | --- |
    | `MEMORYLAYER_MCP_URL` | Your gateway MCP endpoint, e.g. `https://your-gateway.workers.dev/mcp` |
-   | `MEMORYLAYER_TOKEN` | A member token (`mlk_…`) minted for your team's space |
+   | `MEMORYLAYER_TOKEN` | Self-hoster only: a long-lived credential for the Action runner. Hosted Wayform members use GitHub OAuth instead and should not put member tokens in repo secrets. |
 
 4. Test it: Actions → "Record merged PR to MemoryLayer" → **Run workflow**.
    Then confirm the smoke-test entry shows up via `search_memory` (or in the

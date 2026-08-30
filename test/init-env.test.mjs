@@ -4,21 +4,19 @@ import {
   buildHookEnv,
   buildRemoteHookEnv,
   ensureGitignore,
+  removeGitignoreEntries,
 } from "../dist/init-env.js";
 
-test("buildRemoteHookEnv writes gateway vars and omits CONTEXT_REPO_URL", () => {
+test("buildRemoteHookEnv writes gateway URL and omits any token", () => {
   const out = buildRemoteHookEnv({
     gatewayUrl: "https://gw.example.com",
-    token: "mlk_x",
     project: "acme-eng",
-    author: "Dana Lee",
-    email: "dana@acme.com",
   });
   assert.match(out, /MEMORYLAYER_GATEWAY_URL=https:\/\/gw\.example\.com/);
-  assert.match(out, /MEMORYLAYER_GATEWAY_TOKEN=mlk_x/);
+  assert.doesNotMatch(out, /MEMORYLAYER_GATEWAY_TOKEN/);
+  assert.doesNotMatch(out, /mlk_/);
   assert.match(out, /MEMORYLAYER_PROJECT=acme-eng/);
-  assert.match(out, /MEMORYLAYER_AUTHOR=Dana Lee/);
-  assert.match(out, /MEMORYLAYER_AUTHOR_EMAIL=dana@acme.com/);
+  assert.doesNotMatch(out, /MEMORYLAYER_AUTHOR/);
   assert.ok(!/CONTEXT_REPO_URL/.test(out), "hosted-only: no local clone URL");
 });
 
@@ -55,4 +53,19 @@ test("ensureGitignore matches entries even without trailing newline", () => {
   const out = ensureGitignore("node_modules/", [".memorylayer-hook.env"]);
   assert.match(out, /node_modules\/\n/);
   assert.match(out, /\.memorylayer-hook\.env/);
+});
+
+test("removeGitignoreEntries removes obsolete hosted config ignores only", () => {
+  const out = removeGitignoreEntries(
+    [
+      "node_modules/",
+      ".memorylayer-hook.env",
+      ".cursor/mcp.json",
+      ".codex/config.toml",
+      ".claude/settings.local.json",
+      "",
+    ].join("\n"),
+    [".memorylayer-hook.env", ".cursor/mcp.json", ".codex/config.toml"],
+  );
+  assert.equal(out, "node_modules/\n.claude/settings.local.json\n");
 });

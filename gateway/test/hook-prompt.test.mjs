@@ -39,7 +39,7 @@ test("renderPromptInjection frames hits as data, not a search", () => {
 
 import { handleRequest } from "../dist/gateway/src/router.js";
 import { MemoryIndexDb } from "../dist/gateway/src/index-db.js";
-import { makeEnv, ghFetch, fakeEmbed } from "./helpers.mjs";
+import { makeEnv, ghFetch, fakeEmbed, seedGithubMember } from "./helpers.mjs";
 
 const MEMBER = {
   space: "team-a",
@@ -49,29 +49,26 @@ const MEMBER = {
   branch: "main",
   author: "Ada",
   authorEmail: "ada@acme.io",
+  githubId: 101,
+  githubLogin: "ada",
+  role: "admin",
 };
 
 async function setup(extra = {}) {
   const calls = [];
   const env = makeEnv(ghFetch(calls, []), extra);
-  const res = await handleRequest(
-    new Request("https://gw.test/admin/members", {
-      method: "POST",
-      headers: { "x-admin-secret": "test-admin-secret" },
-      body: JSON.stringify(MEMBER),
-    }),
-    env,
-  );
-  return { env, token: (await res.json()).token };
+  await seedGithubMember(env, MEMBER);
+  env.oauthProps = {
+    githubId: MEMBER.githubId,
+    githubLogin: MEMBER.githubLogin,
+  };
+  return { env };
 }
 
-function post(token, body) {
-  return new Request("https://gw.test/hook/prompt", {
+function post(body) {
+  return new Request("https://gw.test/mcp/hook/prompt", {
     method: "POST",
-    headers: {
-      authorization: `Bearer ${token}`,
-      "content-type": "application/json",
-    },
+    headers: { "content-type": "application/json" },
     body: JSON.stringify(body),
   });
 }
@@ -97,9 +94,9 @@ test("hook prompt returns the on-topic fact for a matching prompt (Cursor regres
       sourceTs: "2026-07-07T00:00:00Z",
     })),
   ]);
-  const { env, token } = await setup({ indexDb: db, embedder: fakeEmbed });
+  const { env } = await setup({ indexDb: db, embedder: fakeEmbed });
   const res = await handleRequest(
-    post(token, {
+    post({
       project: "memorylayer",
       prompt: "how is cursor mcp config scoped?",
     }),
@@ -114,9 +111,9 @@ test("hook prompt is silent (empty 200) when nothing clears tau", async () => {
   await seed(db, [
     { ...doc("d1", "we chose D1 for the index plane"), space: "team-a" },
   ]);
-  const { env, token } = await setup({ indexDb: db, embedder: null });
+  const { env } = await setup({ indexDb: db, embedder: null });
   const res = await handleRequest(
-    post(token, { project: "memorylayer", prompt: "zzqx unrelated nonsense" }),
+    post({ project: "memorylayer", prompt: "zzqx unrelated nonsense" }),
     env,
   );
   assert.equal(res.status, 200);
@@ -128,9 +125,9 @@ test("hook prompt fails open to empty 200 when retrieval throws", async () => {
   boomDb.listDocs = async () => {
     throw new Error("db down");
   };
-  const { env, token } = await setup({ indexDb: boomDb, embedder: fakeEmbed });
+  const { env } = await setup({ indexDb: boomDb, embedder: fakeEmbed });
   const res = await handleRequest(
-    post(token, { project: "memorylayer", prompt: "anything at all" }),
+    post({ project: "memorylayer", prompt: "anything at all" }),
     env,
   );
   assert.equal(res.status, 200);
@@ -139,8 +136,9 @@ test("hook prompt fails open to empty 200 when retrieval throws", async () => {
 
 test("hook prompt rejects an unauthenticated request", async () => {
   const { env } = await setup({ indexDb: new MemoryIndexDb() });
+  delete env.oauthProps;
   const res = await handleRequest(
-    new Request("https://gw.test/hook/prompt", {
+    new Request("https://gw.test/mcp/hook/prompt", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ project: "memorylayer", prompt: "x" }),
