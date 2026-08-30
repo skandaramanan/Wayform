@@ -3,12 +3,15 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+// node:crypto, not the global: globalThis.crypto is Node 19+, and this
+// package supports Node >=18 (CI tests it).
+import { randomUUID } from "node:crypto";
 
 test("credential store uses a plaintext file only in explicit test mode", async () => {
   const { createCredentialStore } = await import("../dist/credential-store.js");
   const file = path.join(
     os.tmpdir(),
-    `wayform-credential-store-${crypto.randomUUID()}.json`,
+    `wayform-credential-store-${randomUUID()}.json`,
   );
   const native = new Map();
   const entryFactory = (_service, account) => ({
