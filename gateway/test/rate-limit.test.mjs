@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  bucketFor,
+  isLimited,
   enforceRateLimit,
   rateLimitKey,
 } from "../dist/gateway/src/rate-limit.js";
@@ -18,53 +18,44 @@ function req(path, init = {}) {
   return new Request(`https://gw.test${path}`, init);
 }
 
-test("buckets cover the abusable surfaces and skip the ones that must not drop", () => {
+test("limits cover the unauthenticated surfaces and skip what must not drop", () => {
   // Handled inside workers-oauth-provider — the router never sees these, which
   // is exactly why the guard lives at the Worker entry point.
-  assert.equal(bucketFor("/oauth/register"), "auth");
-  assert.equal(bucketFor("/oauth/token"), "auth");
-  assert.equal(bucketFor("/authorize"), "auth");
-  assert.equal(bucketFor("/callback"), "auth");
-  assert.equal(bucketFor("/install/select"), "auth");
+  assert.equal(isLimited("/oauth/register"), true);
+  assert.equal(isLimited("/oauth/token"), true);
+  assert.equal(isLimited("/authorize"), true);
+  assert.equal(isLimited("/callback"), true);
+  assert.equal(isLimited("/install/select"), true);
   // Guarded only by a shared secret, so it must not be brute-forceable.
-  assert.equal(bucketFor("/admin/reindex"), "auth");
-  assert.equal(bucketFor("/mcp"), "api");
-  assert.equal(bucketFor("/mcp/hook/read"), "api");
+  assert.equal(isLimited("/admin/reindex"), true);
+  // /mcp needs a valid token: abuse there is revoke_session's job, and a
+  // ceiling here would throttle legitimate agents instead.
+  assert.equal(isLimited("/mcp"), false);
   // Uptime checks and signed GitHub webhooks must never be throttled.
-  assert.equal(bucketFor("/health"), null);
-  assert.equal(bucketFor("/webhook/github"), null);
+  assert.equal(isLimited("/health"), false);
+  assert.equal(isLimited("/webhook/github"), false);
 });
 
 test("keys use a token hash when authenticated, never the raw token", async () => {
   const key = await rateLimitKey(
-    req("/mcp", { headers: { authorization: "Bearer super-secret-token" } }),
-    "api",
+    req("/admin/reindex", {
+      headers: { authorization: "Bearer super-secret-token" },
+    }),
   );
-  assert.match(key, /^api:t:[0-9a-f]{32}$/);
+  assert.match(key, /^t:[0-9a-f]{32}$/);
   assert.equal(key.includes("super-secret-token"), false);
 });
 
 test("keys fall back to client IP when unauthenticated", async () => {
   const key = await rateLimitKey(
     req("/authorize", { headers: { "cf-connecting-ip": "203.0.113.7" } }),
-    "auth",
   );
-  assert.equal(key, "auth:ip:203.0.113.7");
-});
-
-test("two members behind one NAT get separate budgets", async () => {
-  const headers = (t) => ({
-    authorization: `Bearer ${t}`,
-    "cf-connecting-ip": "198.51.100.1",
-  });
-  const a = await rateLimitKey(req("/mcp", { headers: headers("aaa") }), "api");
-  const b = await rateLimitKey(req("/mcp", { headers: headers("bbb") }), "api");
-  assert.notEqual(a, b);
+  assert.equal(key, "ip:203.0.113.7");
 });
 
 test("over budget returns 429 with retry-after", async () => {
   const rl = limiter(false);
-  const res = await enforceRateLimit(req("/mcp"), { RL_API: rl });
+  const res = await enforceRateLimit(req("/authorize"), { RL_AUTH: rl });
   assert.equal(res.status, 429);
   assert.equal(res.headers.get("retry-after"), "60");
   assert.equal((await res.json()).error, "rate_limited");
@@ -85,17 +76,15 @@ test("a browser hitting the limit gets the styled page, not JSON", async () => {
 
 test("under budget continues", async () => {
   assert.equal(
-    await enforceRateLimit(req("/mcp"), { RL_API: limiter(true) }),
+    await enforceRateLimit(req("/authorize"), { RL_AUTH: limiter(true) }),
     null,
   );
 });
 
 test("unlimited paths never consult the limiter", async () => {
   const rl = limiter(false);
-  assert.equal(
-    await enforceRateLimit(req("/health"), { RL_AUTH: rl, RL_API: rl }),
-    null,
-  );
+  assert.equal(await enforceRateLimit(req("/health"), { RL_AUTH: rl }), null);
+  assert.equal(await enforceRateLimit(req("/mcp"), { RL_AUTH: rl }), null);
   assert.equal(rl.calls.length, 0);
 });
 

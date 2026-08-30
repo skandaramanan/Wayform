@@ -255,14 +255,14 @@ write "silently" does nothing — fail-open means problems hide here first.
 - **Trust boundary to know about:** everything a space member writes is
   injected into every member's sessions. You trust the people in your space —
   that's the model, stated plainly.
-- **Rate limits:** the gateway limits auth surfaces (`/authorize`, `/callback`,
-  `/oauth/register`, `/oauth/token`, `/install/*`, `/admin/*`) to 20 requests
-  per minute per caller, and `/mcp` to 240. `/health` and the signed GitHub
-  webhook are never throttled — dropping a webhook would stall indexing
-  silently, which is worse than the abuse it would prevent. Limits are keyed
-  per member token where one is present, so a team behind one NAT does not
-  share a budget. If the limiter is unavailable the gateway serves normally
-  rather than refusing traffic.
+- **Rate limits:** unauthenticated surfaces (`/authorize`, `/callback`,
+  `/oauth/register`, `/oauth/token`, `/install/*`, `/admin/*`) are capped at 20
+  requests per minute per caller. `/mcp` is not capped — it requires a valid
+  token, so abuse there is a revocation problem, not a throttling one.
+  `/health` and the signed GitHub webhook are never throttled: dropping a
+  webhook would stall indexing silently, which is worse than the abuse it would
+  prevent. If the limiter is unavailable the gateway serves normally rather
+  than refusing traffic.
 
 ### Managing your own sessions
 
