@@ -255,7 +255,11 @@ write "silently" does nothing — fail-open means problems hide here first.
 - **Trust boundary to know about:** everything a space member writes is
   injected into every member's sessions. You trust the people in your space —
   that's the model, stated plainly.
-- **Rate limits:** unauthenticated surfaces (`/authorize`, `/callback`,
+- **Rate limits — wired but NOT currently enforcing.** Verified live
+  2026-08-30: the binding is bound and called on every request, but returned
+  success for 100+ requests in seconds against a limit of 20/60s. Treat these
+  surfaces as **unprotected** until a `ratelimit_block` line appears in Workers
+  Logs. Intended shape: unauthenticated surfaces (`/authorize`, `/callback`,
   `/oauth/register`, `/oauth/token`, `/install/*`, `/admin/*`) are capped at 20
   requests per minute per caller. `/mcp` is not capped — it requires a valid
   token, so abuse there is a revocation problem, not a throttling one.
