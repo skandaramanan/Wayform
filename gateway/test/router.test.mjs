@@ -48,7 +48,7 @@ test("a normal response still carries CORS headers (browser can read the body)",
 
 test("GET /admin/supersession-audit requires admin secret", async () => {
   const db = new (
-    await import("../dist/gateway/src/index-db.js")
+    await import("../dist/gateway/src/index-db-memory.js")
   ).MemoryIndexDb();
   const res = await handleRequest(
     new Request("https://gw.test/admin/supersession-audit?space=s1"),
@@ -58,7 +58,7 @@ test("GET /admin/supersession-audit requires admin secret", async () => {
 });
 
 test("POST /admin/clear-supersession clears edges", async () => {
-  const { MemoryIndexDb } = await import("../dist/gateway/src/index-db.js");
+  const { MemoryIndexDb } = await import("../dist/gateway/src/index-db-memory.js");
   const db = new MemoryIndexDb();
   await db.upsertDocs([
     {

@@ -31,16 +31,9 @@ export function renderContext(client: HookClient, text: string): string {
       // No envelope: clients whose start hook injects stdout verbatim.
       return text;
     case "claude-code":
-      return JSON.stringify({
-        hookSpecificOutput: {
-          hookEventName: "SessionStart",
-          additionalContext: text,
-        },
-      });
     case "codex":
-      // Codex SessionStart injection is byte-identical to Claude Code today, but
-      // kept a separate case so a future divergence in either tool is a one-line
-      // change (see spec decision a).
+      // Codex SessionStart injection is byte-identical to Claude Code today;
+      // a future divergence splits the fallthrough (see spec decision a).
       return JSON.stringify({
         hookSpecificOutput: {
           hookEventName: "SessionStart",
@@ -62,28 +55,6 @@ export function renderEmpty(client: HookClient): string {
 }
 
 /**
- * Stop-hook envelope that ASKS the model to self-review (legacy Path C).
- * Prefer renderStopNoop — Stop re-engagement is retired (da491a7d).
- */
-export function renderStopReview(client: HookClient, text: string): string {
-  switch (client) {
-    case "raw":
-      return text;
-    case "claude-code":
-      return JSON.stringify({
-        hookSpecificOutput: {
-          hookEventName: "Stop",
-          additionalContext: text,
-        },
-      });
-    case "codex":
-      return JSON.stringify({ decision: "block", reason: text });
-    case "cursor":
-      return JSON.stringify({ followup_message: text });
-  }
-}
-
-/**
  * UserPromptSubmit envelope (Claude Code) — hidden additionalContext beside
  * the submitted prompt. Other clients return empty no-op JSON.
  */
@@ -97,10 +68,29 @@ export function renderPromptContext(client: HookClient, text: string): string {
   });
 }
 
+
 /**
- * Stop-hook no-op: let the turn end with no injected review. Used on the loop-guard
- * path (stop_hook_active) and the fail-open path.
+ * PreToolUse envelope (Claude Code) — the one place wayform can stop an action
+ * before it happens. Only Claude Code exposes a blocking pre-execution hook we
+ * have verified, exactly as only Claude Code supports UserPromptSubmit
+ * injection; other clients get the empty no-op until their contract is checked.
+ *
+ * "deny" is never emitted in this phase (spec decision 1): a false positive on
+ * ask costs one keystroke, on deny it costs the feature.
  */
-export function renderStopNoop(client: HookClient): string {
-  return client === "raw" ? "" : "{}";
+export function renderGuardDecision(
+  client: HookClient,
+  decision: "ask" | "allow",
+  reason: string,
+): string {
+  if (client !== "claude-code" || decision === "allow") {
+    return renderEmpty(client);
+  }
+  return JSON.stringify({
+    hookSpecificOutput: {
+      hookEventName: "PreToolUse",
+      permissionDecision: "ask",
+      permissionDecisionReason: `Wayform — this contradicts a recorded team decision:\n\n${reason}`,
+    },
+  });
 }

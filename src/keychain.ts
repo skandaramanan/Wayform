@@ -3,29 +3,6 @@ import {
   type CredentialStore,
 } from "./credential-store.js";
 
-function resolveStore(store?: CredentialStore): CredentialStore {
-  return store ?? createCredentialStore();
-}
-
-export function keychainGet(
-  account: string,
-  store?: CredentialStore,
-): string | null {
-  return resolveStore(store).get(account);
-}
-
-export function keychainSet(
-  account: string,
-  secret: string,
-  store?: CredentialStore,
-): void {
-  resolveStore(store).set(account, secret);
-}
-
-export function keychainDelete(account: string, store?: CredentialStore): void {
-  resolveStore(store).delete(account);
-}
-
 export interface StoredOAuth {
   client_id: string;
   access_token: string;
@@ -41,9 +18,9 @@ export function gatewayAccount(gatewayUrl: string): string {
 
 export function loadStoredOAuth(
   gatewayUrl: string,
-  store?: CredentialStore,
+  store: CredentialStore = createCredentialStore(),
 ): StoredOAuth | null {
-  const raw = keychainGet(gatewayAccount(gatewayUrl), store);
+  const raw = store.get(gatewayAccount(gatewayUrl));
   if (!raw) return null;
   try {
     return JSON.parse(raw) as StoredOAuth;
@@ -55,7 +32,7 @@ export function loadStoredOAuth(
 export function saveStoredOAuth(
   gatewayUrl: string,
   tokens: StoredOAuth,
-  store?: CredentialStore,
+  store: CredentialStore = createCredentialStore(),
 ): void {
-  keychainSet(gatewayAccount(gatewayUrl), JSON.stringify(tokens), store);
+  store.set(gatewayAccount(gatewayUrl), JSON.stringify(tokens));
 }

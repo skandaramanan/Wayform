@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { handleRequest } from "../dist/gateway/src/router.js";
-import { MemoryIndexDb } from "../dist/gateway/src/index-db.js";
+import { MemoryIndexDb } from "../dist/gateway/src/index-db-memory.js";
 import { makeEnv, ghFetch, fakeEmbed, seedGithubMember } from "./helpers.mjs";
 
 const MEMBER_A = {

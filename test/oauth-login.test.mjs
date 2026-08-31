@@ -4,12 +4,8 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import http from "node:http";
-import {
-  keychainSet,
-  keychainGet,
-  saveStoredOAuth,
-  loadStoredOAuth,
-} from "../dist/keychain.js";
+import { saveStoredOAuth, loadStoredOAuth } from "../dist/keychain.js";
+import { createCredentialStore } from "../dist/credential-store.js";
 import { LOGIN_TIMEOUT_MS, runLogin } from "../dist/oauth-login.js";
 
 function memoryStore() {
@@ -33,8 +29,9 @@ test("file keychain stores and returns secrets without printing them", () => {
   process.env.WAYFORM_KEYCHAIN_FILE = file;
   process.env.NODE_ENV = "test";
   try {
-    keychainSet("https://gw.test", "secret-value");
-    assert.equal(keychainGet("https://gw.test"), "secret-value");
+    const store = createCredentialStore();
+    store.set("https://gw.test", "secret-value");
+    assert.equal(store.get("https://gw.test"), "secret-value");
     saveStoredOAuth("https://gw.test", {
       client_id: "cli-1",
       access_token: "tok_abc",

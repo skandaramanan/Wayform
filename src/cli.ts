@@ -12,14 +12,13 @@
  *   wayform doctor                -> local diagnostics
  *   wayform space create [flags]  -> print App install URL + allowlist reminder
  *
- * `hook`/`prompt-hook`/`stop-review` set MEMORYLAYER_HOOK_CLIENT from the positional arg, then
+ * `hook`/`prompt-hook` set MEMORYLAYER_HOOK_CLIENT from the positional arg, then
  * delegate to the neutral run functions (which self-load .memorylayer-hook.env).
  */
 import { loadHookEnv } from "./config.js";
 import { runServer } from "./index.js";
 import { runHook } from "./hook.js";
 import { runPromptHook } from "./prompt-hook.js";
-import { runStopHook } from "./stop-hook.js";
 import { runInit } from "./init.js";
 import { runDoctor } from "./doctor.js";
 import { runSpaceCreate } from "./space-create.js";
@@ -42,8 +41,9 @@ async function main(): Promise<void> {
       await runPromptHook();
       return;
     case "stop-review":
-      if (rest[0]) process.env.MEMORYLAYER_HOOK_CLIENT = rest[0];
-      await runStopHook();
+      // Stop re-engagement retired (da491a7d): emit the client no-op so stale
+      // Stop wiring keeps working until configs drop it.
+      process.stdout.write(rest[0] === "raw" ? "" : "{}");
       return;
     case "init":
       await runInit(rest);
