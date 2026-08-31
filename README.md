@@ -163,6 +163,35 @@ Endpoints, allowlist, and the deploy runbook live in
 
 ---
 
+## The guard
+
+Reading decisions back is half the loop. The other half is catching an agent
+about to contradict one.
+
+With the hosted gateway configured, `wayform init` wires a `PreToolUse` hook in
+Claude Code. Before any `Edit`, `Write`, or `Bash`, the proposed action is
+checked against the team's live decisions. If it contradicts one, you get a
+confirmation prompt naming the decision, who made it, and when:
+
+> **Wayform — this contradicts a recorded team decision:**
+> We ruled out a second datastore; Postgres is not being added.
+> — Skanda, 2026-07-12
+
+It **asks**; it never blocks. Reads are never guarded, so only mutating tools
+pay any latency, capped at 1.5s before the check gives up and allows.
+
+Turn it off per machine with `WAYFORM_GUARD=off` in `.memorylayer-hook.env`.
+
+How often it fires:
+
+```bash
+curl -H "x-admin-secret: $ADMIN_SECRET" \
+  "$GATEWAY/admin/retrieval-log?space=<space>&trigger=hook_guard"
+# → { "rows": [...], "fired": 12 }
+```
+
+---
+
 ## The two tools
 
 Everything reads and writes through one MCP contract (identical in local stdio

@@ -72,6 +72,13 @@ export async function handleAdminRetrievalLog(
     1000,
     Math.max(1, Number(url.searchParams.get("limit") ?? 200) || 200),
   );
-  const rows = await deps.db.listRetrievalLog(space, since, limit);
-  return Response.json({ space, rows });
+  const trigger = url.searchParams.get("trigger")?.trim() ?? "";
+  const all = await deps.db.listRetrievalLog(space, since, limit);
+  // Filtered here rather than in SQL: listRetrievalLog is shared with the eval
+  // harness, and the guard's fire count is a pilot-scale read.
+  // ponytail: in-memory filter, push into the query if the log outgrows `limit`.
+  const rows = trigger ? all.filter((r) => r.trigger === trigger) : all;
+  // The Phase E headline metric: how often the guard actually asked.
+  const fired = rows.filter((r) => r.injected).length;
+  return Response.json({ space, rows, fired });
 }
