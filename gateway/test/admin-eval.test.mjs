@@ -69,3 +69,37 @@ test("GET /admin/retrieval-log returns rows since a timestamp", async () => {
   assert.equal(body.rows.length, 1);
   assert.equal(body.rows[0].query, "q");
 });
+
+test("retrieval-log filters by trigger and counts guard fires", async () => {
+  const db = new MemoryIndexDb();
+  const base = { space: "team-a", project: "memorylayer", returned: [], query: "q" };
+  await db.logRetrieval({ ...base, trigger: "hook_guard", injected: true,  ts: "2026-08-30T10:00:00Z" });
+  await db.logRetrieval({ ...base, trigger: "hook_guard", injected: false, ts: "2026-08-30T10:01:00Z" });
+  await db.logRetrieval({ ...base, trigger: "hook_read",  injected: true,  ts: "2026-08-30T10:02:00Z" });
+
+  const res = await handleRequest(
+    new Request(
+      "https://gw.test/admin/retrieval-log?space=team-a&trigger=hook_guard",
+      { headers: { "x-admin-secret": "test-admin-secret" } },
+    ),
+    env(db),
+  );
+  const body = await res.json();
+  assert.equal(body.rows.length, 2);
+  assert.equal(body.fired, 1);
+});
+
+test("retrieval-log without a trigger returns every row", async () => {
+  const db = new MemoryIndexDb();
+  await db.logRetrieval({
+    space: "team-a", project: "memorylayer", trigger: "hook_read",
+    query: "q", returned: [], injected: true, ts: "2026-08-30T10:00:00Z",
+  });
+  const res = await handleRequest(
+    new Request("https://gw.test/admin/retrieval-log?space=team-a", {
+      headers: { "x-admin-secret": "test-admin-secret" },
+    }),
+    env(db),
+  );
+  assert.equal((await res.json()).rows.length, 1);
+});
