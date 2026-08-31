@@ -293,9 +293,22 @@ export async function handleWebhook(
       req.headers.get("x-hub-signature-256"),
     ))
   ) {
+    // A rejected webhook is invisible otherwise: the Worker returns 401 and
+    // logs nothing, so deliveries look like they arrived and were handled.
+    console.log(
+      JSON.stringify({
+        evt: "webhook_rejected",
+        reason: env.WEBHOOK_SECRET ? "bad_signature" : "no_secret_configured",
+        event: req.headers.get("x-github-event") ?? "",
+      }),
+    );
     return new Response("bad signature", { status: 401 });
   }
   const event = req.headers.get("x-github-event");
+  // One line per accepted delivery, before any routing. Makes "GitHub is not
+  // sending this event type" directly observable instead of inferred from the
+  // absence of downstream logs.
+  console.log(JSON.stringify({ evt: "webhook", event: event ?? "" }));
   if (event === "pull_request") return handleMergedPr(body, env, ctx);
   if (event === "installation" || event === "installation_repositories") {
     return handleInstallationEvent(body, env);
