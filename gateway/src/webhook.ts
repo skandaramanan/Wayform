@@ -95,10 +95,41 @@ async function handleMergedPr(
     return new Response("ignored pr event", { status: 200 });
   }
   const fullName = payload.repository?.full_name ?? "";
+  // These two drop paths return 200, so GitHub shows a green delivery and
+  // nothing is written. That is exactly how the recorder went unnoticed after
+  // a space rename (2026-08-31): silence was indistinguishable from success.
+  // Log both — a misconfiguration must be loud somewhere.
   const mapping = await getProductRepo(env, fullName);
-  if (!mapping) return new Response("unmapped repo", { status: 200 });
+  if (!mapping) {
+    console.log(
+      JSON.stringify({
+        evt: "pr_drop",
+        reason: "unmapped_repo",
+        repo: fullName,
+      }),
+    );
+    return new Response("unmapped repo", { status: 200 });
+  }
   const sr = (await listSpaceRepos(env)).find((r) => r.space === mapping.space);
-  if (!sr) return new Response("space has no context repo", { status: 200 });
+  if (!sr) {
+    console.log(
+      JSON.stringify({
+        evt: "pr_drop",
+        reason: "space_has_no_context_repo",
+        repo: fullName,
+        space: mapping.space,
+      }),
+    );
+    return new Response("space has no context repo", { status: 200 });
+  }
+  console.log(
+    JSON.stringify({
+      evt: "pr_record",
+      repo: fullName,
+      space: sr.space,
+      pr: pr.number,
+    }),
+  );
 
   const author = pr.user?.login ?? "unknown";
   const merger = pr.merged_by?.login ?? author;
