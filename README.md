@@ -1,4 +1,4 @@
-# MemoryLayer
+# Wayform
 
 **Shared planning memory for teams that build with AI.** A decision made in one
 person's Claude session is already loaded in their teammate's Cursor session —
@@ -21,7 +21,7 @@ starts cold. Every collaborator re-explains the same settled decisions to their
 own agent, every day. The context that matters — *what we decided and why* —
 lives in Slack scrollback and people's heads.
 
-MemoryLayer fixes the loop with three properties nothing else combines:
+Wayform fixes the loop with three properties nothing else combines:
 
 - **Multiplayer.** One shared store per team. Your agent reads what your
   teammate's agent wrote. Attribution is git commit authorship — you always know
@@ -50,8 +50,8 @@ Three steps: install the CLI, create the shared repo, wire your project.
 ### 1. Install the CLI (once per machine)
 
 ```bash
-git clone https://github.com/skandaramanan/MemoryLayer /tmp/memorylayer \
-  && npm install -g /tmp/memorylayer
+git clone https://github.com/skandaramanan/Wayform /tmp/wayform \
+  && npm install -g /tmp/wayform
 ```
 
 Requires Node ≥ 18. `dist/` is pre-built and committed, so no build step runs
@@ -94,7 +94,7 @@ once to set their own identity. Done — the next coding session in that project
 starts with the team's context already loaded.
 
 **Verify the round-trip:** from a session, say *"record this decision: testing
-MemoryLayer, because we just set it up."* Then have a teammate (or a second
+Wayform, because we just set it up."* Then have a teammate (or a second
 machine) open a fresh session — the decision should be in their context without
 anyone pasting it. That round-trip is the product.
 
