@@ -346,3 +346,38 @@ test("KV-expired setup still returns access_denied to the original client", asyn
   assert.equal(redirect.searchParams.get("error"), "access_denied");
   assert.equal(redirect.searchParams.get("state"), "client-state");
 });
+
+test("an installation changed from GitHub settings is not reported as an error", async () => {
+  // GitHub redirects to the App's Setup URL after ANY installation change,
+  // including one made from the App settings page — installation_id but no
+  // `state`, because no Wayform OAuth request started it. The change has
+  // already been applied by then, so a 400 told the user their successful
+  // install had failed.
+  const { handleInstallCallback } =
+    await import("../dist/gateway/src/setup.js");
+  const env = makeEnv(undefined, { GITHUB_APP_SLUG: "wayform-test" });
+  const res = await handleInstallCallback(
+    new Request(
+      "https://gw.test/install/callback?installation_id=155820548&setup_action=update",
+    ),
+    env,
+  );
+  assert.equal(res.status, 200);
+  const html = await res.text();
+  assert.match(html, /Installation updated/);
+  assert.doesNotMatch(html, /invalid installation callback/);
+});
+
+test("a callback with no installation id is still a styled error", async () => {
+  const { handleInstallCallback } =
+    await import("../dist/gateway/src/setup.js");
+  const env = makeEnv(undefined, { GITHUB_APP_SLUG: "wayform-test" });
+  const res = await handleInstallCallback(
+    new Request("https://gw.test/install/callback"),
+    env,
+  );
+  assert.equal(res.status, 400);
+  const html = await res.text();
+  assert.match(html, /<!doctype html>/i);
+  assert.match(html, /Incomplete installation link/);
+});
