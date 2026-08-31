@@ -91,6 +91,19 @@ async function handleMergedPr(
     return new Response("bad payload", { status: 400 });
   }
   const pr = payload.pull_request;
+  // Log EVERY pull_request event that reaches us, including ignored ones.
+  // Without this, "GitHub never delivered the event" and "we delivered it and
+  // dropped it here" look identical from the outside — which is exactly the
+  // ambiguity that made this recorder's outage hard to diagnose.
+  console.log(
+    JSON.stringify({
+      evt: "pr_event",
+      repo: payload.repository?.full_name ?? "",
+      action: payload.action ?? "",
+      merged: pr?.merged === true,
+      pr: pr?.number,
+    }),
+  );
   if (payload.action !== "closed" || !pr?.merged) {
     return new Response("ignored pr event", { status: 200 });
   }
