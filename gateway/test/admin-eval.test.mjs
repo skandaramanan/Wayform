@@ -72,10 +72,30 @@ test("GET /admin/retrieval-log returns rows since a timestamp", async () => {
 
 test("retrieval-log filters by trigger and counts guard fires", async () => {
   const db = new MemoryIndexDb();
-  const base = { space: "team-a", project: "memorylayer", returned: [], query: "q" };
-  await db.logRetrieval({ ...base, trigger: "hook_guard", injected: true,  ts: "2026-08-30T10:00:00Z" });
-  await db.logRetrieval({ ...base, trigger: "hook_guard", injected: false, ts: "2026-08-30T10:01:00Z" });
-  await db.logRetrieval({ ...base, trigger: "hook_read",  injected: true,  ts: "2026-08-30T10:02:00Z" });
+  const base = {
+    space: "team-a",
+    project: "memorylayer",
+    returned: [],
+    query: "q",
+  };
+  await db.logRetrieval({
+    ...base,
+    trigger: "hook_guard",
+    injected: true,
+    ts: "2026-08-30T10:00:00Z",
+  });
+  await db.logRetrieval({
+    ...base,
+    trigger: "hook_guard",
+    injected: false,
+    ts: "2026-08-30T10:01:00Z",
+  });
+  await db.logRetrieval({
+    ...base,
+    trigger: "hook_read",
+    injected: true,
+    ts: "2026-08-30T10:02:00Z",
+  });
 
   const res = await handleRequest(
     new Request(
@@ -92,8 +112,13 @@ test("retrieval-log filters by trigger and counts guard fires", async () => {
 test("retrieval-log without a trigger returns every row", async () => {
   const db = new MemoryIndexDb();
   await db.logRetrieval({
-    space: "team-a", project: "memorylayer", trigger: "hook_read",
-    query: "q", returned: [], injected: true, ts: "2026-08-30T10:00:00Z",
+    space: "team-a",
+    project: "memorylayer",
+    trigger: "hook_read",
+    query: "q",
+    returned: [],
+    injected: true,
+    ts: "2026-08-30T10:00:00Z",
   });
   const res = await handleRequest(
     new Request("https://gw.test/admin/retrieval-log?space=team-a", {

@@ -50,8 +50,5 @@ test("`init --help` routes to init and exits 0", () => {
 });
 
 test("cli routes `guard` to the guard hook (fail-open {})", () => {
-  assert.equal(
-    run(["guard", "claude-code"]).trim(),
-    "{}",
-  );
+  assert.equal(run(["guard", "claude-code"]).trim(), "{}");
 });

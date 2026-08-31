@@ -313,7 +313,11 @@ test("mergeClaudeSettings guard wiring is idempotent", () => {
 
 test("mergeClaudeSettings preserves a foreign PreToolUse hook", () => {
   const out = mergeClaudeSettings(
-    { hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ command: "other" }] }] } },
+    {
+      hooks: {
+        PreToolUse: [{ matcher: "Bash", hooks: [{ command: "other" }] }],
+      },
+    },
     "wayform",
   );
   assert.equal(out.hooks.PreToolUse.length, 2);

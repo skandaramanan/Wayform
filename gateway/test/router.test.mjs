@@ -58,7 +58,8 @@ test("GET /admin/supersession-audit requires admin secret", async () => {
 });
 
 test("POST /admin/clear-supersession clears edges", async () => {
-  const { MemoryIndexDb } = await import("../dist/gateway/src/index-db-memory.js");
+  const { MemoryIndexDb } =
+    await import("../dist/gateway/src/index-db-memory.js");
   const db = new MemoryIndexDb();
   await db.upsertDocs([
     {
