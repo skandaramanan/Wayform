@@ -116,3 +116,44 @@ export async function remoteHookPrompt(
     return null;
   }
 }
+
+/**
+ * Tighter than REMOTE_TIMEOUT_MS: this blocks every guarded tool call, so the
+ * ceiling is what makes the feature survivable rather than merely correct.
+ */
+export const GUARD_TIMEOUT_MS = 1500;
+
+export interface GuardCheck {
+  decision: "ask" | "allow";
+  reason: string;
+}
+
+/** POST /mcp/hook/guard — null means "gateway unusable"; callers allow. */
+export async function remoteGuardCheck(
+  cfg: GatewayCfg,
+  project: string,
+  action: string,
+  fetchImpl: GatewayFetch = oauthFetch,
+): Promise<GuardCheck | null> {
+  if (!configured(cfg)) return null;
+  try {
+    const res = await fetchImpl(
+      cfg.gatewayUrl,
+      `${cfg.gatewayUrl}/mcp/hook/guard`,
+      {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ project, action }),
+        signal: AbortSignal.timeout(GUARD_TIMEOUT_MS),
+      },
+    );
+    if (!res.ok) return null;
+    const body = (await res.json()) as Partial<GuardCheck>;
+    // Anything but a well-formed "ask" is an allow — including "deny", which
+    // this phase must never surface even if a future gateway sends one.
+    if (body.decision !== "ask") return { decision: "allow", reason: "" };
+    return { decision: "ask", reason: String(body.reason ?? "") };
+  } catch {
+    return null;
+  }
+}
