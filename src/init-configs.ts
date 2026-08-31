@@ -67,7 +67,9 @@ export function mergeClaudeSettings(
   hooks.PreToolUse = addOnce(asArray(hooks.PreToolUse), "guard claude-code", {
     matcher: "Edit|Write|Bash",
     hooks: [
-      { type: "command", command: `${bin} guard claude-code`, timeout: 5 },
+      // 10s wrapper > GUARD_TIMEOUT_MS (6s) + node startup; the hook itself
+      // fails open long before the wrapper would kill it.
+      { type: "command", command: `${bin} guard claude-code`, timeout: 10 },
     ],
   });
   root.hooks = hooks;

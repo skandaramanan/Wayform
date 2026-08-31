@@ -299,7 +299,7 @@ test("mergeClaudeSettings wires the PreToolUse guard on mutating tools", () => {
   const entry = out.hooks.PreToolUse[0];
   assert.equal(entry.matcher, "Edit|Write|Bash");
   assert.equal(entry.hooks[0].command, "wayform guard claude-code");
-  assert.equal(entry.hooks[0].timeout, 5);
+  assert.equal(entry.hooks[0].timeout, 10);
 });
 
 test("mergeClaudeSettings guard wiring is idempotent", () => {

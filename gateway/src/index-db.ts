@@ -333,44 +333,49 @@ export function d1IndexDb(db: D1Like): IndexDb {
       };
     },
     async getDocsByIds(space, ids) {
-      const out: IndexedDoc[] = [];
+      // Chunks run in parallel: a wide candidate set (hundreds of ids) was
+      // paying one sequential D1 round trip per 90 ids — measured 1.3s of the
+      // guard path's hydrate stage. Wall clock is now ~the slowest chunk.
+      const chunks: string[][] = [];
       for (let i = 0; i < ids.length; i += ID_CHUNK) {
-        const chunk = ids.slice(i, i + ID_CHUNK);
-        const ph = chunk.map(() => "?").join(", ");
-        const [docRes, tagRes] = await Promise.all([
-          db
-            .prepare(
-              // Explicit column list WITHOUT embedding: hydration feeds
-              // bm25/render, which never touch vectors — fetching them here
-              // decoded every candidate's 768 floats a second time (the other
-              // half of the 1102 CPU blowup).
-              "SELECT id, space, project, kind, tier, body, source_file, " +
-                "source_author, source_ts, superseded_by, created_at, source_id " +
-                `FROM docs WHERE space = ? AND superseded_by IS NULL AND id IN (${ph})`,
-            )
-            .bind(space, ...chunk)
-            .all(),
-          db
-            .prepare(
-              `SELECT fact_id, entity FROM fact_entities WHERE space = ? AND fact_id IN (${ph})`,
-            )
-            .bind(space, ...chunk)
-            .all(),
-        ]);
-        const tags = new Map<string, string[]>();
-        for (const r of tagRes.results) {
-          const id = r.fact_id as string;
-          const list = tags.get(id) ?? [];
-          list.push(r.entity as string);
-          tags.set(id, list);
-        }
-        out.push(
-          ...docRes.results.map((r) =>
-            rowToDoc(r, tags.get(r.id as string) ?? []),
-          ),
-        );
+        chunks.push(ids.slice(i, i + ID_CHUNK));
       }
-      return out;
+      const perChunk = await Promise.all(
+        chunks.map(async (chunk) => {
+          const ph = chunk.map(() => "?").join(", ");
+          const [docRes, tagRes] = await Promise.all([
+            db
+              .prepare(
+                // Explicit column list WITHOUT embedding: hydration feeds
+                // bm25/render, which never touch vectors — fetching them here
+                // decoded every candidate's 768 floats a second time (the other
+                // half of the 1102 CPU blowup).
+                "SELECT id, space, project, kind, tier, body, source_file, " +
+                  "source_author, source_ts, superseded_by, created_at, source_id " +
+                  `FROM docs WHERE space = ? AND superseded_by IS NULL AND id IN (${ph})`,
+              )
+              .bind(space, ...chunk)
+              .all(),
+            db
+              .prepare(
+                `SELECT fact_id, entity FROM fact_entities WHERE space = ? AND fact_id IN (${ph})`,
+              )
+              .bind(space, ...chunk)
+              .all(),
+          ]);
+          const tags = new Map<string, string[]>();
+          for (const r of tagRes.results) {
+            const id = r.fact_id as string;
+            const list = tags.get(id) ?? [];
+            list.push(r.entity as string);
+            tags.set(id, list);
+          }
+          return docRes.results.map((r) =>
+            rowToDoc(r, tags.get(r.id as string) ?? []),
+          );
+        }),
+      );
+      return perChunk.flat();
     },
     async getDoc(space, id) {
       const row = await db

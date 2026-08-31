@@ -118,10 +118,12 @@ export async function remoteHookPrompt(
 }
 
 /**
- * Tighter than REMOTE_TIMEOUT_MS: this blocks every guarded tool call, so the
- * ceiling is what makes the feature survivable rather than merely correct.
+ * The spec's 1500ms ceiling assumed a 300-500ms retrieve; production measured
+ * ~3.7s on a 417-doc corpus (2026-08-31), so 1500 meant EVERY check timed out
+ * and silently allowed. 6000 is the dogfood ceiling to collect real fire-rate
+ * data; retune from measurements, and keep it under the 10s hook wrapper.
  */
-export const GUARD_TIMEOUT_MS = 1500;
+export const GUARD_TIMEOUT_MS = 6000;
 
 export interface GuardCheck {
   decision: "ask" | "allow";

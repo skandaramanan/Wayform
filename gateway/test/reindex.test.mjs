@@ -148,13 +148,16 @@ test("reconcileAll heals a large drifted space one bounded page per tick via a K
   // tick 1: wipes (offset 0) and ingests the first page only
   await reconcileAll(env);
   assert.equal((await db.listDocs("s1")).length, page);
-  assert.equal(await env.ROUTING.get("reindex-cursor:s1"), String(page));
+  assert.equal(await env.ROUTING.get("reindex-cursor:s1"), `headsha:${page}`);
   assert.equal(await db.getLastIndexedSha("s1"), null); // not done → still drifts
 
   // tick 2: resumes from the cursor without re-wiping
   await reconcileAll(env);
   assert.equal((await db.listDocs("s1")).length, page * 2);
-  assert.equal(await env.ROUTING.get("reindex-cursor:s1"), String(page * 2));
+  assert.equal(
+    await env.ROUTING.get("reindex-cursor:s1"),
+    `headsha:${page * 2}`,
+  );
 
   // tick 3: final page — sha advances, cursor cleared
   await reconcileAll(env);
@@ -165,4 +168,40 @@ test("reconcileAll heals a large drifted space one bounded page per tick via a K
   // tick 4: no drift → untouched
   await reconcileAll(env);
   assert.equal((await db.listDocs("s1")).length, total);
+});
+
+test("reconcileAll deletes an abandoned cursor once the sha has caught up", async () => {
+  const db = new MemoryIndexDb();
+  const env = envWithManyEntries(db, 3);
+  await registerSpaceRepo(env, {
+    space: "s1",
+    installationId: 7,
+    owner: "o",
+    repo: "r",
+    branch: "main",
+  });
+  // A webhook ingest advanced the sha mid-rebuild; the rebuild's cursor is debris.
+  await db.setLastIndexedSha("s1", "headsha");
+  await env.ROUTING.put("reindex-cursor:s1", "headsha:150");
+  await reconcileAll(env);
+  assert.equal(await env.ROUTING.get("reindex-cursor:s1"), null);
+});
+
+test("reconcileAll restarts at offset 0 when the cursor belongs to a different head", async () => {
+  const db = new MemoryIndexDb();
+  const page = CRON_REINDEX_PAGE;
+  const env = envWithManyEntries(db, page * 2 + 5);
+  await registerSpaceRepo(env, {
+    space: "s1",
+    installationId: 7,
+    owner: "o",
+    repo: "r",
+    branch: "main",
+  });
+  // Cursor from a rebuild of an older head: resuming it would skip the wiped
+  // range 0..page for the new head. Must restart (wipe + first page).
+  await env.ROUTING.put("reindex-cursor:s1", `stalesha:${page}`);
+  await reconcileAll(env);
+  assert.equal((await db.listDocs("s1")).length, page);
+  assert.equal(await env.ROUTING.get("reindex-cursor:s1"), `headsha:${page}`);
 });
