@@ -6,6 +6,7 @@
  *   wayform                       -> MCP server (default)
  *   wayform hook <client>         -> read hook
  *   wayform prompt-hook <client>  -> Claude UserPromptSubmit → /hook/prompt
+ *   wayform guard <client>        -> PreToolUse guard → /hook/guard
  *   wayform stop-review <client>  -> Stop no-op (legacy; re-engagement removed)
  *   wayform login                 -> GitHub OAuth; tokens go to the OS keychain
  *   wayform init [flags]          -> installer (add --remote for hosted members)
@@ -19,6 +20,7 @@ import { loadHookEnv } from "./config.js";
 import { runServer } from "./index.js";
 import { runHook } from "./hook.js";
 import { runPromptHook } from "./prompt-hook.js";
+import { runGuardHook } from "./guard-hook.js";
 import { runInit } from "./init.js";
 import { runDoctor } from "./doctor.js";
 import { runSpaceCreate } from "./space-create.js";
@@ -39,6 +41,10 @@ async function main(): Promise<void> {
     case "prompt-hook":
       if (rest[0]) process.env.MEMORYLAYER_HOOK_CLIENT = rest[0];
       await runPromptHook();
+      return;
+    case "guard":
+      if (rest[0]) process.env.MEMORYLAYER_HOOK_CLIENT = rest[0];
+      await runGuardHook();
       return;
     case "stop-review":
       // Stop re-engagement retired (da491a7d): emit the client no-op so stale
@@ -69,7 +75,7 @@ async function main(): Promise<void> {
       return;
     default:
       console.error(
-        `Unknown command "${sub}". Use: wayform [hook|prompt-hook|stop-review|init|doctor|login|space] …`,
+        `Unknown command "${sub}". Use: wayform [hook|prompt-hook|guard|stop-review|init|doctor|login|space] …`,
       );
       process.exit(1);
   }
