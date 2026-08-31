@@ -43,8 +43,12 @@ export async function beginInstallSetup(
   pending: Omit<PendingSetup, "createdAt">,
 ): Promise<Response> {
   if (!env.GITHUB_APP_SLUG) {
-    return new Response("GitHub App installation is not configured", {
+    return errorPage({
       status: 503,
+      title: "Sign-in is unavailable",
+      message:
+        "This Wayform gateway is not fully configured for GitHub App installation yet.",
+      hint: "Nothing is wrong on your end. Contact whoever runs this gateway.",
     });
   }
   const handle = crypto.randomUUID();
@@ -77,13 +81,44 @@ export async function handleInstallCallback(
   const url = new URL(request.url);
   const handle = url.searchParams.get("state");
   const installationId = Number(url.searchParams.get("installation_id"));
-  if (!handle || !Number.isSafeInteger(installationId) || installationId <= 0) {
-    return new Response("invalid installation callback", { status: 400 });
+  const validInstallation =
+    Number.isSafeInteger(installationId) && installationId > 0;
+  // GitHub redirects here after ANY installation change, including one made
+  // from the App's settings page — which carries installation_id but no
+  // `state`, because no Wayform OAuth request started it. That is a normal
+  // outcome, not an error: the change has already been applied by the time
+  // GitHub redirects. Previously this returned a bare 400 that looked like
+  // the install had failed when it had in fact succeeded.
+  if (validInstallation && !handle) {
+    return htmlResponse(
+      sharedPage({
+        title: "Installation updated",
+        body: `<p class="lead">Wayform's GitHub App installation has been updated.</p>
+    <p>Nothing further is needed here.</p>`,
+        note: "You can close this tab and return to your editor.",
+      }),
+      [],
+    );
+  }
+  if (!handle || !validInstallation) {
+    return errorPage({
+      status: 400,
+      title: "Incomplete installation link",
+      message:
+        "This installation link is missing the details Wayform needs to finish setting up.",
+      hint: "Start the connection again from your editor.",
+    });
   }
   const pending = await readPending(env, handle);
   if (!pending) return expiredSetupResponse(env, handle);
   if (!(await validSetupCookie(request, handle))) {
-    return new Response("setup state mismatch", { status: 400 });
+    return errorPage({
+      status: 400,
+      title: "This setup link expired",
+      message:
+        "Setup links are valid for a few minutes and can only be used once.",
+      hint: "Start the connection again from your editor.",
+    });
   }
   if (isExpired(pending)) return expireSetup(env, handle, pending);
   const previouslyAccessible =
@@ -147,26 +182,52 @@ export async function handleRepositorySelection(
   try {
     form = await request.formData();
   } catch {
-    return new Response("invalid form", { status: 400 });
+    return errorPage({
+      status: 400,
+      title: "Could not read that request",
+      message: "The form did not arrive in a readable form.",
+    });
   }
   const handle = stringField(form, "setup_handle");
   const selectedName = stringField(form, "repository");
   if (!handle || !selectedName) {
-    return new Response("missing repository selection", { status: 400 });
+    return errorPage({
+      status: 400,
+      title: "No repository selected",
+      message: "Choose which repository should hold this team's memory.",
+      hint: "Go back and pick a repository.",
+    });
   }
   const pending = await readPending(env, handle);
   if (!pending) return expiredSetupResponse(env, handle);
   try {
     validateCSRFToken(form, request);
   } catch {
-    return new Response("CSRF validation failed", { status: 400 });
+    return errorPage({
+      status: 400,
+      title: "This page expired",
+      message:
+        "For your security, the setup page is only valid for a few minutes and can only be submitted once.",
+      hint: "Start the connection again from your editor.",
+    });
   }
   if (!(await validSetupCookie(request, handle))) {
-    return new Response("setup state mismatch", { status: 400 });
+    return errorPage({
+      status: 400,
+      title: "This setup link expired",
+      message:
+        "Setup links are valid for a few minutes and can only be used once.",
+      hint: "Start the connection again from your editor.",
+    });
   }
   if (isExpired(pending)) return expireSetup(env, handle, pending);
   if (!pending.installationId || !pending.repositories) {
-    return new Response("installation setup is incomplete", { status: 400 });
+    return errorPage({
+      status: 400,
+      title: "Setup is incomplete",
+      message: "This installation has not finished connecting to Wayform.",
+      hint: "Start the connection again from your editor.",
+    });
   }
   const repository = pending.repositories.find(
     (item) => `${item.owner}/${item.repo}` === selectedName,
@@ -348,7 +409,15 @@ async function expiredSetupResponse(
   handle: string,
 ): Promise<Response> {
   const raw = await env.OAUTH_KV.get(returnKey(handle));
-  if (!raw) return new Response("expired or unknown setup", { status: 400 });
+  if (!raw) {
+    return errorPage({
+      status: 400,
+      title: "This setup link expired",
+      message:
+        "Setup links are valid for a few minutes and can only be used once.",
+      hint: "Start the connection again from your editor.",
+    });
+  }
   try {
     const request =
       typeof raw === "string"
