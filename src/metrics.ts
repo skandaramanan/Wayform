@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { slug } from "./store.js";
+import { slug } from "./slug.js";
 import type { Config } from "./config.js";
 
 /**

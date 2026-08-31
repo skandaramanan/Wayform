@@ -10,7 +10,7 @@ import {
   formatDuplicateResult,
   formatWriteResult,
 } from "../dist/gateway/src/supersede.js";
-import { MemoryIndexDb } from "../dist/gateway/src/index-db.js";
+import { MemoryIndexDb } from "../dist/gateway/src/index-db-memory.js";
 import { fakeEmbed, fakeJudge, fakeGenText } from "./helpers.mjs";
 import { ingestEntries } from "../dist/gateway/src/ingest.js";
 

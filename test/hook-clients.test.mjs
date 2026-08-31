@@ -4,9 +4,8 @@ import {
   resolveClient,
   renderContext,
   renderEmpty,
-  renderStopReview,
-  renderStopNoop,
   renderPromptContext,
+  renderGuardDecision,
 } from "../dist/hook-clients.js";
 
 test("resolveClient defaults to cursor for unset/blank/unknown", () => {
@@ -49,45 +48,15 @@ test("empty no-op is valid per client: {} for JSON clients, empty for raw", () =
   assert.deepEqual(JSON.parse(renderEmpty("cursor")), {});
 });
 
-test("claude-code Stop review nests additionalContext under the Stop event", () => {
-  const out = JSON.parse(renderStopReview("claude-code", "review please"));
-  assert.equal(out.hookSpecificOutput.hookEventName, "Stop");
-  assert.equal(out.hookSpecificOutput.additionalContext, "review please");
-});
-
-test("raw Stop review is the text verbatim", () => {
-  assert.equal(renderStopReview("raw", "review please"), "review please");
-});
-
-test("cursor Stop review re-engages via followup_message", () => {
-  const out = JSON.parse(renderStopReview("cursor", "review please"));
-  assert.deepEqual(Object.keys(out), ["followup_message"]);
-  assert.equal(out.followup_message, "review please");
-});
-
-test("Stop no-op is valid per client: {} for JSON clients, empty for raw", () => {
-  assert.equal(renderStopNoop("claude-code"), "{}");
-  assert.equal(renderStopNoop("cursor"), "{}");
-  assert.equal(renderStopNoop("raw"), "");
-  assert.deepEqual(JSON.parse(renderStopNoop("claude-code")), {});
-});
-
 test("codex read envelope matches the claude-code SessionStart shape", () => {
   const out = JSON.parse(renderContext("codex", "hello"));
   assert.equal(out.hookSpecificOutput.hookEventName, "SessionStart");
   assert.equal(out.hookSpecificOutput.additionalContext, "hello");
 });
 
-test("codex Stop review re-engages via decision:block with reason", () => {
-  const out = JSON.parse(renderStopReview("codex", "review please"));
-  assert.equal(out.decision, "block");
-  assert.equal(out.reason, "review please");
-});
-
-test("codex empty and Stop no-ops are valid {} JSON", () => {
+test("codex empty no-op is valid {} JSON", () => {
   assert.equal(renderEmpty("codex"), "{}");
-  assert.equal(renderStopNoop("codex"), "{}");
-  assert.deepEqual(JSON.parse(renderStopNoop("codex")), {});
+  assert.deepEqual(JSON.parse(renderEmpty("codex")), {});
 });
 
 test("renderPromptContext injects UserPromptSubmit context for claude-code only", () => {
@@ -96,4 +65,33 @@ test("renderPromptContext injects UserPromptSubmit context for claude-code only"
   assert.equal(out.hookSpecificOutput.additionalContext, "relevant memory");
   assert.equal(renderPromptContext("cursor", "x").trim(), "{}");
   assert.equal(renderPromptContext("raw", "x"), "");
+});
+
+test("renderGuardDecision emits Claude Code's PreToolUse ask envelope", () => {
+  const out = JSON.parse(
+    renderGuardDecision("claude-code", "ask", "Second datastore was ruled out."),
+  );
+  assert.equal(out.hookSpecificOutput.hookEventName, "PreToolUse");
+  assert.equal(out.hookSpecificOutput.permissionDecision, "ask");
+  assert.match(
+    out.hookSpecificOutput.permissionDecisionReason,
+    /Second datastore was ruled out/,
+  );
+});
+
+test("renderGuardDecision never emits deny", () => {
+  for (const d of ["ask", "allow"]) {
+    assert.doesNotMatch(renderGuardDecision("claude-code", d, "r"), /deny/);
+  }
+});
+
+test("renderGuardDecision is a silent no-op on allow", () => {
+  assert.equal(renderGuardDecision("claude-code", "allow", "r"), "{}");
+});
+
+test("renderGuardDecision is a no-op for clients without a guard hook", () => {
+  for (const c of ["cursor", "codex"]) {
+    assert.equal(renderGuardDecision(c, "ask", "r"), "{}");
+  }
+  assert.equal(renderGuardDecision("raw", "ask", "r"), "");
 });

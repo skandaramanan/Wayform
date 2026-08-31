@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { indexDeps } from "../dist/gateway/src/deps.js";
-import { MemoryIndexDb } from "../dist/gateway/src/index-db.js";
+import { MemoryIndexDb } from "../dist/gateway/src/index-db-memory.js";
 
 test("indexDeps resolves gen from env.AI text-gen; null when no AI", async () => {
   const calls = [];

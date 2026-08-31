@@ -1,10 +1,10 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  MemoryIndexDb,
   EMBED_SCAN_CAP,
   TOKEN_MATCH_LIMIT,
 } from "../dist/gateway/src/index-db.js";
+import { MemoryIndexDb } from "../dist/gateway/src/index-db-memory.js";
 import {
   retrieve,
   renderSearchResults,
