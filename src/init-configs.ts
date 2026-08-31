@@ -7,8 +7,8 @@
  *  - idempotent: our command appears at most once on re-run (matched by command
  *    substring / server key).
  *
- * Commands invoke the globally-installed `memorylayer` binary (fast, offline),
- * NOT a bash launcher or npx. All are secret-free: `memorylayer` self-loads
+ * Commands invoke the globally-installed `wayform` binary (fast, offline),
+ * NOT a bash launcher or npx. All are secret-free: `wayform` self-loads
  * `.memorylayer-hook.env` from the project cwd at runtime.
  */
 import { createHash } from "node:crypto";
@@ -24,7 +24,7 @@ const asArray = (v: unknown): unknown[] => (Array.isArray(v) ? [...v] : []);
  * for this event. `marker` MUST be the stable `<subcommand> <client>` token
  * (e.g. "hook cursor", "stop-review claude-code") — NOT a whole command string —
  * so an equivalent hook that invokes the tool via a different form (the dogfood
- * `node ./dist/cli.js hook cursor`, an absolute path, or `npx memorylayer …`) is
+ * `node ./dist/cli.js hook cursor`, an absolute path, or `npx wayform …`) is
  * still recognized and re-running `init` stays idempotent instead of appending a
  * duplicate hook that would fire the read/review twice per turn.
  */
@@ -35,7 +35,7 @@ function addOnce(list: unknown[], marker: string, entry: unknown): unknown[] {
 
 export function mergeClaudeSettings(
   existing: unknown,
-  bin: string = "memorylayer",
+  bin: string = "wayform",
 ): Json {
   const root = asObject(existing);
   const hooks = asObject(root.hooks);
@@ -76,7 +76,7 @@ export function mergeClaudeSettings(
 
 export function mergeCursorHooks(
   existing: unknown,
-  bin: string = "memorylayer",
+  bin: string = "wayform",
 ): Json {
   const root = asObject(existing);
   root.version = 1;
@@ -92,7 +92,7 @@ export function mergeCursorHooks(
 
 export function mergeCodexHooks(
   existing: unknown,
-  bin: string = "memorylayer",
+  bin: string = "wayform",
 ): Json {
   const root = asObject(existing);
   const hooks = asObject(root.hooks);
@@ -204,19 +204,19 @@ export function mergeCodexTrustToml(
 export function mergeMcpJson(existing: unknown): Json {
   const root = asObject(existing);
   const servers = asObject(root.mcpServers);
-  servers.memorylayer = { command: "memorylayer", args: [], env: {} };
+  servers.wayform = { command: "wayform", args: [], env: {} };
   root.mcpServers = servers;
   return root;
 }
 
 /**
  * Project-scoped Codex MCP block for the LOCAL (self-hosted clone) tier, written
- * to `.codex/config.toml`. Secret-free stdio server: `command = "memorylayer"`
+ * to `.codex/config.toml`. Secret-free stdio server: `command = "wayform"`
  * self-loads `.memorylayer-hook.env` at runtime. Codex applies project config
  * for trusted repos, so this needs no global paste.
  */
-export const CODEX_MCP_TOML = `[mcp_servers.memorylayer]
-command = "memorylayer"
+export const CODEX_MCP_TOML = `[mcp_servers.wayform]
+command = "wayform"
 args = []
 `;
 
