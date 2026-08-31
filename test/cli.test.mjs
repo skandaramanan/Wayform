@@ -48,3 +48,10 @@ test("`init --help` routes to init and exits 0", () => {
   });
   assert.match(out, /wayform init/);
 });
+
+test("cli routes `guard` to the guard hook (fail-open {})", () => {
+  assert.equal(
+    run(["guard", "claude-code"]).trim(),
+    "{}",
+  );
+});

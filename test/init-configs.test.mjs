@@ -296,3 +296,26 @@ test("mergeCodexTrustToml appends once, preserves unrelated config, refreshes a 
   const fixed = mergeCodexTrustToml(stale, entries);
   assert.equal(fixed, once);
 });
+
+test("mergeClaudeSettings wires the PreToolUse guard on mutating tools", () => {
+  const out = mergeClaudeSettings({}, "wayform");
+  const entry = out.hooks.PreToolUse[0];
+  assert.equal(entry.matcher, "Edit|Write|Bash");
+  assert.equal(entry.hooks[0].command, "wayform guard claude-code");
+  assert.equal(entry.hooks[0].timeout, 5);
+});
+
+test("mergeClaudeSettings guard wiring is idempotent", () => {
+  const once = mergeClaudeSettings({}, "wayform");
+  const twice = mergeClaudeSettings(once, "wayform");
+  assert.equal(twice.hooks.PreToolUse.length, 1);
+});
+
+test("mergeClaudeSettings preserves a foreign PreToolUse hook", () => {
+  const out = mergeClaudeSettings(
+    { hooks: { PreToolUse: [{ matcher: "Bash", hooks: [{ command: "other" }] }] } },
+    "wayform",
+  );
+  assert.equal(out.hooks.PreToolUse.length, 2);
+  assert.equal(out.hooks.PreToolUse[0].hooks[0].command, "other");
+});

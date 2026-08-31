@@ -62,6 +62,14 @@ export function mergeClaudeSettings(
       ],
     },
   );
+  // PreToolUse guard (Phase E): matcher limits the hook to mutating tools so
+  // reads never pay for a network round trip.
+  hooks.PreToolUse = addOnce(asArray(hooks.PreToolUse), "guard claude-code", {
+    matcher: "Edit|Write|Bash",
+    hooks: [
+      { type: "command", command: `${bin} guard claude-code`, timeout: 5 },
+    ],
+  });
   root.hooks = hooks;
   return root;
 }
