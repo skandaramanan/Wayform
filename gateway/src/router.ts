@@ -7,6 +7,7 @@ import { handleAdminAllowlist } from "./spaces.js";
 import { handleMcp } from "./mcp.js";
 import { handleHookRead } from "./hook-read.js";
 import { handleHookPrompt } from "./hook-prompt.js";
+import { handleHookGuard } from "./guard.js";
 import { handleWebhook } from "./webhook.js";
 import { handleAdminReindex } from "./reindex.js";
 import {
@@ -109,6 +110,10 @@ async function route(
 
   if (url.pathname === "/mcp/hook/prompt" && req.method === "POST") {
     return handleHookPrompt(req, env, ctx);
+  }
+
+  if (url.pathname === "/mcp/hook/guard" && req.method === "POST") {
+    return handleHookGuard(req, env, ctx);
   }
 
   if (url.pathname === "/mcp/api/read" && req.method === "GET") {

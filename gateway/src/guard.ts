@@ -12,6 +12,10 @@
 import { retrieve, type RetrieveDeps } from "./retrieval.js";
 import { judgePair, SYNC_JUDGE_LIMIT } from "./supersede.js";
 import type { GenText } from "./extract.js";
+import type { Env, HandlerCtx } from "./env.js";
+import { resolveMember } from "./tenancy.js";
+import { indexDeps } from "./deps.js";
+import { slug } from "../../src/slug.js";
 
 /**
  * Deliberately far below DEFAULT_BUDGET_TOKENS: retrieve() fills to budget, and
@@ -61,4 +65,43 @@ export async function checkAction(
   } catch {
     return ALLOW;
   }
+}
+
+
+/**
+ * POST /mcp/hook/guard  body { project, action } → { decision, reason, factIds }.
+ * POST (not GET) because it carries free text, same as /hook/prompt.
+ * Every non-auth failure returns 200 allow: the caller is a PreToolUse hook and
+ * an error status would only be translated back into "allow" anyway.
+ */
+export async function handleHookGuard(
+  req: Request,
+  env: Env,
+  ctx?: HandlerCtx,
+): Promise<Response> {
+  const member = await resolveMember(req, env, ctx);
+  if (!member) return new Response("unauthorized", { status: 401 });
+
+  const allow = () => Response.json(ALLOW);
+
+  let body: { project?: unknown; action?: unknown };
+  try {
+    body = (await req.json()) as typeof body;
+  } catch {
+    return allow();
+  }
+  const project = typeof body.project === "string" ? body.project.trim() : "";
+  const action = typeof body.action === "string" ? body.action.trim() : "";
+  if (!project || !action) return allow();
+
+  const deps = indexDeps(env);
+  if (!deps) return allow();
+
+  return Response.json(
+    await checkAction(deps, {
+      space: member.space,
+      project: slug(project),
+      action,
+    }),
+  );
 }
