@@ -4,7 +4,8 @@
   "description": "Vendor-neutral multiplayer planning memory: a git-backed MCP server that shares planning context across Claude, Cursor, and Codex.",
   "type": "module",
   "bin": {
-    "wayform": "dist/cli.js"
+    "wayform": "dist/cli.js",
+    "memorylayer": "dist/cli.js"
   },
   "files": [
     "dist"

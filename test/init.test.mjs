@@ -47,17 +47,17 @@ test("init writes all three hook configs, both MCP files, env, and gitignore", (
     runInit(dir);
     const read = (p) => fs.readFileSync(path.join(dir, p), "utf8");
 
-    assert.match(read(".claude/settings.json"), /memorylayer hook claude-code/);
+    assert.match(read(".claude/settings.json"), /wayform hook claude-code/);
     assert.match(read(".claude/settings.json"), /prompt-hook claude-code/);
     assert.doesNotMatch(read(".claude/settings.json"), /stop-review/);
-    assert.match(read(".cursor/hooks.json"), /memorylayer hook cursor/);
+    assert.match(read(".cursor/hooks.json"), /wayform hook cursor/);
     assert.doesNotMatch(read(".cursor/hooks.json"), /stop-review/);
     assert.match(read(".codex/hooks.json"), /startup\|resume/);
     assert.doesNotMatch(read(".codex/hooks.json"), /stop-review/);
-    assert.match(read(".mcp.json"), /"memorylayer"/);
-    assert.match(read(".cursor/mcp.json"), /"memorylayer"/);
+    assert.match(read(".mcp.json"), /"wayform"/);
+    assert.match(read(".cursor/mcp.json"), /"wayform"/);
     // Codex MCP is now an auto-written, project-scoped, gitignored file.
-    assert.match(read(".codex/config.toml"), /\[mcp_servers\.memorylayer\]/);
+    assert.match(read(".codex/config.toml"), /\[mcp_servers\.wayform\]/);
     assert.match(read(".memorylayer-hook.env"), /MEMORYLAYER_AUTHOR=Ada/);
     assert.match(read(".gitignore"), /\.memorylayer-hook\.env/);
     assert.match(read(".gitignore"), /\.codex\/config\.toml/);
@@ -95,7 +95,7 @@ test("init is idempotent — re-run adds no duplicate hook entries", () => {
       path.join(dir, ".claude/settings.json"),
       "utf8",
     );
-    assert.equal(claude.split("memorylayer hook claude-code").length - 1, 1);
+    assert.equal(claude.split("wayform hook claude-code").length - 1, 1);
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
   }
@@ -110,7 +110,7 @@ test("init backs up an unparseable existing config instead of destroying it", ()
     assert.ok(fs.existsSync(path.join(dir, ".cursor/hooks.json.bak")));
     assert.match(
       fs.readFileSync(path.join(dir, ".cursor/hooks.json"), "utf8"),
-      /memorylayer hook cursor/,
+      /wayform hook cursor/,
     );
   } finally {
     fs.rmSync(dir, { recursive: true, force: true });
