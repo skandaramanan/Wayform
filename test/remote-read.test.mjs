@@ -96,11 +96,18 @@ test("remoteGuardCheck POSTs the action and parses the decision", async () => {
     "Edit: add Postgres",
     async (gatewayUrl, url, init) => {
       seen = { url: String(url), body: JSON.parse(init.body) };
-      return Response.json({ decision: "ask", reason: "ruled out", factIds: ["f1"] });
+      return Response.json({
+        decision: "ask",
+        reason: "ruled out",
+        factIds: ["f1"],
+      });
     },
   );
   assert.match(seen.url, /\/mcp\/hook\/guard$/);
-  assert.deepEqual(seen.body, { project: "memorylayer", action: "Edit: add Postgres" });
+  assert.deepEqual(seen.body, {
+    project: "memorylayer",
+    action: "Edit: add Postgres",
+  });
   assert.equal(out.decision, "ask");
   assert.equal(out.reason, "ruled out");
 });
@@ -110,16 +117,24 @@ test("remoteGuardCheck returns null when the gateway is unconfigured", async () 
 });
 
 test("remoteGuardCheck returns null on a non-ok response", async () => {
-  const out = await remoteGuardCheck(CFG, "memorylayer", "Edit: x", async () =>
-    new Response("boom", { status: 500 }),
+  const out = await remoteGuardCheck(
+    CFG,
+    "memorylayer",
+    "Edit: x",
+    async () => new Response("boom", { status: 500 }),
   );
   assert.equal(out, null);
 });
 
 test("remoteGuardCheck returns null when the fetch throws", async () => {
-  const out = await remoteGuardCheck(CFG, "memorylayer", "Edit: x", async () => {
-    throw new Error("offline");
-  });
+  const out = await remoteGuardCheck(
+    CFG,
+    "memorylayer",
+    "Edit: x",
+    async () => {
+      throw new Error("offline");
+    },
+  );
   assert.equal(out, null);
 });
 

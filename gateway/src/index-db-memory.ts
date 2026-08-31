@@ -13,7 +13,11 @@ import type {
   RetrievalLogEntry,
   SupersessionLogEntry,
 } from "./index-db.js";
-import { EMBED_SCAN_CAP, TOKEN_MATCH_LIMIT, ENTITY_SCAN_ROW_LIMIT } from "./index-db.js";
+import {
+  EMBED_SCAN_CAP,
+  TOKEN_MATCH_LIMIT,
+  ENTITY_SCAN_ROW_LIMIT,
+} from "./index-db.js";
 
 export class MemoryIndexDb implements IndexDb {
   private docs = new Map<string, IndexedDoc>();

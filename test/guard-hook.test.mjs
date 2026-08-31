@@ -66,7 +66,10 @@ async function runHook(payload, env = {}) {
 }
 
 test("a non-mutating tool is a silent no-op", async () => {
-  const out = await runHook({ tool_name: "Read", tool_input: { file_path: "a.ts" } });
+  const out = await runHook({
+    tool_name: "Read",
+    tool_input: { file_path: "a.ts" },
+  });
   assert.equal(out.trim(), "{}");
 });
 
