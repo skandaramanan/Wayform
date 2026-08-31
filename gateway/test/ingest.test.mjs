@@ -1,6 +1,6 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
-import { MemoryIndexDb } from "../dist/gateway/src/index-db.js";
+import { MemoryIndexDb } from "../dist/gateway/src/index-db-memory.js";
 import {
   projectFromPath,
   factToDoc,

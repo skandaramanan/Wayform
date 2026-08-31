@@ -1,11 +1,11 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import {
-  MemoryIndexDb,
   encodeEmbedding,
   decodeEmbedding,
   d1IndexDb,
 } from "../dist/gateway/src/index-db.js";
+import { MemoryIndexDb } from "../dist/gateway/src/index-db-memory.js";
 
 test("feedbackPenalties nets wrong+stale minus useful, floored above zero", async () => {
   const db = new MemoryIndexDb();

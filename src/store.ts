@@ -11,8 +11,9 @@ import {
   type ParsedEntry,
 } from "./frontmatter.js";
 import { DEFAULT_BUDGET_TOKENS, packToBudget } from "./token-budget.js";
+import { metricsRelPath } from "./metrics.js";
 import { slug, fsSafeTimestamp } from "./slug.js";
-// Re-exported so existing importers (init, metrics, tests) keep working.
+// Re-exported so existing importers (init, tests) keep working.
 export { slug } from "./slug.js";
 
 // Re-exported so existing importers (index.ts, context-format.ts, tests) keep a
@@ -191,7 +192,7 @@ export class ContextStore {
   }
 
   private async flushMetricsImpl(): Promise<void> {
-    const relFile = path.join("metrics", `${slug(this.cfg.author)}.jsonl`);
+    const relFile = metricsRelPath(this.cfg.author);
     const absFile = path.join(this.cfg.repoPath, relFile);
     if (!existsSync(absFile)) return; // nothing recorded yet
     try {

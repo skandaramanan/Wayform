@@ -1,7 +1,7 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { readFileSync } from "node:fs";
-import { MemoryIndexDb } from "../dist/gateway/src/index-db.js";
+import { MemoryIndexDb } from "../dist/gateway/src/index-db-memory.js";
 import { retrieve } from "../dist/gateway/src/retrieval.js";
 import { recallAtK } from "../dist/gateway/src/eval-golden.js";
 import { fakeEmbed } from "./helpers.mjs";
