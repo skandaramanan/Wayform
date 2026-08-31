@@ -20,6 +20,18 @@
           }
         ]
       }
+    ],
+    "PreToolUse": [
+      {
+        "matcher": "Edit|Write|Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "wayform guard claude-code",
+            "timeout": 5
+          }
+        ]
+      }
     ]
   }
 }
