@@ -67,7 +67,6 @@ export async function checkAction(
   }
 }
 
-
 /**
  * POST /mcp/hook/guard  body { project, action } → { decision, reason, factIds }.
  * POST (not GET) because it carries free text, same as /hook/prompt.

@@ -68,7 +68,6 @@ export function renderPromptContext(client: HookClient, text: string): string {
   });
 }
 
-
 /**
  * PreToolUse envelope (Claude Code) — the one place wayform can stop an action
  * before it happens. Only Claude Code exposes a blocking pre-execution hook we

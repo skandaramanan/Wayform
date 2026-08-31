@@ -69,7 +69,11 @@ test("renderPromptContext injects UserPromptSubmit context for claude-code only"
 
 test("renderGuardDecision emits Claude Code's PreToolUse ask envelope", () => {
   const out = JSON.parse(
-    renderGuardDecision("claude-code", "ask", "Second datastore was ruled out."),
+    renderGuardDecision(
+      "claude-code",
+      "ask",
+      "Second datastore was ruled out.",
+    ),
   );
   assert.equal(out.hookSpecificOutput.hookEventName, "PreToolUse");
   assert.equal(out.hookSpecificOutput.permissionDecision, "ask");

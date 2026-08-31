@@ -36,7 +36,10 @@ function fakeDb(docs) {
   };
 }
 
-const FACT = doc("pg-fact", "We ruled out a second datastore; Postgres is not being added.");
+const FACT = doc(
+  "pg-fact",
+  "We ruled out a second datastore; Postgres is not being added.",
+);
 
 test("contradicts verdict asks and names the fact", async () => {
   const out = await checkAction(
@@ -46,7 +49,11 @@ test("contradicts verdict asks and names the fact", async () => {
       gen: async () =>
         '{"verdict":"contradicts","reason":"The team ruled out a second datastore."}',
     },
-    { space: "s1", project: "memorylayer", action: "Edit: add Postgres to docker-compose" },
+    {
+      space: "s1",
+      project: "memorylayer",
+      action: "Edit: add Postgres to docker-compose",
+    },
   );
   assert.equal(out.decision, "ask");
   assert.deepEqual(out.factIds, ["pg-fact"]);
@@ -136,7 +143,10 @@ async function guardEnv(genText) {
     genText,
   });
   await seedGithubMember(env, MEMBER);
-  env.oauthProps = { githubId: MEMBER.githubId, githubLogin: MEMBER.githubLogin };
+  env.oauthProps = {
+    githubId: MEMBER.githubId,
+    githubLogin: MEMBER.githubLogin,
+  };
   return env;
 }
 
@@ -155,7 +165,11 @@ test("guard endpoint returns allow JSON on an empty index", async () => {
     env,
   );
   assert.equal(res.status, 200);
-  assert.deepEqual(await res.json(), { decision: "allow", reason: "", factIds: [] });
+  assert.deepEqual(await res.json(), {
+    decision: "allow",
+    reason: "",
+    factIds: [],
+  });
 });
 
 test("guard endpoint rejects an unauthenticated caller", async () => {
