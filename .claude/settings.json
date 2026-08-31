@@ -28,7 +28,7 @@
           {
             "type": "command",
             "command": "wayform guard claude-code",
-            "timeout": 5
+            "timeout": 10
           }
         ]
       }

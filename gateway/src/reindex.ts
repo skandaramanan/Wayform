@@ -126,13 +126,24 @@ export async function reconcileAll(env: Env): Promise<void> {
       const head = await headSha(env, sr, fetchImpl);
       if (!head) continue;
       const indexed = await deps.db.getLastIndexedSha(sr.space);
-      if (indexed === head) continue;
+      if (indexed === head) {
+        // A rebuild abandoned mid-flight (a webhook ingest caught the sha up
+        // first) leaves its cursor behind; resuming that cursor later against
+        // a DIFFERENT head would skip the wiped 0..offset range. Delete it.
+        await env.ROUTING.delete(reindexCursorKey(sr.space));
+        continue;
+      }
       // Resume a rebuild already in flight, else start one at offset 0 (the
-      // only offset that wipes). One page per tick keeps every invocation
-      // under the subrequest cap; last_indexed_sha only advances when the
-      // final page completes, so an interrupted rebuild resumes, not lies.
+      // only offset that wipes). The cursor is tagged with the head it was
+      // rebuilding toward: a cursor for any other head restarts at 0 rather
+      // than resuming into a stale, never-wiped index. One page per tick keeps
+      // every invocation under the subrequest cap; last_indexed_sha only
+      // advances when the final page completes, so an interrupted rebuild
+      // resumes, not lies.
       const raw = await env.ROUTING.get(reindexCursorKey(sr.space));
-      const offset = raw ? Number.parseInt(raw, 10) || 0 : 0;
+      const [curHead, curOff] = raw?.split(":") ?? [];
+      const offset =
+        curHead === head ? Number.parseInt(curOff ?? "", 10) || 0 : 0;
       const r = await reindexSpace(
         env,
         deps.db,
@@ -148,7 +159,10 @@ export async function reconcileAll(env: Env): Promise<void> {
       if (r.nextOffset === null) {
         await env.ROUTING.delete(reindexCursorKey(sr.space));
       } else {
-        await env.ROUTING.put(reindexCursorKey(sr.space), String(r.nextOffset));
+        await env.ROUTING.put(
+          reindexCursorKey(sr.space),
+          `${head}:${r.nextOffset}`,
+        );
       }
     } catch {
       // fail-open per space; next cron tick resumes from the saved cursor

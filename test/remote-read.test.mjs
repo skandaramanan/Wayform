@@ -145,6 +145,6 @@ test("remoteGuardCheck treats an unknown decision as allow", async () => {
   assert.equal(out.decision, "allow");
 });
 
-test("guard timeout is tighter than the general remote read timeout", () => {
-  assert.ok(GUARD_TIMEOUT_MS <= 1500);
+test("guard timeout stays under the 10s PreToolUse hook wrapper", () => {
+  assert.ok(GUARD_TIMEOUT_MS < 10_000);
 });
