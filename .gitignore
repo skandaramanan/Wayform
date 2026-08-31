@@ -5,7 +5,6 @@ node_modules/
 # Local clone of the shared context repo (never commit into the server repo)
 .context-store/
 # Per-user hook config (identity + context repo URL) — never commit
-.memorylayer-hook.env
 # Per-user Claude Code settings (personal permissions live here, NOT in the shared settings.json)
 .claude/settings.local.json
 # Agent authoring-workflow scaffolding (task briefs, reports, diffs) — not product; decisions live in the MemoryLayer store + docs/
@@ -22,3 +21,4 @@ second-brain-cloudflare-main/
 # prepublishOnly. Tracking it invited drift (committed dist stopped matching
 # source when PR #30 reformatted src without rebuilding).
 dist/
+.memorylayer-hook.env.bak
