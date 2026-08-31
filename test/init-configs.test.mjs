@@ -18,8 +18,8 @@ import {
 test("mergeClaudeSettings creates SessionStart + UserPromptSubmit (no Stop)", () => {
   const out = mergeClaudeSettings(undefined);
   const cmds = JSON.stringify(out);
-  assert.match(cmds, /memorylayer hook claude-code/);
-  assert.match(cmds, /memorylayer prompt-hook claude-code/);
+  assert.match(cmds, /wayform hook claude-code/);
+  assert.match(cmds, /wayform prompt-hook claude-code/);
   assert.equal(out.hooks.Stop, undefined);
   assert.ok(out.hooks.UserPromptSubmit?.length >= 1);
 });
@@ -34,17 +34,14 @@ test("mergeClaudeSettings preserves unrelated existing hooks and is idempotent",
   assert.match(JSON.stringify(once), /echo other/);
   const twice = mergeClaudeSettings(once);
   const count =
-    JSON.stringify(twice).split("memorylayer hook claude-code").length - 1;
+    JSON.stringify(twice).split("wayform hook claude-code").length - 1;
   assert.equal(count, 1);
 });
 
 test("mergeCursorHooks sets version 1 and sessionStart only (no stop)", () => {
   const out = mergeCursorHooks(undefined);
   assert.equal(out.version, 1);
-  assert.match(
-    JSON.stringify(out.hooks.sessionStart),
-    /memorylayer hook cursor/,
-  );
+  assert.match(JSON.stringify(out.hooks.sessionStart), /wayform hook cursor/);
   assert.equal(out.hooks.stop, undefined);
 });
 
@@ -131,19 +128,19 @@ test("mergeCodexHooks does NOT duplicate an equivalent dist-path hook (F1)", () 
   assert.equal(out.hooks.Stop, undefined);
 });
 
-test("mergeMcpJson adds a secret-free memorylayer server, preserving others", () => {
+test("mergeMcpJson adds a secret-free wayform server, preserving others", () => {
   const out = mergeMcpJson({ mcpServers: { other: { command: "x" } } });
   assert.equal(out.mcpServers.other.command, "x");
-  assert.deepEqual(out.mcpServers.memorylayer, {
-    command: "memorylayer",
+  assert.deepEqual(out.mcpServers.wayform, {
+    command: "wayform",
     args: [],
     env: {},
   });
 });
 
 test("CODEX_MCP_TOML is the project-scoped local mcp_servers block", () => {
-  assert.match(CODEX_MCP_TOML, /\[mcp_servers\.memorylayer\]/);
-  assert.match(CODEX_MCP_TOML, /command = "memorylayer"/);
+  assert.match(CODEX_MCP_TOML, /\[mcp_servers\.wayform\]/);
+  assert.match(CODEX_MCP_TOML, /command = "wayform"/);
 });
 
 test("mergeClaudeSettings emits the given binary name in hook commands", () => {
@@ -154,11 +151,11 @@ test("mergeClaudeSettings emits the given binary name in hook commands", () => {
   assert.ok(prompt.includes("wayform prompt-hook claude-code"));
 });
 
-test("mergeClaudeSettings defaults to the memorylayer binary", () => {
+test("mergeClaudeSettings defaults to the wayform binary", () => {
   const out = mergeClaudeSettings(undefined);
   assert.equal(
     out.hooks.SessionStart[0].hooks[0].command,
-    "memorylayer hook claude-code",
+    "wayform hook claude-code",
   );
 });
 
