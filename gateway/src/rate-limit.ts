@@ -18,6 +18,14 @@
  *
  * FAIL-OPEN on a missing or throwing binding: an unavailable rate limiter must
  * never take the gateway's auth flow offline.
+ *
+ * !! NOT CURRENTLY ENFORCING (verified live 2026-08-30). Deployed and bound
+ * (`env.RL_AUTH (20 requests/60s)` in wrangler output), key is stable, and
+ * limit() is called on every request — but it returned success:true for 100+
+ * requests in seconds against a limit of 20/60s. Config matches the docs
+ * exactly. Account/platform behavior, not a code defect; this code starts
+ * working the moment the binding does. Do NOT treat these paths as rate
+ * limited until a `ratelimit_block` line appears in Workers Logs.
  */
 import { errorPage } from "./page.js";
 
@@ -101,10 +109,14 @@ export async function enforceRateLimit(
     if (!isLimited(new URL(req.url).pathname)) return null;
     // Unconfigured binding (local dev, or a plan without it) must not break auth.
     if (!env.RL_AUTH) return null;
-    const { success } = await env.RL_AUTH.limit({
-      key: await rateLimitKey(req),
-    });
-    return success ? null : tooManyRequests(req);
+    const key = await rateLimitKey(req);
+    const { success } = await env.RL_AUTH.limit({ key });
+    if (success) return null;
+    // The only way to confirm this control is alive: verified 2026-08-30 that
+    // a bound limiter can return success unconditionally, so absence of this
+    // line under load means it is NOT enforcing.
+    console.log(JSON.stringify({ evt: "ratelimit_block", key }));
+    return tooManyRequests(req);
   } catch {
     // Fail open: a broken limiter is never a reason to refuse real traffic.
     return null;
