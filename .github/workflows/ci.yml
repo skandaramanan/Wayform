@@ -64,14 +64,26 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+      # Version is PINNED, not resolved from the API. Querying
+      # /releases/latest unauthenticated is rate-limited on shared runners: it
+      # returned 403 on 2026-09-13, ver came back empty, the download URL was
+      # malformed, and this security job failed for a reason that had nothing
+      # to do with secrets. Pinning also stops a security check from installing
+      # whatever happens to be newest. Bump deliberately.
       - name: Install gitleaks
+        env:
+          GITLEAKS_VERSION: "8.30.1"
         run: |
-          ver=$(curl -sSfL https://api.github.com/repos/gitleaks/gitleaks/releases/latest \
-            | grep -oE '"tag_name": *"v[^"]+"' | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
-          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${ver}/gitleaks_${ver}_linux_x64.tar.gz" \
+          curl -sSfL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
             | tar -xz gitleaks
           sudo mv gitleaks /usr/local/bin/gitleaks
-      # Scan the working tree (not history): the rotated 2026-07-15 leaks live
-      # only in old commits and are dead, so a history scan would fail forever.
-      # This catches any NEW secret that reaches a committed file.
+          gitleaks version
+      # Scans the working tree, not history.
+      #
+      # NOTE (2026-09-13): the original reason for this — "the 2026-07-15 leaks
+      # live in old commits forever" — no longer holds. Those commits were
+      # excised with git filter-repo on 2026-09-12 and all four token patterns
+      # now scan clean across every ref, so `gitleaks git` would pass today.
+      # Left as a working-tree scan deliberately: it is fast, and it cannot be
+      # re-poisoned into permanent failure by one bad commit that gets reverted.
       - run: gitleaks dir . --redact --verbose --config .gitleaks.toml
