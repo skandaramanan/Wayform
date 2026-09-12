@@ -46,13 +46,13 @@ test("a normal response still carries CORS headers (browser can read the body)",
   assert.deepEqual(await res.json(), { ok: true });
 });
 
-test("GET /admin/supersession-audit requires admin secret", async () => {
+test("GET /admin/supersession-audit is operator-gated", async () => {
   const db = new (
     await import("../dist/gateway/src/index-db-memory.js")
   ).MemoryIndexDb();
   const res = await handleRequest(
     new Request("https://gw.test/admin/supersession-audit?space=s1"),
-    makeEnv(async () => new Response(), { indexDb: db }),
+    makeEnv(async () => new Response(), { indexDb: db, oauthProps: { githubId: 9999, githubLogin: "outsider" } }),
   );
   assert.equal(res.status, 403);
 });
@@ -101,7 +101,6 @@ test("POST /admin/clear-supersession clears edges", async () => {
       method: "POST",
       headers: {
         "content-type": "application/json",
-        "x-admin-secret": "test-admin-secret",
       },
       body: JSON.stringify({ space: "s1" }),
     }),
@@ -121,16 +120,13 @@ test("POST /admin/allowlist is operator-gated; /join is gone", async () => {
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ add: ["ada"] }),
     }),
-    env,
+    { ...env, oauthProps: { githubId: 9999, githubLogin: "outsider" } },
   );
   assert.equal(denied.status, 403);
   const added = await handleRequest(
     new Request("https://gw.test/admin/allowlist", {
       method: "POST",
-      headers: {
-        "x-admin-secret": "test-admin-secret",
-        "content-type": "application/json",
-      },
+      headers: { "content-type": "application/json" },
       body: JSON.stringify({ add: ["ada"] }),
     }),
     env,

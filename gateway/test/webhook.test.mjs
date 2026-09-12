@@ -138,7 +138,6 @@ async function mapProductRepo(env) {
   const res = await handleAdminAddProductRepo(
     new Request("https://gw/admin/product-repos", {
       method: "POST",
-      headers: { "x-admin-secret": "test-admin-secret" },
       body: JSON.stringify({
         owner: "acme",
         repo: "webapp",
@@ -206,41 +205,29 @@ test("pull_request events that are not merges, or from unmapped repos, write not
   );
 });
 
-test("admin product-repos endpoint enforces secret and required fields", async () => {
+test("admin product-repos endpoint is operator-gated and validates required fields", async () => {
   const { env } = prEnv();
-  const post = (headers, body) =>
+  const post = (body, callerEnv = env) =>
     handleAdminAddProductRepo(
       new Request("https://gw/admin/product-repos", {
         method: "POST",
-        headers,
+        headers: { "content-type": "application/json" },
         body: JSON.stringify(body),
       }),
-      env,
+      callerEnv,
     );
   assert.equal(
     (
       await post(
-        { "x-admin-secret": "wrong" },
-        {
-          owner: "a",
-          repo: "b",
-          space: "s",
-          project: "p",
-        },
+        { owner: "a", repo: "b", space: "s", project: "p" },
+        { ...env, oauthProps: { githubId: 9999, githubLogin: "outsider" } },
       )
     ).status,
     403,
   );
   assert.equal(
     (
-      await post(
-        { "x-admin-secret": "test-admin-secret" },
-        {
-          owner: "a",
-          repo: "b",
-          space: "s",
-        },
-      )
+      await post({ owner: "a", repo: "b", space: "s" })
     ).status,
     400,
   );

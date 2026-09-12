@@ -77,7 +77,13 @@ export interface Env {
    * that call handleRequest directly set this instead of minting credentials.
    */
   oauthProps?: { githubId: number; githubLogin?: string };
-  ADMIN_SECRET: string;
+  /**
+   * Comma-separated GitHub numeric ids allowed to call /admin/* routes.
+   * Unset or empty = nobody is an operator (fails closed). Replaced the old
+   * shared ADMIN_SECRET header, which had no per-person identity, no way to
+   * revoke one operator, and no audit of who acted.
+   */
+  ADMIN_GITHUB_IDS?: string;
   /** D1 index database. Optional: absent = index plane disabled, recency reads only. */
   DB?: D1Like;
   /** Workers AI binding for embeddings. Optional: absent = BM25-only retrieval. */

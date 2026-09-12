@@ -14,7 +14,6 @@ test("POST /admin/golden-candidate records a candidate with the admin secret", a
     new Request("https://gw.test/admin/golden-candidate", {
       method: "POST",
       headers: {
-        "x-admin-secret": "test-admin-secret",
         "content-type": "application/json",
       },
       body: JSON.stringify({
@@ -32,14 +31,14 @@ test("POST /admin/golden-candidate records a candidate with the admin secret", a
   assert.equal(db.goldenCandidates.length, 1);
 });
 
-test("POST /admin/golden-candidate is forbidden without the secret", async () => {
+test("POST /admin/golden-candidate is forbidden for a non-operator", async () => {
   const res = await handleRequest(
     new Request("https://gw.test/admin/golden-candidate", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ space: "s1", query: "q", expectedFactId: "f1" }),
     }),
-    env(new MemoryIndexDb()),
+    { ...env(new MemoryIndexDb()), oauthProps: { githubId: 9999, githubLogin: "outsider" } },
   );
   assert.equal(res.status, 403);
 });
@@ -58,9 +57,6 @@ test("GET /admin/retrieval-log returns rows since a timestamp", async () => {
   const res = await handleRequest(
     new Request(
       "https://gw.test/admin/retrieval-log?space=s1&since=2026-07-01T00:00:00Z",
-      {
-        headers: { "x-admin-secret": "test-admin-secret" },
-      },
     ),
     env(db),
   );
@@ -100,7 +96,6 @@ test("retrieval-log filters by trigger and counts guard fires", async () => {
   const res = await handleRequest(
     new Request(
       "https://gw.test/admin/retrieval-log?space=team-a&trigger=hook_guard",
-      { headers: { "x-admin-secret": "test-admin-secret" } },
     ),
     env(db),
   );
@@ -121,9 +116,7 @@ test("retrieval-log without a trigger returns every row", async () => {
     ts: "2026-08-30T10:00:00Z",
   });
   const res = await handleRequest(
-    new Request("https://gw.test/admin/retrieval-log?space=team-a", {
-      headers: { "x-admin-secret": "test-admin-secret" },
-    }),
+    new Request("https://gw.test/admin/retrieval-log?space=team-a", ),
     env(db),
   );
   assert.equal((await res.json()).rows.length, 1);

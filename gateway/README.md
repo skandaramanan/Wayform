@@ -87,8 +87,6 @@ npx wrangler secret put GITHUB_APP_PRIVATE_KEY < app-pkcs8.pem
 npx wrangler secret put GITHUB_CLIENT_ID                   # Iv1.…
 npx wrangler secret put GITHUB_CLIENT_SECRET               # App client secret
 openssl rand -hex 32
-npx wrangler secret put ADMIN_SECRET                       # operator eval/allowlist only
-openssl rand -hex 32
 npx wrangler secret put WEBHOOK_SECRET                     # GitHub App webhook HMAC
 npx wrangler d1 migrations apply memorylayer-index --remote
 npm run deploy
@@ -107,15 +105,22 @@ curl --tlsv1.2 -s https://<gateway>/mcp        # → 401 + WWW-Authenticate
 (macOS system curl needs `--tlsv1.2` against workers.dev — a LibreSSL quirk;
 SDK clients are unaffected.)
 
-`ADMIN_SECRET` gates operator routes only (`/admin/allowlist`, reindex, eval,
-product-repos). It does **not** mint members. If it leaks, rotate it with
-`npx wrangler secret put ADMIN_SECRET`; GitHub identities are unchanged.
+Operator routes (`/admin/allowlist`, reindex, eval, product-repos) are gated by
+`ADMIN_GITHUB_IDS` in `wrangler.toml` `[vars]` — a comma-separated list of GitHub
+numeric ids, checked against the caller's OAuth identity. Empty or unset means
+nobody is an operator; there is no bypass. Find your id with
+`curl -s https://api.github.com/users/<login> | jq .id`.
+
+This replaced a shared `ADMIN_SECRET` header, which had no per-person identity,
+no way to revoke one operator, and no audit of who acted. Every admin call now
+logs `admin_ok` or `admin_denied` with the github id. Operator routes still do
+**not** mint members.
 
 Allowlist a new team (no secret is created or sent to them):
 
 ```bash
 curl --tlsv1.2 -s -X POST https://<gateway>/admin/allowlist \
-  -H "x-admin-secret: $ADMIN_SECRET" -H "content-type: application/json" \
+  -H "authorization: Bearer $WAYFORM_TOKEN" -H "content-type: application/json" \
   -d '{"add":["their-github-login-or-org"]}'
 ```
 
@@ -316,7 +321,7 @@ Rebuild every registered space from the ledger:
 
 ```bash
 curl --tlsv1.2 -s -X POST https://<gateway>/admin/reindex \
-  -H "x-admin-secret: $ADMIN_SECRET" -d '{}'
+  -H "authorization: Bearer $WAYFORM_TOKEN" -d '{}'
 # → {"reindexed":{"<space>":<entry-count>, ...}}
 # scope to one repo with -d '{"repo":"owner/name"}'
 ```
@@ -387,7 +392,7 @@ wrangler deploy
 
 # Rebuild every fact from the ledger for each space (extraction + embeddings):
 curl -sX POST https://<gateway>/admin/reindex \
-  -H "x-admin-secret: $ADMIN_SECRET"
+  -H "authorization: Bearer $WAYFORM_TOKEN"
 # large/old spaces: paginate with -d '{"limit":40}' and repeat until nextOffset is null
 ```
 
@@ -419,7 +424,7 @@ wrangler deploy
 
 # First B2 deploy on an existing index: clear stale edges, then rebuild facts
 curl -sX POST https://<gateway>/admin/reindex \
-  -H "x-admin-secret: $ADMIN_SECRET" \
+  -H "authorization: Bearer $WAYFORM_TOKEN" \
   -H "content-type: application/json" \
   -d '{"clearSupersession": true}'
 ```
@@ -429,15 +434,15 @@ curl -sX POST https://<gateway>/admin/reindex \
 ```bash
 # Sample auto-linked edges for the B2 exit audit
 curl -s "https://<gateway>/admin/supersession-audit?space=<space>&limit=20" \
-  -H "x-admin-secret: $ADMIN_SECRET"
+  -H "authorization: Bearer $WAYFORM_TOKEN"
 
 # Full recent verdict trail (not just auto-links)
 curl -s "https://<gateway>/admin/supersession-audit?space=<space>&auto_linked_only=0" \
-  -H "x-admin-secret: $ADMIN_SECRET"
+  -H "authorization: Bearer $WAYFORM_TOKEN"
 
 # Recovery if a bad deploy auto-linked wrongly (does not reindex)
 curl -sX POST https://<gateway>/admin/clear-supersession \
-  -H "x-admin-secret: $ADMIN_SECRET" \
+  -H "authorization: Bearer $WAYFORM_TOKEN" \
   -H "content-type: application/json" \
   -d '{"space":"<space>"}'
 ```
@@ -470,16 +475,16 @@ Member plane (OAuth access required; unauthenticated requests get `401` +
 Outside the member OAuth plane:
 
 - `POST /webhook/github` — GitHub App webhook (HMAC-signed, `WEBHOOK_SECRET`)
-- `POST /admin/allowlist` — `{ "add": ["login-or-org"] }` (`x-admin-secret`)
+- `POST /admin/allowlist` — `{ "add": ["login-or-org"] }` (operator only)
 - `GET /admin/allowlist`
-- `POST /admin/reindex` — rebuild spaces from the ledger (`x-admin-secret`)
+- `POST /admin/reindex` — rebuild spaces from the ledger (operator only)
 - `GET /admin/supersession-audit`, `POST /admin/clear-supersession`
 - `POST /admin/product-repos` — merged-PR recorder registry
 - `GET /admin/installations?owner=` — lookup App installation id
 - `GET /health`
 
 Retired (404): `POST /admin/members`, `POST /admin/invites`, `POST /join`.
-`ADMIN_SECRET` is **not** used to mint members.
+Operator access is **not** used to mint members.
 
 ### Tenancy model
 
@@ -518,7 +523,7 @@ deferred product decision.
 | `401` on `/mcp` or `/mcp/hook/read` | Not logged in, or the OAuth grant expired. Click Connect / `wayform login`. |
 | OAuth returns `access_denied` after repository selection | The selected owner/org is not allowlisted, or this GitHub user already belongs to another space. |
 | Installation returns “setup state mismatch” | The ten-minute setup expired or the browser cookie was lost. Start Connect again in the same browser. |
-| `403` on `/admin/allowlist` | Wrong `x-admin-secret`. |
+| `403` on `/admin/allowlist` | Caller's GitHub id is not in `ADMIN_GITHUB_IDS`. Check the `admin_denied` log line for the id and reason. |
 | Write fails with `404`/`installation token exchange failed` | App not installed on that repo, or the installation was suspended/deleted. |
 | Write fails with `409`/branch error | Space repo has no commits, or the space record's `branch` doesn't exist. Initialize the repo with a README. |
 | Reads return nothing but writes work | Project names are slugged (lowercased, punctuation → `-`). |

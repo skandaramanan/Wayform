@@ -39,7 +39,7 @@ export async function runSpaceCreate(
   const parsed = parseSpaceCreateArgs(args);
   if (parsed.owner) {
     log(
-      `Allowlist ${parsed.owner} (operator): curl -X POST ${parsed.gatewayUrl}/admin/allowlist -H "x-admin-secret: $ADMIN_SECRET" -H "content-type: application/json" -d '{"add":["${parsed.owner}"]}'`,
+      `Allowlist ${parsed.owner} (operator, must be signed in as a gateway operator): curl -X POST ${parsed.gatewayUrl}/admin/allowlist -H "authorization: Bearer $WAYFORM_TOKEN" -H "content-type: application/json" -d '{"add":["${parsed.owner}"]}'`,
     );
   } else {
     log("Pass --owner <github-login-or-org> to print the allowlist command.");

@@ -4,6 +4,7 @@ import { handleRequest } from "../dist/gateway/src/router.js";
 import {
   resolveMember,
   handleAdminListInstallations,
+  isOperator,
 } from "../dist/gateway/src/tenancy.js";
 import { makeEnv, ghFetch, seedGithubMember } from "./helpers.mjs";
 
@@ -58,7 +59,6 @@ test("minting routes are gone; github members still register the space repo", as
     new Request("https://gw.test/admin/members", {
       method: "POST",
       headers: {
-        "x-admin-secret": "test-admin-secret",
         "content-type": "application/json",
       },
       body: JSON.stringify(MEMBER),
@@ -68,28 +68,25 @@ test("minting routes are gone; github members still register the space repo", as
   assert.equal(mint.status, 404);
 });
 
-function listInstallations(env, owner, secret = "test-admin-secret") {
+function listInstallations(env, owner) {
   return handleRequest(
     new Request(
       `https://gw.test/admin/installations?owner=${encodeURIComponent(owner)}`,
-      { headers: { "x-admin-secret": secret } },
     ),
     env,
   );
 }
 
-test("admin installations: 403 on wrong/missing secret", async () => {
-  const env = makeEnv();
-  const res = await listInstallations(env, "acme", "wrong");
+test("admin installations: 403 for a non-operator identity", async () => {
+  const env = { ...makeEnv(), oauthProps: { githubId: 9999, githubLogin: "outsider" } };
+  const res = await listInstallations(env, "acme");
   assert.equal(res.status, 403);
 });
 
 test("admin installations: 400 when owner query param is missing", async () => {
   const env = makeEnv();
   const res = await handleRequest(
-    new Request("https://gw.test/admin/installations", {
-      headers: { "x-admin-secret": "test-admin-secret" },
-    }),
+    new Request("https://gw.test/admin/installations"),
     env,
   );
   assert.equal(res.status, 400);
@@ -164,4 +161,19 @@ test("admin installations: 502 when GitHub's API call fails", async () => {
   const env = makeEnv(fetchImpl);
   const res = await listInstallations(env, "acme");
   assert.equal(res.status, 502);
+});
+
+test("isOperator fails closed and matches only exact ids", () => {
+  // unset / empty => nobody is an operator, even with a valid identity
+  assert.equal(isOperator({}, 4242), false);
+  assert.equal(isOperator({ ADMIN_GITHUB_IDS: "" }, 4242), false);
+  assert.equal(isOperator({ ADMIN_GITHUB_IDS: "  ,  " }, 4242), false);
+  // no identity is never an operator, however permissive the list
+  assert.equal(isOperator({ ADMIN_GITHUB_IDS: "4242" }, undefined), false);
+  // exact match, tolerant of whitespace in the list
+  assert.equal(isOperator({ ADMIN_GITHUB_IDS: "4242" }, 4242), true);
+  assert.equal(isOperator({ ADMIN_GITHUB_IDS: " 1, 4242 ,7" }, 4242), true);
+  // a different id is not an operator, and ids are not prefix-matched
+  assert.equal(isOperator({ ADMIN_GITHUB_IDS: "4242" }, 9999), false);
+  assert.equal(isOperator({ ADMIN_GITHUB_IDS: "42420" }, 4242), false);
 });
