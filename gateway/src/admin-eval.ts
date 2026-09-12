@@ -1,4 +1,5 @@
-import type { Env } from "./env.js";
+import { requireOperator } from "./tenancy.js";
+import type { Env, HandlerCtx } from "./env.js";
 import { indexDeps } from "./deps.js";
 
 /**
@@ -9,10 +10,10 @@ import { indexDeps } from "./deps.js";
 export async function handleAdminGoldenCandidate(
   req: Request,
   env: Env,
+  ctx?: HandlerCtx,
 ): Promise<Response> {
-  if (req.headers.get("x-admin-secret") !== env.ADMIN_SECRET) {
-    return new Response("forbidden", { status: 403 });
-  }
+  const denied = requireOperator(req, env, ctx);
+  if (denied) return denied;
   const deps = indexDeps(env);
   if (!deps) return Response.json({ error: "index disabled" }, { status: 503 });
 
@@ -56,10 +57,10 @@ export async function handleAdminGoldenCandidate(
 export async function handleAdminRetrievalLog(
   req: Request,
   env: Env,
+  ctx?: HandlerCtx,
 ): Promise<Response> {
-  if (req.headers.get("x-admin-secret") !== env.ADMIN_SECRET) {
-    return new Response("forbidden", { status: 403 });
-  }
+  const denied = requireOperator(req, env, ctx);
+  if (denied) return denied;
   const deps = indexDeps(env);
   if (!deps) return Response.json({ error: "index disabled" }, { status: 503 });
 

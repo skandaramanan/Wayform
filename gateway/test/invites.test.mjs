@@ -53,7 +53,6 @@ test("POST /join and POST /admin/invites are retired", async () => {
     new Request("https://gw.test/admin/invites", {
       method: "POST",
       headers: {
-        "x-admin-secret": "test-admin-secret",
         "content-type": "application/json",
       },
       body: "{}",

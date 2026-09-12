@@ -31,6 +31,55 @@ export async function sha256Hex(s: string): Promise<string> {
     .join("");
 }
 
+/**
+ * Gateway OPERATORS: GitHub numeric ids permitted to call /admin/* routes.
+ *
+ * Deliberately distinct from a SpaceMember's `role: "admin"`, which is admin
+ * *of one space*. These routes are gateway-wide — allowlist any owner, register
+ * any product repo, reindex any space — so space admins must not inherit them.
+ *
+ * Fails closed: an unset or empty ADMIN_GITHUB_IDS makes nobody an operator.
+ */
+export function isOperator(env: Env, githubId?: number): boolean {
+  if (githubId == null) return false;
+  return (env.ADMIN_GITHUB_IDS ?? "")
+    .split(",")
+    .map((s) => s.trim())
+    .filter(Boolean)
+    .includes(String(githubId));
+}
+
+/**
+ * Guard for /admin/* handlers: returns a 403 Response to return as-is, or null
+ * when the caller is an operator.
+ *
+ * Both outcomes log. A guard that is silent when it rejects is
+ * indistinguishable from one that never ran (see the 2026-08-31 WEBHOOK_SECRET
+ * post-mortem), and the grant line is the audit trail that the old shared
+ * x-admin-secret could never provide.
+ */
+export function requireOperator(
+  req: Request,
+  env: Env,
+  ctx?: HandlerCtx,
+): Response | null {
+  const githubId = ctx?.props?.githubId ?? env.oauthProps?.githubId;
+  const path = new URL(req.url).pathname;
+  if (!isOperator(env, githubId)) {
+    console.log(
+      JSON.stringify({
+        evt: "admin_denied",
+        path,
+        githubId: githubId ?? null,
+        reason: githubId == null ? "no_identity" : "not_operator",
+      }),
+    );
+    return new Response("forbidden", { status: 403 });
+  }
+  console.log(JSON.stringify({ evt: "admin_ok", path, githubId }));
+  return null;
+}
+
 /** Bearer identity -> member record, or null. Identity is github_id from OAuth props. */
 export async function resolveMember(
   req: Request,
@@ -99,10 +148,10 @@ export async function getProductRepo(
 export async function handleAdminAddProductRepo(
   req: Request,
   env: Env,
+  ctx?: HandlerCtx,
 ): Promise<Response> {
-  if (req.headers.get("x-admin-secret") !== env.ADMIN_SECRET) {
-    return new Response("forbidden", { status: 403 });
-  }
+  const denied = requireOperator(req, env, ctx);
+  if (denied) return denied;
   let body: { owner?: string; repo?: string; space?: string; project?: string };
   try {
     body = (await req.json()) as typeof body;
@@ -132,10 +181,10 @@ export async function handleAdminAddProductRepo(
 export async function handleAdminListInstallations(
   req: Request,
   env: Env,
+  ctx?: HandlerCtx,
 ): Promise<Response> {
-  if (req.headers.get("x-admin-secret") !== env.ADMIN_SECRET) {
-    return new Response("forbidden", { status: 403 });
-  }
+  const denied = requireOperator(req, env, ctx);
+  if (denied) return denied;
   const owner = new URL(req.url).searchParams.get("owner");
   if (!owner) {
     return Response.json({ error: "missing owner" }, { status: 400 });

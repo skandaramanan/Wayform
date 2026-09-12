@@ -185,7 +185,7 @@ Turn it off per machine with `WAYFORM_GUARD=off` in `.memorylayer-hook.env`.
 How often it fires:
 
 ```bash
-curl -H "x-admin-secret: $ADMIN_SECRET" \
+curl -H "authorization: Bearer $WAYFORM_TOKEN" \
   "$GATEWAY/admin/retrieval-log?space=<space>&trigger=hook_guard"
 # → { "rows": [...], "fired": 12 }
 ```

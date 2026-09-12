@@ -69,35 +69,35 @@ async function route(
   }
 
   if (url.pathname === "/admin/installations" && req.method === "GET") {
-    return handleAdminListInstallations(req, env);
+    return handleAdminListInstallations(req, env, ctx);
   }
 
   if (url.pathname === "/admin/product-repos" && req.method === "POST") {
-    return handleAdminAddProductRepo(req, env);
+    return handleAdminAddProductRepo(req, env, ctx);
   }
 
   if (url.pathname === "/admin/allowlist") {
-    return handleAdminAllowlist(req, env);
+    return handleAdminAllowlist(req, env, ctx);
   }
 
   if (url.pathname === "/admin/reindex" && req.method === "POST") {
-    return handleAdminReindex(req, env);
+    return handleAdminReindex(req, env, ctx);
   }
 
   if (url.pathname === "/admin/supersession-audit" && req.method === "GET") {
-    return handleAdminSupersessionAudit(req, env);
+    return handleAdminSupersessionAudit(req, env, ctx);
   }
 
   if (url.pathname === "/admin/clear-supersession" && req.method === "POST") {
-    return handleAdminClearSupersession(req, env);
+    return handleAdminClearSupersession(req, env, ctx);
   }
 
   if (url.pathname === "/admin/golden-candidate" && req.method === "POST") {
-    return handleAdminGoldenCandidate(req, env);
+    return handleAdminGoldenCandidate(req, env, ctx);
   }
 
   if (url.pathname === "/admin/retrieval-log" && req.method === "GET") {
-    return handleAdminRetrievalLog(req, env);
+    return handleAdminRetrievalLog(req, env, ctx);
   }
 
   if (url.pathname === "/webhook/github" && req.method === "POST") {

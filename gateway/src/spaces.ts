@@ -1,5 +1,5 @@
-import type { Env } from "./env.js";
-import { registerSpaceRepo, type SpaceMember } from "./tenancy.js";
+import type { Env, HandlerCtx } from "./env.js";
+import { registerSpaceRepo, type SpaceMember, requireOperator } from "./tenancy.js";
 import { indexDeps } from "./deps.js";
 import { membershipClaims } from "./membership-claims.js";
 
@@ -627,10 +627,10 @@ export async function placeGithubUser(
 export async function handleAdminAllowlist(
   req: Request,
   env: Env,
+  ctx?: HandlerCtx,
 ): Promise<Response> {
-  if (req.headers.get("x-admin-secret") !== env.ADMIN_SECRET) {
-    return new Response("forbidden", { status: 403 });
-  }
+  const denied = requireOperator(req, env, ctx);
+  if (denied) return denied;
   if (req.method === "GET") {
     return Response.json({ allowlist: await getAllowlist(env) });
   }

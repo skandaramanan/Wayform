@@ -88,7 +88,10 @@ export function makeEnv(githubFetch, extra = {}) {
     GITHUB_APP_PRIVATE_KEY: TEST_KEYPAIR.pem,
     GITHUB_CLIENT_ID: "Iv1.testoauth",
     GITHUB_CLIENT_SECRET: "gh-client-secret",
-    ADMIN_SECRET: "test-admin-secret",
+    // makeEnv() authenticates as a gateway operator by default so /admin/*
+    // tests need no ceremony. Pass oauthProps explicitly for a non-operator.
+    ADMIN_GITHUB_IDS: "4242",
+    oauthProps: { githubId: 4242, githubLogin: "operator" },
     githubFetch,
     membershipClaims: memoryMembershipClaims(),
     ...extra,
@@ -191,4 +194,12 @@ export function ghFetch(calls, routes) {
       status: 404,
     });
   };
+}
+
+/** An env whose caller is authenticated but NOT a gateway operator. */
+export function makeNonOperatorEnv(githubFetch, extra = {}) {
+  return makeEnv(githubFetch, {
+    oauthProps: { githubId: 9999, githubLogin: "outsider" },
+    ...extra,
+  });
 }

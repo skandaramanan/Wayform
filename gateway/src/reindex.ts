@@ -13,8 +13,8 @@
  * reconcileAll now processes one CRON_REINDEX_PAGE per tick, persisting the
  * resume offset in KV, so a full rebuild self-heals across ticks.
  */
-import type { Env } from "./env.js";
-import { listSpaceRepos } from "./tenancy.js";
+import type { Env, HandlerCtx } from "./env.js";
+import { listSpaceRepos, requireOperator } from "./tenancy.js";
 import { indexDeps } from "./deps.js";
 import { reindexSpace, type SpaceRepo } from "./ingest.js";
 import { installationToken } from "./github-auth.js";
@@ -24,10 +24,10 @@ const GH = "https://api.github.com";
 export async function handleAdminReindex(
   req: Request,
   env: Env,
+  ctx?: HandlerCtx,
 ): Promise<Response> {
-  if (req.headers.get("x-admin-secret") !== env.ADMIN_SECRET) {
-    return new Response("forbidden", { status: 403 });
-  }
+  const denied = requireOperator(req, env, ctx);
+  if (denied) return denied;
   const deps = indexDeps(env);
   if (!deps) return Response.json({ error: "index disabled" }, { status: 503 });
 
