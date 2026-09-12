@@ -568,13 +568,10 @@ test("init --remote --yes writes no vendor folders when the repo has none", () =
       { cwd, encoding: "utf8", env: { PATH: "" } },
     );
 
-    const env = fs.readFileSync(
-      path.join(cwd, ".memorylayer-hook.env"),
-      "utf8",
-    );
-    assert.match(env, /MEMORYLAYER_GATEWAY_URL=https:\/\/gw\.example\.com/);
-    assert.doesNotMatch(env, /MEMORYLAYER_GATEWAY_TOKEN/);
-    assert.doesNotMatch(env, /MEMORYLAYER_AUTHOR/);
+    const env = fs.readFileSync(path.join(cwd, ".wayform-hook.env"), "utf8");
+    assert.match(env, /WAYFORM_GATEWAY_URL=https:\/\/gw\.example\.com/);
+    assert.doesNotMatch(env, /(?:MEMORYLAYER|WAYFORM)_GATEWAY_TOKEN/);
+    assert.doesNotMatch(env, /(?:MEMORYLAYER|WAYFORM)_AUTHOR/);
     assert.doesNotMatch(env, /mlk_/);
 
     for (const p of [
@@ -617,12 +614,9 @@ test("init --remote --clients cursor,claude writes URL-only configs and skips th
       { cwd, encoding: "utf8", env: { PATH: "" } },
     );
 
-    const env = fs.readFileSync(
-      path.join(cwd, ".memorylayer-hook.env"),
-      "utf8",
-    );
-    assert.match(env, /MEMORYLAYER_GATEWAY_URL=https:\/\/gw\.example\.com/);
-    assert.doesNotMatch(env, /MEMORYLAYER_GATEWAY_TOKEN/);
+    const env = fs.readFileSync(path.join(cwd, ".wayform-hook.env"), "utf8");
+    assert.match(env, /WAYFORM_GATEWAY_URL=https:\/\/gw\.example\.com/);
+    assert.doesNotMatch(env, /(?:MEMORYLAYER|WAYFORM)_GATEWAY_TOKEN/);
     assert.doesNotMatch(env, /mlk_/);
     assert.ok(!/CONTEXT_REPO_URL/.test(env));
 

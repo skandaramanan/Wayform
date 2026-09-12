@@ -3,6 +3,7 @@ import { createHash, randomBytes } from "node:crypto";
 import { execFileSync } from "node:child_process";
 import { saveStoredOAuth } from "./keychain.js";
 import type { CredentialStore } from "./credential-store.js";
+import { envVar } from "./config.js";
 
 export const DEFAULT_GATEWAY_URL =
   "https://memorylayer-gateway.memory-layer.workers.dev";
@@ -105,7 +106,7 @@ export async function runLogin(
   const gwFlag = args.indexOf("--gateway");
   const gatewayUrl = (
     (gwFlag >= 0 ? args[gwFlag + 1] : undefined) ??
-    process.env.MEMORYLAYER_GATEWAY_URL ??
+    envVar("GATEWAY_URL") ??
     DEFAULT_GATEWAY_URL
   ).replace(/\/+$/, "");
 

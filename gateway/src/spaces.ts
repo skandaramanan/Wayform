@@ -1,5 +1,9 @@
 import type { Env, HandlerCtx } from "./env.js";
-import { registerSpaceRepo, type SpaceMember, requireOperator } from "./tenancy.js";
+import {
+  registerSpaceRepo,
+  type SpaceMember,
+  requireOperator,
+} from "./tenancy.js";
 import { indexDeps } from "./deps.js";
 import { membershipClaims } from "./membership-claims.js";
 

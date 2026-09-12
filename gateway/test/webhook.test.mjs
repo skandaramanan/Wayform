@@ -225,12 +225,7 @@ test("admin product-repos endpoint is operator-gated and validates required fiel
     ).status,
     403,
   );
-  assert.equal(
-    (
-      await post({ owner: "a", repo: "b", space: "s" })
-    ).status,
-    400,
-  );
+  assert.equal((await post({ owner: "a", repo: "b", space: "s" })).status, 400);
 });
 
 test("webhook rejects bad signatures; ignores non-push, unknown repos, other branches", async () => {

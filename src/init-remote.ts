@@ -1,3 +1,4 @@
+import { HOOK_ENV_FILE, LEGACY_HOOK_ENV_FILE } from "./config.js";
 /**
  * `wayform init --remote` — wire a HOSTED (gateway) member into the current
  * project. Same LOUD, idempotent posture as local `init`, but writes a gateway
@@ -280,39 +281,60 @@ export async function runInitRemote(args: string[]): Promise<void> {
     : "";
   fs.writeFileSync(
     giPath,
-    ensureGitignore(initialGitignore, [".memorylayer-hook.env.bak"]),
+    ensureGitignore(initialGitignore, [
+      `${HOOK_ENV_FILE}.bak`,
+      `${LEGACY_HOOK_ENV_FILE}.bak`,
+    ]),
   );
 
-  const envFile = path.join(cwd, ".memorylayer-hook.env");
-  const existingEnv = fs.existsSync(envFile)
+  const envFile = path.join(cwd, HOOK_ENV_FILE);
+  const legacyFile = path.join(cwd, LEGACY_HOOK_ENV_FILE);
+  const hasNew = fs.existsSync(envFile);
+  const hasLegacy = fs.existsSync(legacyFile);
+  const existingEnv = hasNew
     ? fs.readFileSync(envFile, "utf8")
-    : "";
-  const legacyEnv =
-    /MEMORYLAYER_GATEWAY_TOKEN\s*=|MEMORYLAYER_AUTHOR(?:_EMAIL)?\s*=|(?:mlk_|wfi_)[A-Za-z0-9_-]+/.test(
+    : hasLegacy
+      ? fs.readFileSync(legacyFile, "utf8")
+      : "";
+  // Credential-bearing shapes from before token-free onboarding. Both env-var
+  // prefixes are checked: the rename does not make an old token safe.
+  const credentialed =
+    /(?:MEMORYLAYER|WAYFORM)_GATEWAY_TOKEN\s*=|(?:MEMORYLAYER|WAYFORM)_AUTHOR(?:_EMAIL)?\s*=|(?:mlk_|wfi_)[A-Za-z0-9_-]+/.test(
       existingEnv,
     );
-  if (legacyEnv) {
+  if (credentialed) {
     writeSecretFile(`${envFile}.bak`, existingEnv);
     writeSecretFile(envFile, buildRemoteHookEnv({ gatewayUrl, project }));
+    if (hasLegacy) fs.rmSync(legacyFile, { force: true });
     console.log(
-      "  migrated .memorylayer-hook.env (legacy file backed up to .memorylayer-hook.env.bak)",
+      `  migrated ${HOOK_ENV_FILE} (legacy file backed up to ${HOOK_ENV_FILE}.bak)`,
     );
+  } else if (hasLegacy && !hasNew) {
+    // Same contract, new file name. Rewrite rather than copy so the contents
+    // use the current var names too.
+    writeSecretFile(envFile, buildRemoteHookEnv({ gatewayUrl, project }));
+    fs.rmSync(legacyFile, { force: true });
+    console.log(`  renamed ${LEGACY_HOOK_ENV_FILE} -> ${HOOK_ENV_FILE}`);
   } else if (existingEnv && !has(args, "force")) {
     console.log(
-      "  .memorylayer-hook.env exists — leaving it (use --force to rewrite).",
+      `  ${HOOK_ENV_FILE} exists — leaving it (use --force to rewrite).`,
     );
   } else {
     writeSecretFile(envFile, buildRemoteHookEnv({ gatewayUrl, project }));
-    console.log("  wrote .memorylayer-hook.env");
+    console.log(`  wrote ${HOOK_ENV_FILE}`);
   }
 
   const gi = fs.existsSync(giPath) ? fs.readFileSync(giPath, "utf8") : "";
   const cleaned = removeGitignoreEntries(gi, [
-    ".memorylayer-hook.env",
+    HOOK_ENV_FILE,
+    LEGACY_HOOK_ENV_FILE,
     ".cursor/mcp.json",
     ".codex/config.toml",
   ]);
-  const ignore: string[] = [".memorylayer-hook.env.bak"];
+  const ignore: string[] = [
+    `${HOOK_ENV_FILE}.bak`,
+    `${LEGACY_HOOK_ENV_FILE}.bak`,
+  ];
   if (wants(clients, "claude")) ignore.push(".claude/settings.local.json");
   fs.writeFileSync(giPath, ensureGitignore(cleaned, ignore));
   console.log("  updated .gitignore");

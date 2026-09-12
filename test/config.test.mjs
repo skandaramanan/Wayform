@@ -11,17 +11,26 @@ import {
   defaultProject,
 } from "../dist/config.js";
 
+// Both prefixes must be cleared. Clearing only one leaves the other visible to
+// loadConfig()'s fallback, so a stray var in the developer's shell — or one set
+// by an earlier test — silently changes the result.
+const SUFFIXES = [
+  "AUTHOR",
+  "AUTHOR_EMAIL",
+  "PROJECT",
+  "AUTO_PUSH",
+  "HOOK_CLIENT",
+  "READ_BUDGET_TOKENS",
+  "HOME",
+  "GATEWAY_URL",
+  "GATEWAY_TOKEN",
+];
 const MEMORYLAYER_VARS = [
   "CONTEXT_REPO_URL",
   "CONTEXT_REPO_PATH",
-  "MEMORYLAYER_AUTHOR",
-  "MEMORYLAYER_AUTHOR_EMAIL",
-  "MEMORYLAYER_AUTO_PUSH",
-  "MEMORYLAYER_READ_BUDGET_TOKENS",
-  "MEMORYLAYER_HOME",
   "XDG_DATA_HOME",
-  "MEMORYLAYER_GATEWAY_URL",
-  "MEMORYLAYER_GATEWAY_TOKEN",
+  ...SUFFIXES.map((k) => `MEMORYLAYER_${k}`),
+  ...SUFFIXES.map((k) => `WAYFORM_${k}`),
 ];
 
 /** Run `fn` with a clean, fully-controlled MemoryLayer env, then restore. */
@@ -42,9 +51,9 @@ function withEnv(overrides, fn) {
   }
 }
 
-test("throws when MEMORYLAYER_AUTHOR is missing", () => {
+test("throws when WAYFORM_AUTHOR is missing", () => {
   withEnv({ CONTEXT_REPO_URL: "https://example/repo.git" }, () => {
-    assert.throws(() => loadConfig(), /MEMORYLAYER_AUTHOR/);
+    assert.throws(() => loadConfig(), /WAYFORM_AUTHOR/);
   });
 });
 
@@ -437,5 +446,84 @@ test("loadHookEnv allowlists MEMORYLAYER_READ_BUDGET_TOKENS", () => {
   } finally {
     process.env = saved;
     fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test("WAYFORM_ wins over the legacy MEMORYLAYER_ for the same key", () => {
+  withEnv(
+    {
+      CONTEXT_REPO_URL: "u",
+      MEMORYLAYER_AUTHOR: "Legacy",
+      WAYFORM_AUTHOR: "Current",
+    },
+    () => {
+      assert.equal(loadConfig().author, "Current");
+    },
+  );
+});
+
+test("legacy MEMORYLAYER_ alone still configures the hooks", () => {
+  // Hook env files already written into collaborators' repos use the old
+  // prefix. If this ever fails, those installs silently lose their config.
+  withEnv(
+    {
+      CONTEXT_REPO_URL: "u",
+      MEMORYLAYER_AUTHOR: "Ada",
+      MEMORYLAYER_AUTO_PUSH: "false",
+    },
+    () => {
+      const cfg = loadConfig();
+      assert.equal(cfg.author, "Ada");
+      assert.equal(cfg.autoPush, false);
+    },
+  );
+});
+
+test("loadHookEnv reads the legacy .memorylayer-hook.env when the new name is absent", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wf-legacy-"));
+  fs.writeFileSync(
+    path.join(dir, ".memorylayer-hook.env"),
+    "MEMORYLAYER_AUTHOR=FromLegacyFile\n",
+  );
+  delete process.env.MEMORYLAYER_AUTHOR;
+  delete process.env.WAYFORM_AUTHOR;
+  try {
+    loadHookEnv(dir);
+    assert.equal(process.env.MEMORYLAYER_AUTHOR, "FromLegacyFile");
+  } finally {
+    delete process.env.MEMORYLAYER_AUTHOR;
+  }
+});
+
+test("loadHookEnv prefers .wayform-hook.env when both files exist", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wf-both-"));
+  fs.writeFileSync(path.join(dir, ".wayform-hook.env"), "WAYFORM_AUTHOR=New\n");
+  fs.writeFileSync(
+    path.join(dir, ".memorylayer-hook.env"),
+    "WAYFORM_AUTHOR=Old\n",
+  );
+  delete process.env.WAYFORM_AUTHOR;
+  try {
+    loadHookEnv(dir);
+    assert.equal(process.env.WAYFORM_AUTHOR, "New");
+  } finally {
+    delete process.env.WAYFORM_AUTHOR;
+  }
+});
+
+test("loadHookEnv still ignores keys outside the allowlist, both prefixes", () => {
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wf-allow-"));
+  fs.writeFileSync(
+    path.join(dir, ".wayform-hook.env"),
+    "NODE_OPTIONS=--inspect\nWAYFORM_NOT_A_KEY=x\nWAYFORM_PROJECT=ok\n",
+  );
+  delete process.env.WAYFORM_PROJECT;
+  try {
+    loadHookEnv(dir);
+    assert.equal(process.env.WAYFORM_PROJECT, "ok");
+    assert.notEqual(process.env.NODE_OPTIONS, "--inspect");
+    assert.equal(process.env.WAYFORM_NOT_A_KEY, undefined);
+  } finally {
+    delete process.env.WAYFORM_PROJECT;
   }
 });

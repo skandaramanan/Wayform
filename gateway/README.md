@@ -111,6 +111,13 @@ numeric ids, checked against the caller's OAuth identity. Empty or unset means
 nobody is an operator; there is no bypass. Find your id with
 `curl -s https://api.github.com/users/<login> | jq .id`.
 
+Operator calls below send `$WAYFORM_AUTH`. Export it yourself as a single
+`-H` argument carrying your operator token as a bearer credential. The literal
+header is deliberately not written out here: tracked onboarding docs must stay
+free of copy-pasteable credential headers, enforced by the "credential-free
+contract" test in `test/verify-clients.test.mjs`. That rule exists because the
+2026-07-15 leak was an onboarding doc.
+
 This replaced a shared `ADMIN_SECRET` header, which had no per-person identity,
 no way to revoke one operator, and no audit of who acted. Every admin call now
 logs `admin_ok` or `admin_denied` with the github id. Operator routes still do
@@ -120,7 +127,7 @@ Allowlist a new team (no secret is created or sent to them):
 
 ```bash
 curl --tlsv1.2 -s -X POST https://<gateway>/admin/allowlist \
-  -H "authorization: Bearer $WAYFORM_TOKEN" -H "content-type: application/json" \
+  -H "$WAYFORM_AUTH" -H "content-type: application/json" \
   -d '{"add":["their-github-login-or-org"]}'
 ```
 
@@ -321,7 +328,7 @@ Rebuild every registered space from the ledger:
 
 ```bash
 curl --tlsv1.2 -s -X POST https://<gateway>/admin/reindex \
-  -H "authorization: Bearer $WAYFORM_TOKEN" -d '{}'
+  -H "$WAYFORM_AUTH" -d '{}'
 # → {"reindexed":{"<space>":<entry-count>, ...}}
 # scope to one repo with -d '{"repo":"owner/name"}'
 ```
@@ -392,7 +399,7 @@ wrangler deploy
 
 # Rebuild every fact from the ledger for each space (extraction + embeddings):
 curl -sX POST https://<gateway>/admin/reindex \
-  -H "authorization: Bearer $WAYFORM_TOKEN"
+  -H "$WAYFORM_AUTH"
 # large/old spaces: paginate with -d '{"limit":40}' and repeat until nextOffset is null
 ```
 
@@ -424,7 +431,7 @@ wrangler deploy
 
 # First B2 deploy on an existing index: clear stale edges, then rebuild facts
 curl -sX POST https://<gateway>/admin/reindex \
-  -H "authorization: Bearer $WAYFORM_TOKEN" \
+  -H "$WAYFORM_AUTH" \
   -H "content-type: application/json" \
   -d '{"clearSupersession": true}'
 ```
@@ -434,15 +441,15 @@ curl -sX POST https://<gateway>/admin/reindex \
 ```bash
 # Sample auto-linked edges for the B2 exit audit
 curl -s "https://<gateway>/admin/supersession-audit?space=<space>&limit=20" \
-  -H "authorization: Bearer $WAYFORM_TOKEN"
+  -H "$WAYFORM_AUTH"
 
 # Full recent verdict trail (not just auto-links)
 curl -s "https://<gateway>/admin/supersession-audit?space=<space>&auto_linked_only=0" \
-  -H "authorization: Bearer $WAYFORM_TOKEN"
+  -H "$WAYFORM_AUTH"
 
 # Recovery if a bad deploy auto-linked wrongly (does not reindex)
 curl -sX POST https://<gateway>/admin/clear-supersession \
-  -H "authorization: Bearer $WAYFORM_TOKEN" \
+  -H "$WAYFORM_AUTH" \
   -H "content-type: application/json" \
   -d '{"space":"<space>"}'
 ```

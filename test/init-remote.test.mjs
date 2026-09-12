@@ -185,14 +185,19 @@ test("runInitRemote migrates legacy credentials and preserves Codex config", asy
   ]);
 
   const backup = fs.readFileSync(
-    path.join(dir, ".memorylayer-hook.env.bak"),
+    path.join(dir, ".wayform-hook.env.bak"),
     "utf8",
   );
   assert.match(backup, /mlk_legacy/);
-  const env = fs.readFileSync(path.join(dir, ".memorylayer-hook.env"), "utf8");
-  assert.match(env, /MEMORYLAYER_GATEWAY_URL=https:\/\/gw\.test/);
-  assert.match(env, /MEMORYLAYER_PROJECT=product/);
-  assert.doesNotMatch(env, /MEMORYLAYER_GATEWAY_TOKEN|MEMORYLAYER_AUTHOR|mlk_/);
+  const env = fs.readFileSync(path.join(dir, ".wayform-hook.env"), "utf8");
+  assert.match(env, /WAYFORM_GATEWAY_URL=https:\/\/gw\.test/);
+  assert.match(env, /WAYFORM_PROJECT=product/);
+  assert.doesNotMatch(
+    env,
+    /(?:MEMORYLAYER|WAYFORM)_GATEWAY_TOKEN|(?:MEMORYLAYER|WAYFORM)_AUTHOR|mlk_/,
+  );
+  // the legacy file is consumed, not left beside the new one
+  assert.equal(fs.existsSync(path.join(dir, ".memorylayer-hook.env")), false);
 
   const gitignore = fs.readFileSync(path.join(dir, ".gitignore"), "utf8");
   assert.match(gitignore, /node_modules\//);
@@ -204,7 +209,7 @@ test("runInitRemote migrates legacy credentials and preserves Codex config", asy
   );
   if (process.platform !== "win32") {
     assert.equal(
-      fs.statSync(path.join(dir, ".memorylayer-hook.env.bak")).mode & 0o777,
+      fs.statSync(path.join(dir, ".wayform-hook.env.bak")).mode & 0o777,
       0o600,
     );
   }

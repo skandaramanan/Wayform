@@ -37,14 +37,14 @@ export function buildHookEnv(v: {
     "# Wayform per-user hook config — gitignored. Do NOT commit.",
     "# Written by `wayform init`. Your identity + context-repo access.",
     `CONTEXT_REPO_URL=${v.repoUrl}`,
-    `MEMORYLAYER_AUTHOR=${v.author}`,
-    `MEMORYLAYER_AUTHOR_EMAIL=${v.email}`,
-    `MEMORYLAYER_PROJECT=${v.project}`,
+    `WAYFORM_AUTHOR=${v.author}`,
+    `WAYFORM_AUTHOR_EMAIL=${v.email}`,
+    `WAYFORM_PROJECT=${v.project}`,
     "",
   ].join("\n");
 }
 
-/** Contents of `.memorylayer-hook.env` for a HOSTED (gateway) member. */
+/** Contents of `.wayform-hook.env` for a HOSTED (gateway) member. */
 export function buildRemoteHookEnv(v: {
   gatewayUrl: string;
   project: string;
@@ -52,8 +52,8 @@ export function buildRemoteHookEnv(v: {
   return [
     "# Wayform hosted hook config — project scoped and credential-free.",
     "# Written by `wayform init --remote`. Safe to commit for teammates.",
-    `MEMORYLAYER_GATEWAY_URL=${v.gatewayUrl}`,
-    `MEMORYLAYER_PROJECT=${v.project}`,
+    `WAYFORM_GATEWAY_URL=${v.gatewayUrl}`,
+    `WAYFORM_PROJECT=${v.project}`,
     "",
   ].join("\n");
 }

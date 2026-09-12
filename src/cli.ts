@@ -13,7 +13,7 @@
  *   wayform doctor                -> local diagnostics
  *   wayform space create [flags]  -> print App install URL + allowlist reminder
  *
- * `hook`/`prompt-hook` set MEMORYLAYER_HOOK_CLIENT from the positional arg, then
+ * `hook`/`prompt-hook` set WAYFORM_HOOK_CLIENT from the positional arg, then
  * delegate to the neutral run functions (which self-load .memorylayer-hook.env).
  */
 import { loadHookEnv } from "./config.js";
@@ -35,15 +35,15 @@ async function main(): Promise<void> {
 
   switch (sub) {
     case "hook":
-      if (rest[0]) process.env.MEMORYLAYER_HOOK_CLIENT = rest[0];
+      if (rest[0]) process.env.WAYFORM_HOOK_CLIENT = rest[0];
       await runHook();
       return;
     case "prompt-hook":
-      if (rest[0]) process.env.MEMORYLAYER_HOOK_CLIENT = rest[0];
+      if (rest[0]) process.env.WAYFORM_HOOK_CLIENT = rest[0];
       await runPromptHook();
       return;
     case "guard":
-      if (rest[0]) process.env.MEMORYLAYER_HOOK_CLIENT = rest[0];
+      if (rest[0]) process.env.WAYFORM_HOOK_CLIENT = rest[0];
       await runGuardHook();
       return;
     case "stop-review":

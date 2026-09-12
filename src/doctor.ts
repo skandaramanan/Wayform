@@ -9,12 +9,15 @@ import {
   loadConfig,
   normalizeRepoUrl,
   type Config,
+  HOOK_ENV_FILE,
+  HOOK_ENV_FILES,
 } from "./config.js";
 
 const execFileAsync = promisify(execFile);
 const GATEWAY_PROBE_TIMEOUT_MS = 4000;
 /** Files that used to carry a member credential. Hook env is URL-only now. */
-const SECRET_FILES = [".memorylayer-hook.env"];
+// Both names: an install from before the rename still has the legacy file.
+const SECRET_FILES = [...HOOK_ENV_FILES];
 
 export type CheckStatus = "ok" | "warn" | "fail";
 
@@ -97,12 +100,14 @@ export async function runDoctor(options: DoctorOptions = {}): Promise<number> {
 }
 
 export function checkEnvFile(cwd: string, env: NodeJS.ProcessEnv): CheckResult {
-  const file = path.join(cwd, ".memorylayer-hook.env");
-  if (!fs.existsSync(file)) {
+  const file = HOOK_ENV_FILES.map((n) => path.join(cwd, n)).find((p) =>
+    fs.existsSync(p),
+  );
+  if (!file) {
     return {
       status: "fail",
       name: "env file",
-      message: ".memorylayer-hook.env is missing",
+      message: `${HOOK_ENV_FILE} is missing`,
     };
   }
 
@@ -115,13 +120,19 @@ export function checkEnvFile(cwd: string, env: NodeJS.ProcessEnv): CheckResult {
       .map((line) => line.slice(0, line.indexOf("=")).trim())
       .filter(Boolean),
   );
-  const has = (key: string) => keys.has(key) || Boolean(env[key]?.trim());
+  const hasKey = (key: string) => keys.has(key) || Boolean(env[key]?.trim());
+  // Either prefix satisfies the check: hook env files written before the
+  // rename still use MEMORYLAYER_*, and both are honored indefinitely.
+  const has = (key: string) =>
+    hasKey(key) ||
+    (key.startsWith("WAYFORM_") &&
+      hasKey(key.replace(/^WAYFORM_/, "MEMORYLAYER_")));
   // Hosted members get a gateway-only env (init --remote writes no
   // CONTEXT_REPO_URL); local members need the repo URL instead.
-  const hosted = has("MEMORYLAYER_GATEWAY_URL");
+  const hosted = has("WAYFORM_GATEWAY_URL");
   const required = hosted
-    ? ["MEMORYLAYER_GATEWAY_URL"]
-    : ["CONTEXT_REPO_URL", "MEMORYLAYER_AUTHOR"];
+    ? ["WAYFORM_GATEWAY_URL"]
+    : ["CONTEXT_REPO_URL", "WAYFORM_AUTHOR"];
   const missing = required.filter((key) => !has(key));
   if (missing.length > 0) {
     return {

@@ -52,7 +52,10 @@ test("GET /admin/supersession-audit is operator-gated", async () => {
   ).MemoryIndexDb();
   const res = await handleRequest(
     new Request("https://gw.test/admin/supersession-audit?space=s1"),
-    makeEnv(async () => new Response(), { indexDb: db, oauthProps: { githubId: 9999, githubLogin: "outsider" } }),
+    makeEnv(async () => new Response(), {
+      indexDb: db,
+      oauthProps: { githubId: 9999, githubLogin: "outsider" },
+    }),
   );
   assert.equal(res.status, 403);
 });
