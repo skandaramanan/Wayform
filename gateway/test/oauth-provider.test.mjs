@@ -234,7 +234,7 @@ test("an mlk_ bearer on the Worker HTTP gate is still a provider 401", async () 
   assert.match(res.headers.get("www-authenticate") ?? "", /resource_metadata=/);
 });
 
-test("health, webhook, admin, and setup stay outside the member OAuth plane", async () => {
+test("health, webhook, and setup stay outside the OAuth plane; admin is inside it", async () => {
   const env = makeEnv(undefined, { WEBHOOK_SECRET: "whsec" });
   const health = await fetchGw("/health", {}, env);
   assert.equal(health.status, 200);
@@ -252,9 +252,14 @@ test("health, webhook, admin, and setup stay outside the member OAuth plane", as
   assert.equal(await webhook.text(), "bad signature");
   assert.equal(webhook.headers.get("www-authenticate"), null);
 
+  // /admin moved INSIDE the OAuth plane when operator routes stopped using a
+  // shared secret: the provider must validate the bearer token and put the
+  // caller's github id on ctx.props, or requireOperator sees no identity and
+  // rejects everyone. An unauthenticated admin request is therefore a 401 with
+  // a challenge — the provider answering — not a 403 from our handler.
   const admin = await fetchGw("/admin/installations", {}, env);
-  assert.equal(admin.status, 403);
-  assert.equal(admin.headers.get("www-authenticate"), null);
+  assert.equal(admin.status, 401);
+  assert.match(admin.headers.get("www-authenticate") ?? "", /Bearer/i);
 
   const installCallback = await fetchGw("/install/callback", {}, env);
   assert.equal(installCallback.status, 400);
