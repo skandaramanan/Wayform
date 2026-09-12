@@ -105,7 +105,7 @@ curl --tlsv1.2 -s https://<gateway>/mcp        # → 401 + WWW-Authenticate
 (macOS system curl needs `--tlsv1.2` against workers.dev — a LibreSSL quirk;
 SDK clients are unaffected.)
 
-Operator routes (`/admin/allowlist`, reindex, eval, product-repos) are gated by
+Operator routes (`/mcp/admin/allowlist`, reindex, eval, product-repos) are gated by
 `ADMIN_GITHUB_IDS` in `wrangler.toml` `[vars]` — a comma-separated list of GitHub
 numeric ids, checked against the caller's OAuth identity. Empty or unset means
 nobody is an operator; there is no bypass. Find your id with
@@ -116,6 +116,12 @@ Operator calls below send `$WAYFORM_AUTH`. Get it from the CLI:
 ```bash
 export WAYFORM_AUTH="$(wayform token --header)"
 ```
+
+Operator routes live under **`/mcp/admin/*`**, not `/admin/*`. That is not
+cosmetic: the OAuth provider matches a token's audience against the request
+path, and every token is minted with `resource=<origin>/mcp`, so a route
+outside that prefix cannot accept any token we issue. The old paths return
+410 with their replacement.
 
 `wayform token` reads your own OAuth credential from the OS keyring and
 refreshes it if it has expired, so an operator never handles a raw secret and
@@ -133,7 +139,7 @@ logs `admin_ok` or `admin_denied` with the github id. Operator routes still do
 Allowlist a new team (no secret is created or sent to them):
 
 ```bash
-curl --tlsv1.2 -s -X POST https://<gateway>/admin/allowlist \
+curl --tlsv1.2 -s -X POST https://<gateway>/mcp/admin/allowlist \
   -H "$WAYFORM_AUTH" -H "content-type: application/json" \
   -d '{"add":["their-github-login-or-org"]}'
 ```
@@ -334,7 +340,7 @@ The spaces registry is populated when a GitHub App installation is activated.
 Rebuild every registered space from the ledger:
 
 ```bash
-curl --tlsv1.2 -s -X POST https://<gateway>/admin/reindex \
+curl --tlsv1.2 -s -X POST https://<gateway>/mcp/admin/reindex \
   -H "$WAYFORM_AUTH" -d '{}'
 # → {"reindexed":{"<space>":<entry-count>, ...}}
 # scope to one repo with -d '{"repo":"owner/name"}'
@@ -405,7 +411,7 @@ wrangler d1 migrations apply memorylayer-index --remote   # production
 wrangler deploy
 
 # Rebuild every fact from the ledger for each space (extraction + embeddings):
-curl -sX POST https://<gateway>/admin/reindex \
+curl -sX POST https://<gateway>/mcp/admin/reindex \
   -H "$WAYFORM_AUTH"
 # large/old spaces: paginate with -d '{"limit":40}' and repeat until nextOffset is null
 ```
@@ -437,7 +443,7 @@ wrangler d1 migrations apply memorylayer-index --remote
 wrangler deploy
 
 # First B2 deploy on an existing index: clear stale edges, then rebuild facts
-curl -sX POST https://<gateway>/admin/reindex \
+curl -sX POST https://<gateway>/mcp/admin/reindex \
   -H "$WAYFORM_AUTH" \
   -H "content-type: application/json" \
   -d '{"clearSupersession": true}'
@@ -447,15 +453,15 @@ curl -sX POST https://<gateway>/admin/reindex \
 
 ```bash
 # Sample auto-linked edges for the B2 exit audit
-curl -s "https://<gateway>/admin/supersession-audit?space=<space>&limit=20" \
+curl -s "https://<gateway>/mcp/admin/supersession-audit?space=<space>&limit=20" \
   -H "$WAYFORM_AUTH"
 
 # Full recent verdict trail (not just auto-links)
-curl -s "https://<gateway>/admin/supersession-audit?space=<space>&auto_linked_only=0" \
+curl -s "https://<gateway>/mcp/admin/supersession-audit?space=<space>&auto_linked_only=0" \
   -H "$WAYFORM_AUTH"
 
 # Recovery if a bad deploy auto-linked wrongly (does not reindex)
-curl -sX POST https://<gateway>/admin/clear-supersession \
+curl -sX POST https://<gateway>/mcp/admin/clear-supersession \
   -H "$WAYFORM_AUTH" \
   -H "content-type: application/json" \
   -d '{"space":"<space>"}'
@@ -489,12 +495,12 @@ Member plane (OAuth access required; unauthenticated requests get `401` +
 Outside the member OAuth plane:
 
 - `POST /webhook/github` — GitHub App webhook (HMAC-signed, `WEBHOOK_SECRET`)
-- `POST /admin/allowlist` — `{ "add": ["login-or-org"] }` (operator only)
-- `GET /admin/allowlist`
-- `POST /admin/reindex` — rebuild spaces from the ledger (operator only)
-- `GET /admin/supersession-audit`, `POST /admin/clear-supersession`
-- `POST /admin/product-repos` — merged-PR recorder registry
-- `GET /admin/installations?owner=` — lookup App installation id
+- `POST /mcp/admin/allowlist` — `{ "add": ["login-or-org"] }` (operator only)
+- `GET /mcp/admin/allowlist`
+- `POST /mcp/admin/reindex` — rebuild spaces from the ledger (operator only)
+- `GET /mcp/admin/supersession-audit`, `POST /mcp/admin/clear-supersession`
+- `POST /mcp/admin/product-repos` — merged-PR recorder registry
+- `GET /mcp/admin/installations?owner=` — lookup App installation id
 - `GET /health`
 
 Retired (404): `POST /admin/members`, `POST /admin/invites`, `POST /join`.
@@ -537,7 +543,7 @@ deferred product decision.
 | `401` on `/mcp` or `/mcp/hook/read` | Not logged in, or the OAuth grant expired. Click Connect / `wayform login`. |
 | OAuth returns `access_denied` after repository selection | The selected owner/org is not allowlisted, or this GitHub user already belongs to another space. |
 | Installation returns “setup state mismatch” | The ten-minute setup expired or the browser cookie was lost. Start Connect again in the same browser. |
-| `403` on `/admin/allowlist` | Caller's GitHub id is not in `ADMIN_GITHUB_IDS`. Check the `admin_denied` log line for the id and reason. |
+| `403` on `/mcp/admin/allowlist` | Caller's GitHub id is not in `ADMIN_GITHUB_IDS`. Check the `admin_denied` log line for the id and reason. |
 | Write fails with `404`/`installation token exchange failed` | App not installed on that repo, or the installation was suspended/deleted. |
 | Write fails with `409`/branch error | Space repo has no commits, or the space record's `branch` doesn't exist. Initialize the repo with a README. |
 | Reads return nothing but writes work | Project names are slugged (lowercased, punctuation → `-`). |

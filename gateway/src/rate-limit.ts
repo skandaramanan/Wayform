@@ -46,10 +46,13 @@ export function isLimited(pathname: string): boolean {
     pathname === "/callback" ||
     pathname === "/oauth/register" ||
     pathname === "/oauth/token" ||
-    pathname.startsWith("/install/") ||
-    // Guarded only by a shared secret; without a limit that secret is
-    // brute-forceable at line rate.
-    pathname.startsWith("/admin/")
+    pathname.startsWith("/install/")
+    // NOT the admin routes. They were listed here while a shared secret gated
+    // them and a limit was the only thing stopping line-rate brute force. Since
+    // 2026-09-13 they live at /mcp/admin/* behind OAuth identity, so they fall
+    // under the same rule as /mcp: a valid token is required, abuse is
+    // revoke_session's job, and a ceiling here would throttle a legitimate
+    // operator instead.
   );
 }
 

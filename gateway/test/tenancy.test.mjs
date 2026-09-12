@@ -71,7 +71,7 @@ test("minting routes are gone; github members still register the space repo", as
 function listInstallations(env, owner) {
   return handleRequest(
     new Request(
-      `https://gw.test/admin/installations?owner=${encodeURIComponent(owner)}`,
+      `https://gw.test/mcp/admin/installations?owner=${encodeURIComponent(owner)}`,
     ),
     env,
   );
@@ -89,7 +89,7 @@ test("admin installations: 403 for a non-operator identity", async () => {
 test("admin installations: 400 when owner query param is missing", async () => {
   const env = makeEnv();
   const res = await handleRequest(
-    new Request("https://gw.test/admin/installations"),
+    new Request("https://gw.test/mcp/admin/installations"),
     env,
   );
   assert.equal(res.status, 400);

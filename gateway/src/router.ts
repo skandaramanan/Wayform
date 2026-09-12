@@ -68,35 +68,41 @@ async function route(
     return Response.json({ ok: true });
   }
 
-  if (url.pathname === "/admin/installations" && req.method === "GET") {
+  if (url.pathname === "/mcp/admin/installations" && req.method === "GET") {
     return handleAdminListInstallations(req, env, ctx);
   }
 
-  if (url.pathname === "/admin/product-repos" && req.method === "POST") {
+  if (url.pathname === "/mcp/admin/product-repos" && req.method === "POST") {
     return handleAdminAddProductRepo(req, env, ctx);
   }
 
-  if (url.pathname === "/admin/allowlist") {
+  if (url.pathname === "/mcp/admin/allowlist") {
     return handleAdminAllowlist(req, env, ctx);
   }
 
-  if (url.pathname === "/admin/reindex" && req.method === "POST") {
+  if (url.pathname === "/mcp/admin/reindex" && req.method === "POST") {
     return handleAdminReindex(req, env, ctx);
   }
 
-  if (url.pathname === "/admin/supersession-audit" && req.method === "GET") {
+  if (
+    url.pathname === "/mcp/admin/supersession-audit" &&
+    req.method === "GET"
+  ) {
     return handleAdminSupersessionAudit(req, env, ctx);
   }
 
-  if (url.pathname === "/admin/clear-supersession" && req.method === "POST") {
+  if (
+    url.pathname === "/mcp/admin/clear-supersession" &&
+    req.method === "POST"
+  ) {
     return handleAdminClearSupersession(req, env, ctx);
   }
 
-  if (url.pathname === "/admin/golden-candidate" && req.method === "POST") {
+  if (url.pathname === "/mcp/admin/golden-candidate" && req.method === "POST") {
     return handleAdminGoldenCandidate(req, env, ctx);
   }
 
-  if (url.pathname === "/admin/retrieval-log" && req.method === "GET") {
+  if (url.pathname === "/mcp/admin/retrieval-log" && req.method === "GET") {
     return handleAdminRetrievalLog(req, env, ctx);
   }
 
@@ -131,6 +137,18 @@ async function route(
     ["/hook/read", "/mcp/hook/read"],
     ["/hook/prompt", "/mcp/hook/prompt"],
     ["/api/read", "/mcp/api/read"],
+    // Admin moved under /mcp on 2026-09-13 so operator tokens actually work:
+    // the OAuth provider matches a token's audience against the REQUEST PATH,
+    // and every token is minted with resource "<origin>/mcp", so nothing
+    // outside that prefix can ever present a valid one.
+    ["/admin/installations", "/mcp/admin/installations"],
+    ["/admin/product-repos", "/mcp/admin/product-repos"],
+    ["/admin/allowlist", "/mcp/admin/allowlist"],
+    ["/admin/reindex", "/mcp/admin/reindex"],
+    ["/admin/supersession-audit", "/mcp/admin/supersession-audit"],
+    ["/admin/clear-supersession", "/mcp/admin/clear-supersession"],
+    ["/admin/golden-candidate", "/mcp/admin/golden-candidate"],
+    ["/admin/retrieval-log", "/mcp/admin/retrieval-log"],
   ]).get(url.pathname);
   if (legacyPath) {
     return new Response(`moved to ${legacyPath}`, { status: 410 });

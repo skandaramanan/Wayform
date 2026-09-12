@@ -42,7 +42,7 @@ function envWith(indexDb) {
   return env;
 }
 
-test("POST /admin/reindex is operator-gated and rebuilds registered spaces", async () => {
+test("POST /mcp/admin/reindex is operator-gated and rebuilds registered spaces", async () => {
   const db = new MemoryIndexDb();
   const env = envWith(db);
   await registerSpaceRepo(env, {
@@ -53,13 +53,13 @@ test("POST /admin/reindex is operator-gated and rebuilds registered spaces", asy
     branch: "main",
   });
   const forbidden = await handleAdminReindex(
-    new Request("https://gw/admin/reindex", { method: "POST", body: "{}" }),
+    new Request("https://gw/mcp/admin/reindex", { method: "POST", body: "{}" }),
     { ...env, oauthProps: { githubId: 9999, githubLogin: "outsider" } },
   );
   assert.equal(forbidden.status, 403);
 
   const res = await handleAdminReindex(
-    new Request("https://gw/admin/reindex", {
+    new Request("https://gw/mcp/admin/reindex", {
       method: "POST",
       body: JSON.stringify({}),
     }),

@@ -26,11 +26,14 @@ test("limits cover the unauthenticated surfaces and skip what must not drop", ()
   assert.equal(isLimited("/authorize"), true);
   assert.equal(isLimited("/callback"), true);
   assert.equal(isLimited("/install/select"), true);
-  // Guarded only by a shared secret, so it must not be brute-forceable.
-  assert.equal(isLimited("/admin/reindex"), true);
   // /mcp needs a valid token: abuse there is revoke_session's job, and a
   // ceiling here would throttle legitimate agents instead.
   assert.equal(isLimited("/mcp"), false);
+  // Admin used to be limited because a shared secret was all that guarded it.
+  // It is OAuth-gated under /mcp now, so it follows the /mcp rule.
+  assert.equal(isLimited("/mcp/admin/reindex"), false);
+  // The pre-move path is gone entirely (the router 410s it).
+  assert.equal(isLimited("/admin/reindex"), false);
   // Uptime checks and signed GitHub webhooks must never be throttled.
   assert.equal(isLimited("/health"), false);
   assert.equal(isLimited("/webhook/github"), false);
@@ -38,7 +41,7 @@ test("limits cover the unauthenticated surfaces and skip what must not drop", ()
 
 test("keys use a token hash when authenticated, never the raw token", async () => {
   const key = await rateLimitKey(
-    req("/admin/reindex", {
+    req("/mcp/admin/reindex", {
       headers: { authorization: "Bearer super-secret-token" },
     }),
   );
