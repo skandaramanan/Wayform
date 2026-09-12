@@ -103,16 +103,34 @@ export function composeSessionStartText(
 
 /**
  * Shorter twin for MCP `initialize.instructions` (no briefing present there).
- * Same forcing rules; names the default project when the agent is unsure.
+ *
+ * It must NOT name a default project. A SPACE (one memory repo) holds MANY
+ * PROJECTS, and the server cannot see the caller's project: SpaceMember has no
+ * project field, and the MCP URL is a bare `<gateway>/mcp` with no room to
+ * carry one — a query string there would change the OAuth audience and break
+ * `/mcp/hook/read`, which has none.
+ *
+ * This previously passed `member.space` as "Default project if unsure", so an
+ * agent with no briefing wrote decisions into a project named after the space.
+ * On 2026-09-13 that put five real decisions in `skandaramanan-memorylayer-memory`
+ * (18 entries) while every hook read `memorylayer` (423 entries) — the writes
+ * were invisible at session start, which is the exact failure this product
+ * exists to prevent. The briefing is the authority; when there is none, ask.
  */
 export function mcpInstructions(
-  defaultProject: string,
+  space: string,
   opts: PlaybookOpts = {},
 ): string {
   return (
     `This server holds shared planning memory (decisions and durable context) ` +
-    `for collaborators over remote MCP (hosted gateway only). Default project ` +
-    `if unsure: "${defaultProject}". ` +
+    `for collaborators over remote MCP (hosted gateway only). ` +
+    `PROJECT: every tool takes a \`project\`. You are connected to the SPACE ` +
+    `"${space}" — a space holds many projects, so the space name is NOT a ` +
+    `project name and must never be passed as one. Use the project named in ` +
+    `the session-start briefing (it appears as \`project "<name>"\`). If no ` +
+    `briefing was injected, ASK which project rather than guessing: writing to ` +
+    `the wrong project silently splits the ledger, so the decision is never ` +
+    `injected again and nothing reports an error. ` +
     `MUST: call search_memory before contradicting or re-deciding settled work, ` +
     `before asking the user a clarifying question memory might answer, and ` +
     `before recommending an action that may already be recommended or done; ` +

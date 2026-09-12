@@ -88,3 +88,40 @@ test("supersedes amend guidance appears only when the plane supports it", () => 
   });
   assert.match(composed, /UPDATE or CORRECT a recorded decision/);
 });
+
+test("mcpInstructions never offers the space name as a project default", () => {
+  // Regression for 2026-09-13: it said `Default project if unsure: "<space>"`,
+  // and mcp.ts passed member.space. An agent with no briefing then wrote five
+  // real decisions into project "skandaramanan-memorylayer-memory" (18 entries)
+  // while every hook read "memorylayer" (423) — invisible at session start,
+  // with nothing reporting an error. No test covered this string.
+  const text = mcpInstructions("skandaramanan-memorylayer-memory");
+
+  assert.doesNotMatch(
+    text,
+    /default project[^.]*"/i,
+    "must not name any default project — the server cannot know the caller's",
+  );
+  // The space may be mentioned, but only as a space and never as a project.
+  assert.match(text, /space/i);
+  assert.doesNotMatch(
+    text,
+    /project[^.]{0,40}"skandaramanan-memorylayer-memory"/i,
+    "the space name must never appear where a project name belongs",
+  );
+  // It must send the agent somewhere real for the answer.
+  assert.match(text, /session-start briefing/i);
+  assert.match(text, /ask/i);
+});
+
+test("the briefing and the MCP instructions agree on where project comes from", () => {
+  // The hook side already spells the project out; the MCP twin must point at
+  // it rather than inventing its own answer.
+  const briefing = invocationPlaybook("MemoryLayer");
+  assert.match(briefing, /write_context\(project="MemoryLayer"/);
+  assert.match(
+    mcpInstructions("some-space"),
+    /briefing/i,
+    "instructions must defer to the briefing the hook injects",
+  );
+});
