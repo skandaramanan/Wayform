@@ -136,7 +136,7 @@ async function mapProductRepo(env) {
     branch: "main",
   });
   const res = await handleAdminAddProductRepo(
-    new Request("https://gw/admin/product-repos", {
+    new Request("https://gw/mcp/admin/product-repos", {
       method: "POST",
       body: JSON.stringify({
         owner: "acme",
@@ -209,7 +209,7 @@ test("admin product-repos endpoint is operator-gated and validates required fiel
   const { env } = prEnv();
   const post = (body, callerEnv = env) =>
     handleAdminAddProductRepo(
-      new Request("https://gw/admin/product-repos", {
+      new Request("https://gw/mcp/admin/product-repos", {
         method: "POST",
         headers: { "content-type": "application/json" },
         body: JSON.stringify(body),

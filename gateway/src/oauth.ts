@@ -30,18 +30,17 @@ const defaultHandler = {
 /**
  * Path prefixes the OAuth provider treats as API routes.
  *
- * EVERY prefix whose handlers check caller identity must appear here. The
- * provider only validates the bearer token and populates `ctx.props` for these
- * paths; anything else falls through to `defaultHandler` with the raw
- * Cloudflare ctx and NO props.
- *
- * This list was "/mcp" alone when /admin/* was moved onto operator identity,
- * so every admin request reached requireOperator with an undefined githubId
- * and 403'd for everyone, always — while the gateway suite stayed green,
- * because those tests inject env.oauthProps as a seam and never exercise the
- * provider. Exported so a test can assert the wiring the seam hides.
+ * EVERY identity-gated path must sit under one of these. The provider only
+ * validates the bearer token and populates `ctx.props` for these prefixes —
+ * and, crucially, it also matches the token's AUDIENCE against the request
+ * path (`audienceMatches`: same origin, and the request path must equal the
+ * audience path or start with it). Every token is minted with
+ * `resource=<origin>/mcp`, so a path outside /mcp can never present a valid
+ * one, no matter how apiRoute is configured. That is why the admin routes live
+ * at /mcp/admin/* rather than /admin/* — see the 2026-09-13 "Invalid audience"
+ * failure.
  */
-export const API_ROUTES = ["/mcp", "/admin"] as const;
+export const API_ROUTES = ["/mcp"] as const;
 
 /** MCP OAuth 2.1 wrapper: RFC 9728 metadata, DCR, CIMD, PKCE S256. */
 export function createGatewayOAuthProvider(): OAuthProvider<Env> {

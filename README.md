@@ -186,7 +186,7 @@ How often it fires:
 
 ```bash
 curl -H "$WAYFORM_AUTH" \
-  "$GATEWAY/admin/retrieval-log?space=<space>&trigger=hook_guard"
+  "$GATEWAY/mcp/admin/retrieval-log?space=<space>&trigger=hook_guard"
 # → { "rows": [...], "fired": 12 }
 ```
 

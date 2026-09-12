@@ -2,7 +2,7 @@
 
 > **Hosted-gateway teams:** you likely don't need this Action. Install the
 > Wayform GitHub App on your product repos and have the operator register
-> them (`POST /admin/product-repos`) — merged PRs are then recorded by the
+> them (`POST /mcp/admin/product-repos`) — merged PRs are then recorded by the
 > gateway itself: no yml to copy, no token secrets in your repo. This Action
 > remains the path for self-hosters running without the App.
 

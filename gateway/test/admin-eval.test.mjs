@@ -8,10 +8,10 @@ function env(db) {
   return makeEnv(ghFetch([], []), { indexDb: db });
 }
 
-test("POST /admin/golden-candidate records a candidate with the admin secret", async () => {
+test("POST /mcp/admin/golden-candidate records a candidate with the admin secret", async () => {
   const db = new MemoryIndexDb();
   const res = await handleRequest(
-    new Request("https://gw.test/admin/golden-candidate", {
+    new Request("https://gw.test/mcp/admin/golden-candidate", {
       method: "POST",
       headers: {
         "content-type": "application/json",
@@ -31,9 +31,9 @@ test("POST /admin/golden-candidate records a candidate with the admin secret", a
   assert.equal(db.goldenCandidates.length, 1);
 });
 
-test("POST /admin/golden-candidate is forbidden for a non-operator", async () => {
+test("POST /mcp/admin/golden-candidate is forbidden for a non-operator", async () => {
   const res = await handleRequest(
-    new Request("https://gw.test/admin/golden-candidate", {
+    new Request("https://gw.test/mcp/admin/golden-candidate", {
       method: "POST",
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ space: "s1", query: "q", expectedFactId: "f1" }),
@@ -46,7 +46,7 @@ test("POST /admin/golden-candidate is forbidden for a non-operator", async () =>
   assert.equal(res.status, 403);
 });
 
-test("GET /admin/retrieval-log returns rows since a timestamp", async () => {
+test("GET /mcp/admin/retrieval-log returns rows since a timestamp", async () => {
   const db = new MemoryIndexDb();
   await db.logRetrieval({
     space: "s1",
@@ -59,7 +59,7 @@ test("GET /admin/retrieval-log returns rows since a timestamp", async () => {
   });
   const res = await handleRequest(
     new Request(
-      "https://gw.test/admin/retrieval-log?space=s1&since=2026-07-01T00:00:00Z",
+      "https://gw.test/mcp/admin/retrieval-log?space=s1&since=2026-07-01T00:00:00Z",
     ),
     env(db),
   );
@@ -98,7 +98,7 @@ test("retrieval-log filters by trigger and counts guard fires", async () => {
 
   const res = await handleRequest(
     new Request(
-      "https://gw.test/admin/retrieval-log?space=team-a&trigger=hook_guard",
+      "https://gw.test/mcp/admin/retrieval-log?space=team-a&trigger=hook_guard",
     ),
     env(db),
   );
@@ -119,7 +119,7 @@ test("retrieval-log without a trigger returns every row", async () => {
     ts: "2026-08-30T10:00:00Z",
   });
   const res = await handleRequest(
-    new Request("https://gw.test/admin/retrieval-log?space=team-a"),
+    new Request("https://gw.test/mcp/admin/retrieval-log?space=team-a"),
     env(db),
   );
   assert.equal((await res.json()).rows.length, 1);

@@ -257,7 +257,7 @@ test("health, webhook, and setup stay outside the OAuth plane; admin is inside i
   // caller's github id on ctx.props, or requireOperator sees no identity and
   // rejects everyone. An unauthenticated admin request is therefore a 401 with
   // a challenge — the provider answering — not a 403 from our handler.
-  const admin = await fetchGw("/admin/installations", {}, env);
+  const admin = await fetchGw("/mcp/admin/installations", {}, env);
   assert.equal(admin.status, 401);
   assert.match(admin.headers.get("www-authenticate") ?? "", /Bearer/i);
 
@@ -362,3 +362,81 @@ async function authorizePath(clientId) {
   });
   return `/authorize?${q}`;
 }
+
+test("a token minted for /mcp is accepted on /admin — one server, one audience", async () => {
+  // The production failure on 2026-09-13: adding /admin to apiRoute made the
+  // provider derive a SEPARATE resource per path, so the CLI's /mcp-bound token
+  // came back 401 "Invalid audience" on every admin route. issueAccessToken
+  // mints with resource "https://gw.test/mcp", exactly as `wayform login` does.
+  const env = makeEnv(undefined, { ADMIN_GITHUB_IDS: "4242" });
+  await seedGithubMember(env, {
+    space: "team-a",
+    installationId: 7,
+    owner: "acme",
+    repo: "memory",
+    author: "Op",
+    authorEmail: "op@users.noreply.github.com",
+    githubId: 4242,
+    githubLogin: "operator",
+    role: "member",
+  });
+  const token = await issueAccessToken(env, {
+    githubId: 4242,
+    githubLogin: "operator",
+  });
+  const auth = { authorization: `Bearer ${token}` };
+
+  const mcp = await fetchGw(
+    "/mcp",
+    {
+      method: "POST",
+      headers: { ...auth, "content-type": "application/json" },
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    },
+    env,
+  );
+  assert.equal(mcp.status, 200, "the token must still work on /mcp");
+
+  const admin = await fetchGw(
+    "/mcp/admin/installations?owner=acme",
+    { headers: auth },
+    env,
+  );
+  assert.notEqual(
+    admin.status,
+    401,
+    `same token rejected on /admin: ${admin.headers.get("www-authenticate")}`,
+  );
+  assert.notEqual(
+    admin.status,
+    403,
+    "operator id 4242 must pass requireOperator",
+  );
+});
+
+test("a NON-operator's valid /mcp token reaches /admin and is refused there", async () => {
+  // Proves the two layers stay distinct: the provider accepts the token, and
+  // requireOperator — not the provider — is what rejects a non-operator.
+  const env = makeEnv(undefined, { ADMIN_GITHUB_IDS: "4242" });
+  await seedGithubMember(env, {
+    space: "team-a",
+    installationId: 7,
+    owner: "acme",
+    repo: "memory",
+    author: "Op",
+    authorEmail: "op@users.noreply.github.com",
+    githubId: 9999,
+    githubLogin: "outsider",
+    role: "member",
+  });
+  const token = await issueAccessToken(env, {
+    githubId: 9999,
+    githubLogin: "outsider",
+  });
+  const admin = await fetchGw(
+    "/mcp/admin/installations?owner=acme",
+    { headers: { authorization: `Bearer ${token}` } },
+    env,
+  );
+  assert.equal(admin.status, 403, "authenticated but not an operator");
+});
