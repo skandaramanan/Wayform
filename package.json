@@ -1,11 +1,10 @@
 {
   "name": "wayform",
   "version": "0.2.0",
-  "description": "Vendor-neutral multiplayer planning memory: a git-backed MCP server that shares planning context across Claude, Cursor, and Codex.",
+  "description": "The plan layer for agent teams: git-backed plans and decisions that every coding agent inherits, across Claude Code, Cursor, and Codex.",
   "type": "module",
   "bin": {
-    "wayform": "dist/cli.js",
-    "memorylayer": "dist/cli.js"
+    "wayform": "dist/cli.js"
   },
   "files": [
     "dist"

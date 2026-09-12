@@ -22,3 +22,8 @@ second-brain-cloudflare-main/
 # source when PR #30 reformatted src without rebuilding).
 dist/
 .memorylayer-hook.env.bak
+
+# Build artefacts and local worker state — never tracked
+*.tgz
+.wrangler/
+gateway/.wrangler/
