@@ -12,11 +12,13 @@ test("buildRemoteHookEnv writes gateway URL and omits any token", () => {
     gatewayUrl: "https://gw.example.com",
     project: "acme-eng",
   });
-  assert.match(out, /MEMORYLAYER_GATEWAY_URL=https:\/\/gw\.example\.com/);
-  assert.doesNotMatch(out, /MEMORYLAYER_GATEWAY_TOKEN/);
+  assert.match(out, /WAYFORM_GATEWAY_URL=https:\/\/gw\.example\.com/);
+  assert.doesNotMatch(out, /(?:MEMORYLAYER|WAYFORM)_GATEWAY_TOKEN/);
   assert.doesNotMatch(out, /mlk_/);
-  assert.match(out, /MEMORYLAYER_PROJECT=acme-eng/);
-  assert.doesNotMatch(out, /MEMORYLAYER_AUTHOR/);
+  assert.match(out, /WAYFORM_PROJECT=acme-eng/);
+  assert.doesNotMatch(out, /(?:MEMORYLAYER|WAYFORM)_AUTHOR/);
+  // the rename is one-way on write: new files never carry the old prefix
+  assert.doesNotMatch(out, /MEMORYLAYER_/);
   assert.ok(!/CONTEXT_REPO_URL/.test(out), "hosted-only: no local clone URL");
 });
 
@@ -27,13 +29,14 @@ test("buildHookEnv emits all four keys", () => {
     repoUrl: "https://t@github.com/team/mem.git",
     project: "team-app",
   });
-  assert.match(out, /^MEMORYLAYER_AUTHOR=Ada$/m);
-  assert.match(out, /^MEMORYLAYER_AUTHOR_EMAIL=ada@x.io$/m);
+  assert.match(out, /^WAYFORM_AUTHOR=Ada$/m);
+  assert.match(out, /^WAYFORM_AUTHOR_EMAIL=ada@x.io$/m);
   assert.match(
     out,
     /^CONTEXT_REPO_URL=https:\/\/t@github.com\/team\/mem.git$/m,
   );
-  assert.match(out, /^MEMORYLAYER_PROJECT=team-app$/m);
+  assert.match(out, /^WAYFORM_PROJECT=team-app$/m);
+  assert.doesNotMatch(out, /MEMORYLAYER_/);
 });
 
 test("ensureGitignore appends missing entries once, preserves content", () => {

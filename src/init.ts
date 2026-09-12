@@ -1,3 +1,4 @@
+import { HOOK_ENV_FILE, LEGACY_HOOK_ENV_FILE } from "./config.js";
 /**
  * `wayform init` — wire Wayform into the current project repo.
  *
@@ -32,7 +33,7 @@ Options (all optional; missing identity values are prompted for):
   --email <email>         commit email
   --context-repo <url>    shared context repo URL (may embed a token)
   --project <name>        shared project/space name (default: repo dir name)
-  --force                 rewrite an existing .memorylayer-hook.env
+  --force                 rewrite an existing .wayform-hook.env
   --yes                   accept git-config / directory defaults, no prompts
   --help                  show this help
 
@@ -134,11 +135,18 @@ export async function runInit(args: string[]): Promise<void> {
   writeText(cwd, ".codex/config.toml", CODEX_MCP_TOML);
 
   // --- User tier: identity env file ---
-  const envFile = path.join(cwd, ".memorylayer-hook.env");
+  const envFile = path.join(cwd, HOOK_ENV_FILE);
+  const legacyFile = path.join(cwd, LEGACY_HOOK_ENV_FILE);
+  // A pre-rename install leaves the old name; adopt it rather than writing a
+  // second config file the loader would have to disambiguate.
+  if (!fs.existsSync(envFile) && fs.existsSync(legacyFile)) {
+    fs.renameSync(legacyFile, envFile);
+    console.log(`  renamed ${LEGACY_HOOK_ENV_FILE} -> ${HOOK_ENV_FILE}`);
+  }
   if (fs.existsSync(envFile) && !has(args, "force")) {
     hardenSecretFile(envFile); // retro-tighten a pre-existing 0644 file
     console.log(
-      "  .memorylayer-hook.env exists — leaving it (use --force to rewrite).",
+      `  ${HOOK_ENV_FILE} exists — leaving it (use --force to rewrite).`,
     );
   } else {
     const useDefaults = has(args, "yes");
@@ -170,11 +178,11 @@ export async function runInit(args: string[]): Promise<void> {
 
     if (!author || !repoUrl) {
       throw new Error(
-        "author and context-repo are required to write .memorylayer-hook.env",
+        `author and context-repo are required to write ${HOOK_ENV_FILE}`,
       );
     }
     writeSecretFile(envFile, buildHookEnv({ author, email, repoUrl, project }));
-    console.log("  wrote .memorylayer-hook.env (gitignored)");
+    console.log(`  wrote ${HOOK_ENV_FILE} (gitignored)`);
   }
 
   // --- Gitignore the per-user + per-user-local files ---
@@ -183,7 +191,8 @@ export async function runInit(args: string[]): Promise<void> {
   fs.writeFileSync(
     giPath,
     ensureGitignore(gi, [
-      ".memorylayer-hook.env",
+      HOOK_ENV_FILE,
+      LEGACY_HOOK_ENV_FILE,
       ".claude/settings.local.json",
       ".codex/config.toml",
     ]),

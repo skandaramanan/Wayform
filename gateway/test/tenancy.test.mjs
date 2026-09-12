@@ -78,7 +78,10 @@ function listInstallations(env, owner) {
 }
 
 test("admin installations: 403 for a non-operator identity", async () => {
-  const env = { ...makeEnv(), oauthProps: { githubId: 9999, githubLogin: "outsider" } };
+  const env = {
+    ...makeEnv(),
+    oauthProps: { githubId: 9999, githubLogin: "outsider" },
+  };
   const res = await listInstallations(env, "acme");
   assert.equal(res.status, 403);
 });

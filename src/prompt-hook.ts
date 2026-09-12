@@ -6,7 +6,7 @@
  *
  * FAIL-OPEN: any error / empty injection → client empty no-op, exit 0.
  */
-import { loadConfig, defaultProject } from "./config.js";
+import { loadConfig, defaultProject, envVar } from "./config.js";
 import { remoteHookPrompt } from "./remote-read.js";
 import {
   resolveClient,
@@ -17,7 +17,7 @@ import {
 import { isMain } from "./is-main.js";
 
 export async function runPromptHook(): Promise<void> {
-  const client: HookClient = resolveClient(process.env.MEMORYLAYER_HOOK_CLIENT);
+  const client: HookClient = resolveClient(envVar("HOOK_CLIENT"));
 
   const emitEmpty = (): never => {
     process.stdout.write(renderEmpty(client));
@@ -41,7 +41,7 @@ export async function runPromptHook(): Promise<void> {
     // Only Claude Code supports hidden UserPromptSubmit injection for us.
     if (client !== "claude-code") emitEmpty();
 
-    const project = process.env.MEMORYLAYER_PROJECT?.trim() || defaultProject();
+    const project = envVar("PROJECT")?.trim() || defaultProject();
     const cfg = loadConfig();
     const text = await remoteHookPrompt(
       cfg,

@@ -11,7 +11,7 @@
  * payload — all resolve to the empty no-op and exit 0, so the tool runs exactly
  * as if no hook existed. This hook NEVER emits "deny" (spec decision 1).
  */
-import { loadConfig, defaultProject } from "./config.js";
+import { loadConfig, defaultProject, envVar } from "./config.js";
 import { remoteGuardCheck } from "./remote-read.js";
 import {
   resolveClient,
@@ -57,7 +57,7 @@ export function summarizeAction(toolName: string, toolInput: unknown): string {
 }
 
 export async function runGuardHook(): Promise<void> {
-  const client: HookClient = resolveClient(process.env.MEMORYLAYER_HOOK_CLIENT);
+  const client: HookClient = resolveClient(envVar("HOOK_CLIENT"));
 
   const emitEmpty = (): never => {
     process.stdout.write(renderEmpty(client));
@@ -86,7 +86,7 @@ export async function runGuardHook(): Promise<void> {
     const action = summarizeAction(toolName, payload.tool_input);
     if (!action) emitEmpty();
 
-    const project = process.env.MEMORYLAYER_PROJECT?.trim() || defaultProject();
+    const project = envVar("PROJECT")?.trim() || defaultProject();
     const cfg = loadConfig();
     // null = gateway unusable. There is no local fallback by design: judging
     // needs the index and the model, both of which live in the gateway.

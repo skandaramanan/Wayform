@@ -58,7 +58,7 @@ test("init writes all three hook configs, both MCP files, env, and gitignore", (
     assert.match(read(".cursor/mcp.json"), /"wayform"/);
     // Codex MCP is now an auto-written, project-scoped, gitignored file.
     assert.match(read(".codex/config.toml"), /\[mcp_servers\.wayform\]/);
-    assert.match(read(".memorylayer-hook.env"), /MEMORYLAYER_AUTHOR=Ada/);
+    assert.match(read(".wayform-hook.env"), /WAYFORM_AUTHOR=Ada/);
     assert.match(read(".gitignore"), /\.memorylayer-hook\.env/);
     assert.match(read(".gitignore"), /\.codex\/config\.toml/);
   } finally {

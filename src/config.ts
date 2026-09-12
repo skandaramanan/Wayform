@@ -47,17 +47,41 @@ function required(name: string): string {
  * inject process-hijacking vars (NODE_OPTIONS, PATH, GIT_*, LD_PRELOAD, …) and
  * reach code execution. We only ever set MemoryLayer's own config keys.
  */
-const HOOK_ENV_ALLOWLIST = new Set([
+const HOOK_ENV_KEYS = [
+  "AUTHOR",
+  "AUTHOR_EMAIL",
+  "PROJECT",
+  "AUTO_PUSH",
+  "HOOK_CLIENT",
+  "READ_BUDGET_TOKENS",
+  "GATEWAY_URL",
+] as const;
+
+const HOOK_ENV_ALLOWLIST = new Set<string>([
   "CONTEXT_REPO_URL",
   "CONTEXT_REPO_PATH",
-  "MEMORYLAYER_AUTHOR",
-  "MEMORYLAYER_AUTHOR_EMAIL",
-  "MEMORYLAYER_PROJECT",
-  "MEMORYLAYER_AUTO_PUSH",
-  "MEMORYLAYER_HOOK_CLIENT",
-  "MEMORYLAYER_READ_BUDGET_TOKENS",
-  "MEMORYLAYER_GATEWAY_URL",
+  ...HOOK_ENV_KEYS.map((k) => `WAYFORM_${k}`),
+  ...HOOK_ENV_KEYS.map((k) => `MEMORYLAYER_${k}`), // legacy, still honored
 ]);
+
+/**
+ * Read `WAYFORM_<name>`, falling back to the legacy `MEMORYLAYER_<name>`.
+ *
+ * Both are honored indefinitely, not for a deprecation window: hook configs
+ * already written into collaborators' repos reference the old names, and a
+ * rename that silently stops loading config is exactly the failure mode that
+ * looks like "the tool just stopped working" with no error.
+ */
+export function envVar(
+  name: (typeof HOOK_ENV_KEYS)[number],
+): string | undefined {
+  return process.env[`WAYFORM_${name}`] ?? process.env[`MEMORYLAYER_${name}`];
+}
+
+/** Hook env file names, newest first. The legacy name is read forever — see envVar(). */
+export const HOOK_ENV_FILE = ".wayform-hook.env";
+export const LEGACY_HOOK_ENV_FILE = ".memorylayer-hook.env";
+export const HOOK_ENV_FILES = [HOOK_ENV_FILE, LEGACY_HOOK_ENV_FILE] as const;
 
 /**
  * Load `.memorylayer-hook.env` (KEY=VALUE lines) from `cwd` into process.env,
@@ -71,13 +95,16 @@ const HOOK_ENV_ALLOWLIST = new Set([
  * the file is absent or unreadable — never throws.
  */
 export function loadHookEnv(cwd: string = process.cwd()): void {
-  const file = path.join(cwd, ".memorylayer-hook.env");
-  let text: string;
-  try {
-    text = fs.readFileSync(file, "utf8");
-  } catch {
-    return; // absent/unreadable — nothing to load.
+  let text: string | undefined;
+  for (const name of HOOK_ENV_FILES) {
+    try {
+      text = fs.readFileSync(path.join(cwd, name), "utf8");
+      break;
+    } catch {
+      continue; // try the legacy name before giving up
+    }
   }
+  if (text === undefined) return; // absent/unreadable — nothing to load.
   for (const rawLine of text.split(/\r?\n/)) {
     const line = rawLine.trim();
     if (!line || line.startsWith("#")) continue;
@@ -141,7 +168,8 @@ export function cloneKey(repoUrl: string): string {
  * Resolution: MEMORYLAYER_HOME > $XDG_DATA_HOME/memorylayer > ~/.local/share/memorylayer.
  */
 function dataHome(): string {
-  const explicit = process.env.MEMORYLAYER_HOME?.trim();
+  const explicit =
+    process.env.WAYFORM_HOME?.trim() || process.env.MEMORYLAYER_HOME?.trim();
   if (explicit) return explicit;
   const xdg = process.env.XDG_DATA_HOME?.trim();
   if (xdg) return path.join(xdg, "memorylayer");
@@ -163,8 +191,7 @@ export function defaultProject(cwd: string = process.cwd()): string {
 
 export function loadConfig(): Config {
   const gatewayUrl =
-    process.env.MEMORYLAYER_GATEWAY_URL?.trim().replace(/\/+$/, "") ||
-    undefined;
+    envVar("GATEWAY_URL")?.trim().replace(/\/+$/, "") || undefined;
   const hasGateway = Boolean(gatewayUrl);
 
   // Gateway-only members have no local clone. CONTEXT_REPO_URL is optional when a
@@ -181,10 +208,10 @@ export function loadConfig(): Config {
       path.join(dataHome(), "clones", cloneKey(repoUrl))
     : "";
   const author =
-    process.env.MEMORYLAYER_AUTHOR?.trim() ||
-    (repoUrl ? required("MEMORYLAYER_AUTHOR") : "GitHub");
+    envVar("AUTHOR")?.trim() ||
+    (repoUrl ? required("WAYFORM_AUTHOR") : "GitHub");
 
-  const rawBudget = Number(process.env.MEMORYLAYER_READ_BUDGET_TOKENS);
+  const rawBudget = Number(envVar("READ_BUDGET_TOKENS"));
   const readBudgetTokens =
     Number.isFinite(rawBudget) && rawBudget > 0
       ? rawBudget
@@ -195,11 +222,11 @@ export function loadConfig(): Config {
     repoPath,
     author,
     authorEmail:
-      process.env.MEMORYLAYER_AUTHOR_EMAIL?.trim() ||
+      envVar("AUTHOR_EMAIL")?.trim() ||
       (repoUrl
         ? `${author.replace(/\s+/g, ".").toLowerCase()}@memorylayer.local`
         : "github@users.noreply.github.com"),
-    autoPush: (process.env.MEMORYLAYER_AUTO_PUSH?.trim() || "true") !== "false",
+    autoPush: (envVar("AUTO_PUSH")?.trim() || "true") !== "false",
     readBudgetTokens,
     gatewayUrl,
   };

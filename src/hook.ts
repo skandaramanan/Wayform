@@ -17,7 +17,7 @@
  * empty store) must NEVER break the user's session. On any failure we emit the
  * client's empty no-op and exit 0, so the session starts as if no hook existed.
  */
-import { loadConfig, defaultProject } from "./config.js";
+import { loadConfig, defaultProject, envVar } from "./config.js";
 import { ContextStore } from "./store.js";
 import { remoteHookRead } from "./remote-read.js";
 import { projectContext } from "./context-format.js";
@@ -35,7 +35,7 @@ export async function runHook(): Promise<void> {
   // Resolved here (not at module load) so the dispatcher can set
   // MEMORYLAYER_HOOK_CLIENT from the subcommand arg before calling. Cannot throw,
   // so both the success and fail-open paths always know which envelope to emit.
-  const client: HookClient = resolveClient(process.env.MEMORYLAYER_HOOK_CLIENT);
+  const client: HookClient = resolveClient(envVar("HOOK_CLIENT"));
 
   const emitEmpty = (): never => {
     process.stdout.write(renderEmpty(client));
@@ -57,7 +57,7 @@ export async function runHook(): Promise<void> {
   try {
     await drainStdin();
 
-    const project = process.env.MEMORYLAYER_PROJECT?.trim() || defaultProject();
+    const project = envVar("PROJECT")?.trim() || defaultProject();
 
     const cfg = loadConfig();
 

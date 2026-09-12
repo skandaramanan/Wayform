@@ -38,7 +38,10 @@ test("POST /admin/golden-candidate is forbidden for a non-operator", async () =>
       headers: { "content-type": "application/json" },
       body: JSON.stringify({ space: "s1", query: "q", expectedFactId: "f1" }),
     }),
-    { ...env(new MemoryIndexDb()), oauthProps: { githubId: 9999, githubLogin: "outsider" } },
+    {
+      ...env(new MemoryIndexDb()),
+      oauthProps: { githubId: 9999, githubLogin: "outsider" },
+    },
   );
   assert.equal(res.status, 403);
 });
@@ -116,7 +119,7 @@ test("retrieval-log without a trigger returns every row", async () => {
     ts: "2026-08-30T10:00:00Z",
   });
   const res = await handleRequest(
-    new Request("https://gw.test/admin/retrieval-log?space=team-a", ),
+    new Request("https://gw.test/admin/retrieval-log?space=team-a"),
     env(db),
   );
   assert.equal((await res.json()).rows.length, 1);
