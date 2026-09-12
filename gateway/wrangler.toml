@@ -9,7 +9,7 @@ GITHUB_APP_SLUG = "memorylayer-gateway"
 # GitHub numeric ids allowed to call /admin/*. A [vars] entry, not a secret:
 # these ids are public, and the operator list belongs in version control where
 # it can be reviewed. Empty/unset = nobody is an operator (fails closed).
-ADMIN_GITHUB_IDS = ""
+ADMIN_GITHUB_IDS = "87741943"
 
 # Created in Step 3; paste the id wrangler prints.
 [[kv_namespaces]]

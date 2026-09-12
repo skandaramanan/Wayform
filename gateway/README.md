@@ -111,11 +111,18 @@ numeric ids, checked against the caller's OAuth identity. Empty or unset means
 nobody is an operator; there is no bypass. Find your id with
 `curl -s https://api.github.com/users/<login> | jq .id`.
 
-Operator calls below send `$WAYFORM_AUTH`. Export it yourself as a single
-`-H` argument carrying your operator token as a bearer credential. The literal
-header is deliberately not written out here: tracked onboarding docs must stay
-free of copy-pasteable credential headers, enforced by the "credential-free
-contract" test in `test/verify-clients.test.mjs`. That rule exists because the
+Operator calls below send `$WAYFORM_AUTH`. Get it from the CLI:
+
+```bash
+export WAYFORM_AUTH="$(wayform token --header)"
+```
+
+`wayform token` reads your own OAuth credential from the OS keyring and
+refreshes it if it has expired, so an operator never handles a raw secret and
+there is no shared password to leak. The literal header is deliberately not
+spelled out in this file: tracked onboarding docs must stay free of
+copy-pasteable credential headers, enforced by the "credential-free contract"
+test in `test/verify-clients.test.mjs`. That rule exists because the
 2026-07-15 leak was an onboarding doc.
 
 This replaced a shared `ADMIN_SECRET` header, which had no per-person identity,

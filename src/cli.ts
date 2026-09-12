@@ -25,6 +25,7 @@ import { runInit } from "./init.js";
 import { runDoctor } from "./doctor.js";
 import { runSpaceCreate } from "./space-create.js";
 import { runLogin } from "./oauth-login.js";
+import { runToken } from "./token.js";
 
 async function main(): Promise<void> {
   // Self-load .memorylayer-hook.env from the project cwd for every subcommand,
@@ -60,6 +61,9 @@ async function main(): Promise<void> {
     case "login":
       await runLogin(rest);
       return;
+    case "token":
+      await runToken(rest);
+      return;
     case "space":
       if (rest[0] === "create") {
         await runSpaceCreate(rest.slice(1));
@@ -75,7 +79,7 @@ async function main(): Promise<void> {
       return;
     default:
       console.error(
-        `Unknown command "${sub}". Use: wayform [hook|prompt-hook|guard|stop-review|init|doctor|login|space] …`,
+        `Unknown command "${sub}". Use: wayform [hook|prompt-hook|guard|stop-review|init|doctor|login|token|space] …`,
       );
       process.exit(1);
   }

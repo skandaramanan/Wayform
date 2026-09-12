@@ -166,6 +166,11 @@ test("runDoctor passes for a healthy hosted member and skips git checks", async 
         throw new Error("git must not run in gateway-only mode");
       },
       fetchImpl: async (url, init) => {
+        // Two probes now: unauthenticated /health, then the authed read.
+        if (String(url).endsWith("/health")) {
+          assert.equal(new Headers(init?.headers).get("authorization"), null);
+          return new Response('{"ok":true}', { status: 200 });
+        }
         assert.match(String(url), /\/mcp\/hook\/read\?/);
         assert.equal(
           new Headers(init.headers).get("authorization"),
@@ -195,7 +200,10 @@ test("runDoctor fails when the gateway rejects the session", async () => {
     const code = await runDoctor({
       cwd: tmp,
       config: remoteCfg(),
-      fetchImpl: async () => new Response("nope", { status: 401 }),
+      fetchImpl: async (url) =>
+        String(url).endsWith("/health")
+          ? new Response('{"ok":true}', { status: 200 })
+          : new Response("nope", { status: 401 }),
       credentialStore: memoryStore(),
       write: (line) => lines.push(line),
       setExitCode: false,
@@ -216,8 +224,11 @@ test("runDoctor fails with wayform login when hosted and not logged in", async (
       cwd: tmp,
       config: remoteCfg(),
       credentialStore: memoryStore(false),
-      fetchImpl: async () => {
-        throw new Error("must not fetch without a token");
+      fetchImpl: async (url) => {
+        if (String(url).endsWith("/health")) {
+          return new Response('{"ok":true}', { status: 200 });
+        }
+        throw new Error("must not fetch the read path without a token");
       },
       write: (line) => lines.push(line),
       setExitCode: false,
@@ -278,6 +289,60 @@ test("runDoctor fails when clone origin does not match config", async () => {
     });
 
     assert.equal(code, 1);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("runDoctor reports unreachable only when /health itself fails", async () => {
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ml-doc-"));
+  try {
+    writeRemoteEnv(tmp);
+    const lines = [];
+    const code = await runDoctor({
+      cwd: tmp,
+      config: remoteCfg(),
+      credentialStore: memoryStore(),
+      fetchImpl: async (url) => {
+        if (String(url).endsWith("/health")) {
+          throw new Error("The operation was aborted due to timeout");
+        }
+        throw new Error("read path must not be probed once /health failed");
+      },
+      write: (line) => lines.push(line),
+      setExitCode: false,
+    });
+    assert.equal(code, 1);
+    assert.match(lines.join("\n"), /\[fail\] gateway: unreachable/);
+  } finally {
+    fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("a slow read on a reachable gateway warns, and does not say unreachable", async () => {
+  // The real failure that motivated this: a cold isolate made an O(corpus)
+  // read exceed the probe budget, and doctor blamed the network.
+  const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ml-doc-"));
+  try {
+    writeRemoteEnv(tmp);
+    const lines = [];
+    const code = await runDoctor({
+      cwd: tmp,
+      config: remoteCfg(),
+      credentialStore: memoryStore(),
+      fetchImpl: async (url) => {
+        if (String(url).endsWith("/health")) {
+          return new Response('{"ok":true}', { status: 200 });
+        }
+        throw new Error("The operation was aborted due to timeout");
+      },
+      write: (line) => lines.push(line),
+      setExitCode: false,
+    });
+    const out = lines.join("\n");
+    assert.equal(code, 0, "a slow read must not fail the doctor run");
+    assert.match(out, /\[warn\] gateway: reachable, but the read path/);
+    assert.doesNotMatch(out, /unreachable/);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
   }

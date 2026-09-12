@@ -15,6 +15,8 @@ import {
 
 const execFileAsync = promisify(execFile);
 const GATEWAY_PROBE_TIMEOUT_MS = 4000;
+/** Reachability only — no retrieval, so it should never need the read budget. */
+const HEALTH_PROBE_TIMEOUT_MS = 3000;
 /** Files that used to carry a member credential. Hook env is URL-only now. */
 // Both names: an install from before the rename still has the legacy file.
 const SECRET_FILES = [...HOOK_ENV_FILES];
@@ -176,9 +178,17 @@ export function checkSecretPerms(cwd: string): CheckResult[] {
 }
 
 /**
- * One authed GET /hook/read proves reachability AND that the OAuth session is
- * accepted — the same call the session hook makes. Missing/expired session
- * tells the user to run `wayform login`, never to paste a token.
+ * Two probes, because one answer cannot carry two questions.
+ *
+ * `/health` is unauthenticated and constant-cost, so it alone decides
+ * REACHABLE. `/mcp/hook/read` is the call the session hook makes, and it runs
+ * the whole retrieval path, whose cost is O(corpus) — on a cold isolate a
+ * healthy gateway can blow the probe budget. Reporting that as "unreachable"
+ * sends you to look at DNS and Cloudflare for a problem that is neither.
+ *
+ * So: /health fails -> unreachable. /health passes but the read is slow ->
+ * warn, and say it is slow. Missing/expired session -> run `wayform login`,
+ * never "paste a token".
  */
 export async function checkGateway(
   cfg: Config,
@@ -192,6 +202,29 @@ export async function checkGateway(
       name: "gateway",
       message: "gateway URL is not configured",
     };
+  // Probe 1 — reachability only. Cheap, unauthenticated, no retrieval.
+  try {
+    const health = await fetchImpl(`${cfg.gatewayUrl}/health`, {
+      signal: AbortSignal.timeout(HEALTH_PROBE_TIMEOUT_MS),
+    });
+    if (!health.ok) {
+      return {
+        status: "fail",
+        name: "gateway",
+        message: `unreachable: HTTP ${health.status} from ${cfg.gatewayUrl}/health`,
+      };
+    }
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    return {
+      status: "fail",
+      name: "gateway",
+      message: `unreachable: ${redactSecrets(message)}`,
+    };
+  }
+
+  // Probe 2 — the authenticated read path. The gateway is known reachable by
+  // now, so anything that fails here is auth or read latency, never the network.
   const url = new URL(`${cfg.gatewayUrl}/mcp/hook/read`);
   url.searchParams.set("project", defaultProject(cwd));
   url.searchParams.set("budget", "1");
@@ -230,10 +263,19 @@ export async function checkGateway(
         message: "not logged in — run: wayform login",
       };
     }
+    // Reachability already passed, so a timeout here is a SLOW READ, not a
+    // down gateway. Warn rather than fail: the gateway is serving.
+    if (/abort|timeout/i.test(message)) {
+      return {
+        status: "warn",
+        name: "gateway",
+        message: `reachable, but the read path took over ${GATEWAY_PROBE_TIMEOUT_MS}ms (cold isolate or a large corpus) — retry; if it persists the read path needs prefiltering`,
+      };
+    }
     return {
       status: "fail",
       name: "gateway",
-      message: `unreachable: ${redactSecrets(message)}`,
+      message: `read failed: ${redactSecrets(message)}`,
     };
   }
 }
