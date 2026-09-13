@@ -13,7 +13,12 @@
 import type { ParsedEntry } from "../../src/frontmatter.js";
 import { slug } from "../../src/slug.js";
 
-export type GenText = (prompt: string) => Promise<string>;
+/** Why a text-gen call is made: the gen seam sizes max_tokens and the neuron
+ *  reservation from it (a verdict is ~40 tokens, an extraction ~300). */
+export interface GenOpts {
+  purpose?: "extract" | "judge";
+}
+export type GenText = (prompt: string, opts?: GenOpts) => Promise<string>;
 
 export interface ExtractedFact {
   kind: string;
@@ -22,7 +27,14 @@ export interface ExtractedFact {
   entities: string[];
 }
 
-const VALID_KINDS = new Set([
+/**
+ * Bump whenever the extraction prompt, chunking, model, or fact shape changes.
+ * Entries indexed under an older version are re-extracted by the cron's retry
+ * sweep a few per tick — never by wiping and rebuilding the whole space.
+ */
+export const EXTRACTOR_VERSION = "2026-09-13.1";
+
+export const FACT_KINDS = [
   "decision",
   "constraint",
   "preference",
@@ -30,7 +42,12 @@ const VALID_KINDS = new Set([
   "context",
   "status",
   "question",
-]);
+] as const;
+const VALID_KINDS = new Set<string>(FACT_KINDS);
+
+/** Bounds on writer-supplied facts (write_context `facts`). */
+export const MAX_CLIENT_FACTS = 12;
+export const MAX_CLIENT_FACT_CHARS = 1000;
 
 export function buildExtractionPrompt(entry: ParsedEntry): string {
   return [
@@ -124,7 +141,7 @@ function floor(entry: ParsedEntry): ExtractedFact[] {
   ];
 }
 
-function coerce(raw: unknown, entry: ParsedEntry): ExtractedFact[] | null {
+function coerce(raw: unknown, entry: { type: string }): ExtractedFact[] | null {
   if (!Array.isArray(raw)) return null;
   const facts: ExtractedFact[] = [];
   for (const item of raw) {
@@ -253,22 +270,33 @@ export function chunkPayload(payload: string, max = CHUNK_CHARS): string[] {
   );
 }
 
-export async function extractFacts(
+/**
+ * Facts for one entry, plus whether the MODEL failed on it. The retry sweep
+ * acts on `floored`, so it is true only for failures a later attempt could fix
+ * — unparseable output, a thrown call such as an exhausted budget, no model —
+ * and never for the deterministic MAX_CHUNKS_PER_ENTRY remainder, which would
+ * fail identically on every retry.
+ */
+export async function extractFactsDetailed(
   gen: GenText | null,
   entry: ParsedEntry,
-): Promise<ExtractedFact[]> {
-  if (!gen) return floor(entry);
+): Promise<{ facts: ExtractedFact[]; floored: boolean }> {
+  // The writer already split it: nothing to extract, nothing to pay.
+  const given = clientFacts(entry.facts, entry);
+  if (given) return { facts: given, floored: false };
+  if (!gen) return { facts: floor(entry), floored: true };
 
   // Long entries are extracted chunk by chunk: each call stays small enough to
   // return parseable JSON, and a chunk that still fails only floors ITS OWN
   // slice instead of collapsing the whole entry into one untagged blob.
   const chunks = chunkPayload(entry.payload);
   if (chunks.length > 1) {
-    const all: ExtractedFact[] = [];
     const extracted = chunks.slice(0, MAX_CHUNKS_PER_ENTRY);
-    for (const payload of extracted) {
-      all.push(...(await extractOne(gen, { ...entry, payload })));
-    }
+    // Independent calls, so in parallel: wall time is the slowest chunk.
+    const parts = await Promise.all(
+      extracted.map((payload) => extractOne(gen, { ...entry, payload })),
+    );
+    const facts = parts.flatMap((p) => p.facts);
     const rest = chunks.slice(MAX_CHUNKS_PER_ENTRY);
     if (rest.length > 0) {
       console.log(
@@ -280,43 +308,71 @@ export async function extractFacts(
           floored: rest.length,
         }),
       );
-      all.push(...floor({ ...entry, payload: rest.join("\n\n") }));
+      facts.push(...floor({ ...entry, payload: rest.join("\n\n") }));
     }
-    return all;
+    return { facts, floored: parts.some((p) => p.floored) };
   }
   return extractOne(gen, entry);
+}
+
+export async function extractFacts(
+  gen: GenText | null,
+  entry: ParsedEntry,
+): Promise<ExtractedFact[]> {
+  return (await extractFactsDetailed(gen, entry)).facts;
+}
+
+/**
+ * Writer-supplied facts (write_context `facts`, persisted in the entry's
+ * frontmatter), validated like model output: malformed items are dropped,
+ * over-long bodies rejected, and an untagged fact gets deterministic tags so
+ * it still reaches entityRank. Null when nothing usable remains.
+ */
+export function clientFacts(
+  raw: unknown,
+  entry: { type: string },
+): ExtractedFact[] | null {
+  if (!Array.isArray(raw) || raw.length === 0) return null;
+  const facts = (coerce(raw.slice(0, MAX_CLIENT_FACTS), entry) ?? []).filter(
+    (f) => f.body.length <= MAX_CLIENT_FACT_CHARS,
+  );
+  if (facts.length === 0) return null;
+  return facts.map((f) =>
+    f.entities.length > 0 ? f : { ...f, entities: floorEntities(f.body) },
+  );
 }
 
 async function extractOne(
   gen: GenText,
   entry: ParsedEntry,
-): Promise<ExtractedFact[]> {
+): Promise<{ facts: ExtractedFact[]; floored: boolean }> {
+  const floored = () => ({ facts: floor(entry), floored: true });
   let out: string;
   try {
-    out = await gen(buildExtractionPrompt(entry));
+    out = await gen(buildExtractionPrompt(entry), { purpose: "extract" });
   } catch (e) {
     // fail-open, but no longer silent: a thrown gen call means the model id
     // or binding is wrong / unavailable — surface it in `wrangler tail`.
     console.warn(
       `[extract] gen threw for ${entry.file}: ${(e as Error).message}`,
     );
-    return floor(entry);
+    return floored();
   }
   try {
     const coerced = coerce(parseModelJson(out), entry);
-    if (coerced) return coerced;
+    if (coerced) return { facts: coerced, floored: false };
     console.warn(
       `[extract] no valid facts parsed for ${entry.file}; raw head: ${String(
         out,
       ).slice(0, 200)}`,
     );
-    return floor(entry);
+    return floored();
   } catch (e) {
     console.warn(
       `[extract] parse failed for ${entry.file}: ${(e as Error).message}; raw head: ${String(
         out,
       ).slice(0, 200)}`,
     );
-    return floor(entry);
+    return floored();
   }
 }

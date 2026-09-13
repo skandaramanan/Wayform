@@ -150,6 +150,46 @@ export interface IndexDb {
     limit: number,
     autoLinkedOnly: boolean,
   ): Promise<SupersessionLogEntry[]>;
+  /** ingest_state rows for these ledger files (missing = never recorded). */
+  getIngestStates(
+    space: string,
+    files: string[],
+  ): Promise<Map<string, IngestState>>;
+  putIngestState(state: IngestState): Promise<void>;
+  /** Whether the space has any ingest_state at all (false = indexed before
+   *  the table existed, so it needs one adopting pass). */
+  hasIngestState(space: string): Promise<boolean>;
+  /** Files worth another extraction: floored before `flooredBeforeIso`,
+   *  pending since before `pendingBeforeIso`, or on another extractor
+   *  version. Oldest first. */
+  listRetryable(
+    space: string,
+    version: string,
+    pendingBeforeIso: string,
+    flooredBeforeIso: string,
+    limit: number,
+  ): Promise<string[]>;
+  /** Distinct source_file of every indexed doc in the space. */
+  listSourceFiles(space: string): Promise<string[]>;
+  /** Per file: how many docs it produced and its longest body. */
+  docStatsByFile(
+    space: string,
+    files: string[],
+  ): Promise<Map<string, { docs: number; maxBody: number }>>;
+  /** Every doc of one ledger entry, superseded or not, WITH embeddings. */
+  docsBySource(space: string, sourceId: string): Promise<IndexedDoc[]>;
+  /** Remove every doc, tag and ingest_state row derived from these files. */
+  deleteBySourceFiles(space: string, files: string[]): Promise<void>;
+}
+
+export interface IngestState {
+  space: string;
+  sourceFile: string;
+  /** git blob sha of the ledger file — the sha the Trees API reports. */
+  digest: string;
+  version: string;
+  status: "ok" | "floored" | "pending";
+  updatedAt: string;
 }
 
 function rowToDoc(
@@ -443,7 +483,10 @@ export function d1IndexDb(db: D1Like): IndexDb {
     async deleteSpace(space) {
       await db.batch([
         db.prepare("DELETE FROM docs WHERE space = ?").bind(space),
+        // Tags used to survive a wipe as orphans (seen live 2026-07-13).
+        db.prepare("DELETE FROM fact_entities WHERE space = ?").bind(space),
         db.prepare("DELETE FROM index_state WHERE space = ?").bind(space),
+        db.prepare("DELETE FROM ingest_state WHERE space = ?").bind(space),
       ]);
     },
     async logRetrieval(rec) {
@@ -667,6 +710,129 @@ export function d1IndexDb(db: D1Like): IndexDb {
         reason: (r.reason as string) ?? "",
         ts: r.ts as string,
       }));
+    },
+    async getIngestStates(space, files) {
+      const out = new Map<string, IngestState>();
+      for (let i = 0; i < files.length; i += ID_CHUNK) {
+        const chunk = files.slice(i, i + ID_CHUNK);
+        const { results } = await db
+          .prepare(
+            `SELECT * FROM ingest_state WHERE space = ? AND source_file IN (${chunk.map(() => "?").join(", ")})`,
+          )
+          .bind(space, ...chunk)
+          .all();
+        for (const r of results) {
+          out.set(r.source_file as string, {
+            space,
+            sourceFile: r.source_file as string,
+            digest: r.digest as string,
+            version: r.version as string,
+            status: r.status as IngestState["status"],
+            updatedAt: r.updated_at as string,
+          });
+        }
+      }
+      return out;
+    },
+    async putIngestState(s) {
+      await db
+        .prepare(
+          "INSERT OR REPLACE INTO ingest_state (space, source_file, digest, version, status, updated_at) " +
+            "VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(s.space, s.sourceFile, s.digest, s.version, s.status, s.updatedAt)
+        .run();
+    },
+    async hasIngestState(space) {
+      const row = await db
+        .prepare(
+          "SELECT 1 AS present FROM ingest_state WHERE space = ? LIMIT 1",
+        )
+        .bind(space)
+        .first();
+      return row !== null;
+    },
+    async listRetryable(
+      space,
+      version,
+      pendingBeforeIso,
+      flooredBeforeIso,
+      limit,
+    ) {
+      const { results } = await db
+        .prepare(
+          "SELECT source_file FROM ingest_state WHERE space = ? AND (" +
+            "(status = 'floored' AND updated_at < ?) OR " +
+            "(status = 'pending' AND updated_at < ?) OR version != ?" +
+            ") ORDER BY updated_at LIMIT ?",
+        )
+        .bind(space, flooredBeforeIso, pendingBeforeIso, version, limit)
+        .all();
+      return results.map((r) => r.source_file as string);
+    },
+    async listSourceFiles(space) {
+      const { results } = await db
+        .prepare("SELECT DISTINCT source_file FROM docs WHERE space = ?")
+        .bind(space)
+        .all();
+      return results.map((r) => r.source_file as string);
+    },
+    async docStatsByFile(space, files) {
+      const out = new Map<string, { docs: number; maxBody: number }>();
+      for (let i = 0; i < files.length; i += ID_CHUNK) {
+        const chunk = files.slice(i, i + ID_CHUNK);
+        const { results } = await db
+          .prepare(
+            "SELECT source_file, COUNT(*) AS docs, MAX(LENGTH(body)) AS max_body " +
+              `FROM docs WHERE space = ? AND source_file IN (${chunk.map(() => "?").join(", ")}) ` +
+              "GROUP BY source_file",
+          )
+          .bind(space, ...chunk)
+          .all();
+        for (const r of results) {
+          out.set(r.source_file as string, {
+            docs: Number(r.docs),
+            maxBody: Number(r.max_body),
+          });
+        }
+      }
+      return out;
+    },
+    async docsBySource(space, sourceId) {
+      const { results } = await db
+        .prepare("SELECT * FROM docs WHERE space = ? AND source_id = ?")
+        .bind(space, sourceId)
+        .all();
+      return results.map((r) => rowToDoc(r));
+    },
+    async deleteBySourceFiles(space, files) {
+      for (let i = 0; i < files.length; i += ID_CHUNK) {
+        const chunk = files.slice(i, i + ID_CHUNK);
+        const ph = chunk.map(() => "?").join(", ");
+        const ids = `SELECT id FROM docs WHERE space = ? AND source_file IN (${ph})`;
+        await db.batch([
+          db
+            .prepare(
+              `UPDATE docs SET superseded_by = NULL WHERE space = ? AND superseded_by IN (${ids})`,
+            )
+            .bind(space, space, ...chunk),
+          db
+            .prepare(
+              `DELETE FROM fact_entities WHERE space = ? AND fact_id IN (${ids})`,
+            )
+            .bind(space, space, ...chunk),
+          db
+            .prepare(
+              `DELETE FROM docs WHERE space = ? AND source_file IN (${ph})`,
+            )
+            .bind(space, ...chunk),
+          db
+            .prepare(
+              `DELETE FROM ingest_state WHERE space = ? AND source_file IN (${ph})`,
+            )
+            .bind(space, ...chunk),
+        ]);
+      }
     },
   };
 }

@@ -7,6 +7,18 @@
 
 export type EntryType = "decision" | "context";
 
+/**
+ * One atomic fact the WRITER pre-split. Stored in the entry's frontmatter so
+ * every later re-index reuses it instead of paying for server-side LLM
+ * extraction again — the writing agent already understood the text.
+ */
+export interface EntryFact {
+  kind: string;
+  body: string;
+  tier?: string;
+  entities?: string[];
+}
+
 /** The minimal payload a caller supplies to record an entry. */
 export interface WriteEntry {
   author: string;
@@ -22,6 +34,7 @@ export interface ParsedEntry {
   id: string;
   payload: string;
   file: string;
+  facts?: EntryFact[];
 }
 
 /** The frontmatter block that precedes an entry's body, in serialization order. */
@@ -31,11 +44,14 @@ export interface EntryFrontmatter {
   timestamp: string;
   id: string;
   project: string;
+  facts?: EntryFact[];
 }
 
 /**
  * Render an entry to its on-disk markdown: a frontmatter block followed by the
  * trimmed payload. This is the ONLY place the write format is defined.
+ * `facts` is one JSON line — JSON.stringify escapes newlines, so it can never
+ * break the line-per-key frontmatter or close the block early.
  */
 export function serializeEntry(fm: EntryFrontmatter, payload: string): string {
   return (
@@ -45,9 +61,31 @@ export function serializeEntry(fm: EntryFrontmatter, payload: string): string {
     `timestamp: ${fm.timestamp}\n` +
     `id: ${fm.id}\n` +
     `project: ${fm.project}\n` +
+    (fm.facts && fm.facts.length > 0
+      ? `facts: ${JSON.stringify(fm.facts)}\n`
+      : "") +
     `---\n\n` +
     `${payload.trim()}\n`
   );
+}
+
+/** Malformed facts are dropped, never fatal: the payload is still the record. */
+function parseFacts(raw: string | undefined): EntryFact[] | undefined {
+  if (!raw) return undefined;
+  try {
+    const value: unknown = JSON.parse(raw);
+    if (!Array.isArray(value)) return undefined;
+    const facts = value.filter(
+      (f): f is EntryFact =>
+        !!f &&
+        typeof f === "object" &&
+        typeof (f as EntryFact).body === "string" &&
+        (f as EntryFact).body.trim() !== "",
+    );
+    return facts.length > 0 ? facts : undefined;
+  } catch {
+    return undefined;
+  }
 }
 
 /**
@@ -71,6 +109,7 @@ export function parseEntry(raw: string, file: string): ParsedEntry | null {
   );
 
   if (!front.timestamp || !front.author) return null;
+  const facts = parseFacts(front.facts);
   return {
     author: front.author,
     type: (front.type as EntryType) || "context",
@@ -78,5 +117,6 @@ export function parseEntry(raw: string, file: string): ParsedEntry | null {
     id: front.id || "",
     payload: match[2].trim(),
     file,
+    ...(facts ? { facts } : {}),
   };
 }

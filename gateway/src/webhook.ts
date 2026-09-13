@@ -48,7 +48,7 @@ interface PushPayload {
   ref?: string;
   after?: string;
   repository?: { full_name?: string };
-  commits?: { added?: string[]; modified?: string[] }[];
+  commits?: { added?: string[]; modified?: string[]; removed?: string[] }[];
 }
 
 interface PrPayload {
@@ -335,15 +335,18 @@ export async function handleWebhook(
     return new Response("index disabled", { status: 200 });
   }
 
+  const commits = payload.commits ?? [];
   const paths = [
     ...new Set(
-      (payload.commits ?? []).flatMap((c) => [
-        ...(c.added ?? []),
-        ...(c.modified ?? []),
-      ]),
+      commits.flatMap((c) => [...(c.added ?? []), ...(c.modified ?? [])]),
     ),
   ];
+  // A ledger file deleted upstream must leave the index too — push ingest
+  // used to ignore `removed`, so a deleted entry stayed searchable.
+  const removed = [...new Set(commits.flatMap((c) => c.removed ?? []))];
   const after = payload.after;
+  // A push for a commit this gateway just wrote finds the entry already
+  // indexed (or claimed) in ingest_state and skips it — no second extraction.
   const work = ingestFiles(
     env,
     deps.db,
@@ -353,6 +356,7 @@ export async function handleWebhook(
     paths,
     after,
     env.githubFetch ?? fetch,
+    { removed },
   ).catch(() => {
     // swallowed: reconcile cron detects the sha gap and reindexes
   });

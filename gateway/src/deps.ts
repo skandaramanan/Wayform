@@ -7,7 +7,8 @@ import type { Env } from "./env.js";
 import { d1IndexDb, type IndexDb } from "./index-db.js";
 import type { Embedder } from "./retrieval.js";
 import type { GenText } from "./extract.js";
-import { reserveNeurons, EXTRACT_NEURON_COST } from "./neuron-budget.js";
+import { reserveNeurons, adjustNeurons } from "./neuron-budget.js";
+import { estimateTokens } from "../../src/token-budget.js";
 
 export const EMBED_MODEL = "@cf/baai/bge-base-en-v1.5";
 // Non-deprecated as of 2026-07; the bare @cf/meta/llama-3.1-8b-instruct was
@@ -28,6 +29,29 @@ export const EXTRACT_MODEL = "@cf/meta/llama-3.3-70b-instruct-fp8-fast";
 // the largest observed 5-fact output with headroom.
 export const EXTRACT_MAX_TOKENS = 1024;
 
+/** A verdict is one JSON object with a one-sentence reason (~40 tokens). It
+ *  used to inherit the 1024 extraction ceiling, so a rambling judge could
+ *  bill ~20x what the answer needs. */
+export const JUDGE_MAX_TOKENS = 160;
+
+/** EXTRACT_MODEL list price in neurons per million tokens (Workers AI pricing
+ *  page, retrieved 2026-09-13). Output costs ~8x input, so what a call is FOR
+ *  decides what it costs. */
+export const NEURONS_PER_M_INPUT = 26_668;
+export const NEURONS_PER_M_OUTPUT = 204_805;
+
+/** Typical completion lengths, used only to RESERVE before a call; the model's
+ *  reported usage settles the counter after. Extraction measured ~77 neurons
+ *  (~285 output tokens); a verdict is ~40 tokens. */
+const EXPECTED_OUTPUT_TOKENS = { extract: 350, judge: 48 } as const;
+
+export function neuronsFor(inputTokens: number, outputTokens: number): number {
+  return Math.ceil(
+    (inputTokens * NEURONS_PER_M_INPUT + outputTokens * NEURONS_PER_M_OUTPUT) /
+      1_000_000,
+  );
+}
+
 export function indexDeps(
   env: Env,
 ): { db: IndexDb; embed: Embedder | null; gen: GenText | null } | null {
@@ -42,16 +66,34 @@ export function indexDeps(
   const gen: GenText | null =
     env.genText ??
     (env.AI
-      ? async (prompt: string) => {
-          if (!(await reserveNeurons(env, EXTRACT_NEURON_COST))) {
+      ? async (prompt, opts = {}) => {
+          const purpose = opts.purpose ?? "extract";
+          // Every call used to reserve a flat 100 neurons, so a judge (~13
+          // real neurons) cost the budget as much as an extraction and the
+          // self-imposed cap tripped long before the real bill did.
+          const estimate = neuronsFor(
+            estimateTokens(prompt),
+            EXPECTED_OUTPUT_TOKENS[purpose],
+          );
+          if (!(await reserveNeurons(env, estimate))) {
             throw new Error("neuron budget exhausted for today");
           }
-          return (
-            await env.AI!.run(EXTRACT_MODEL, {
-              prompt,
-              max_tokens: EXTRACT_MAX_TOKENS,
-            })
-          ).response;
+          const out = await env.AI!.run(EXTRACT_MODEL, {
+            prompt,
+            max_tokens:
+              purpose === "judge" ? JUDGE_MAX_TOKENS : EXTRACT_MAX_TOKENS,
+          });
+          const u = out.usage;
+          if (
+            u &&
+            Number.isFinite(u.prompt_tokens) &&
+            Number.isFinite(u.completion_tokens)
+          ) {
+            const delta =
+              neuronsFor(u.prompt_tokens, u.completion_tokens) - estimate;
+            if (delta !== 0) await adjustNeurons(env, delta);
+          }
+          return out.response;
         }
       : null);
   return { db, embed, gen };

@@ -3,6 +3,7 @@ import {
   parseEntry,
   type ParsedEntry,
   type EntryType,
+  type EntryFact,
 } from "../../src/frontmatter.js";
 import { packToBudget, DEFAULT_BUDGET_TOKENS } from "../../src/token-budget.js";
 import { slug, fsSafeTimestamp } from "../../src/slug.js";
@@ -47,16 +48,23 @@ export async function writeEntry(
   env: Env,
   member: SpaceMember,
   project: string,
-  entry: { type: EntryType; payload: string },
+  entry: { type: EntryType; payload: string; facts?: EntryFact[] },
   fetchImpl: typeof fetch = fetch,
   retryDelaysMs: number[] = WRITE_RETRY_DELAYS_MS,
-): Promise<ParsedEntry> {
+): Promise<ParsedEntry & { digest: string }> {
   const token = await installationToken(env, member.installationId, fetchImpl);
   const timestamp = new Date().toISOString();
   const id = crypto.randomUUID().slice(0, 8);
   const file = `context/${slug(project)}/${slug(member.author)}/${fsSafeTimestamp(timestamp)}-${id}.md`;
   const contents = serializeEntry(
-    { author: member.author, type: entry.type, timestamp, id, project },
+    {
+      author: member.author,
+      type: entry.type,
+      timestamp,
+      id,
+      project,
+      facts: entry.facts,
+    },
     entry.payload,
   );
   const subject = entry.payload
@@ -95,7 +103,26 @@ export async function writeEntry(
     id,
     payload: entry.payload.trim(),
     file,
+    ...(entry.facts && entry.facts.length > 0 ? { facts: entry.facts } : {}),
+    digest: await gitBlobSha(contents),
   };
+}
+
+/**
+ * Git's blob id for `content` — the same sha the Trees API reports per path —
+ * so an entry written here, fetched by a webhook, or listed in a tree has one
+ * digest, and ingest can tell "already indexed" without fetching the file.
+ */
+export async function gitBlobSha(content: string): Promise<string> {
+  const body = new TextEncoder().encode(content);
+  const header = new TextEncoder().encode(`blob ${body.length}\0`);
+  const bytes = new Uint8Array(header.length + body.length);
+  bytes.set(header);
+  bytes.set(body, header.length);
+  const hash = await crypto.subtle.digest("SHA-1", bytes);
+  return [...new Uint8Array(hash)]
+    .map((b) => b.toString(16).padStart(2, "0"))
+    .join("");
 }
 
 /**
