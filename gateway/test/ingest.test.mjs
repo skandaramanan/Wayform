@@ -103,7 +103,21 @@ test("factToDoc maps a fact to a doc; synthetic id + source_id fall back to file
     entities: ["x"],
   };
   const d = factToDoc("s1", "My Proj", entry, fact, 0, [1]);
-  assert.equal(d.id, "context/p/a/f.md#0");
+  // Ids are CONTENT-derived, not positional — assert the property, not a
+  // literal. The old `#${idx}` form let re-extraction silently repoint a
+  // stored id at different text.
+  assert.match(d.id, /^context\/p\/a\/f\.md#[0-9a-z]{6,}$/);
+  assert.equal(
+    d.id,
+    factToDoc("s1", "My Proj", entry, fact, 99, [1]).id,
+    "the same fact keeps its id regardless of position in the entry",
+  );
+  assert.notEqual(
+    d.id,
+    factToDoc("s1", "My Proj", entry, { ...fact, body: "different" }, 0, [1])
+      .id,
+    "different text must yield a different id, so a stale ref dangles",
+  );
   assert.equal(d.sourceId, "context/p/a/f.md");
   assert.equal(d.project, "my-proj"); // slugged
   assert.equal(d.kind, "constraint"); // from the fact, not the entry
@@ -275,10 +289,20 @@ test("ingestEntries extracts N facts per entry as docs rows with synthetic ids +
   ]);
   assert.equal(n, 2);
   const docs = await db.listDocs("s1", "memorylayer");
-  assert.deepEqual(docs.map((d) => d.id).sort(), ["e1#0", "e1#1"]);
+  assert.equal(docs.length, 2);
+  assert.ok(
+    docs.every((d) => d.id.startsWith("e1#")),
+    "sourceId prefix is stable",
+  );
+  assert.equal(
+    new Set(docs.map((d) => d.id)).size,
+    2,
+    "distinct facts, distinct ids",
+  );
   assert.ok(docs.every((d) => d.sourceId === "e1"));
-  assert.equal(docs.find((d) => d.id === "e1#0").tier, "canon");
-  assert.equal(docs.find((d) => d.id === "e1#0").embedding.length, 16);
+  const canon = docs.find((d) => d.tier === "canon");
+  assert.ok(canon, "the canon fact survived");
+  assert.equal(canon.embedding.length, 16);
 });
 
 test("ingestEntries fail-open: no gen → one whole-entry normal fact (Phase A behavior)", async () => {
@@ -293,7 +317,7 @@ test("ingestEntries fail-open: no gen → one whole-entry normal fact (Phase A b
   };
   assert.equal(await ingestEntries(db, fakeEmbed, null, "s1", "p", [entry]), 1);
   const docs = await db.listDocs("s1", "p");
-  assert.equal(docs[0].id, "e1#0");
+  assert.match(docs[0].id, /^e1#[0-9a-z]{6,}$/);
   assert.equal(docs[0].body, "we picked D1");
   assert.equal(docs[0].tier, "normal");
 });

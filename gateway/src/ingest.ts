@@ -41,17 +41,44 @@ export function projectFromPath(path: string): string | null {
   return m ? m[1] : null;
 }
 
+/**
+ * Stable 32-bit FNV-1a, base36. Not cryptographic and does not need to be: the
+ * digest only has to distinguish a handful of facts inside ONE entry's
+ * namespace, and it must be synchronous (factToDoc runs inside a .map()).
+ */
+function factDigest(body: string): string {
+  let h = 0x811c9dc5;
+  for (let i = 0; i < body.length; i++) {
+    h ^= body.charCodeAt(i);
+    h = Math.imul(h, 0x01000193) >>> 0;
+  }
+  return h.toString(36).padStart(6, "0");
+}
+
 export function factToDoc(
   space: string,
   project: string,
   entry: ParsedEntry,
   fact: ExtractedFact,
-  idx: number,
+  _idx: number,
   embedding: number[],
 ): IndexedDoc {
   const sourceId = entry.id || entry.file;
   return {
-    id: `${sourceId}#${idx}`,
+    // Keyed by CONTENT, not position. The old `#${idx}` was positional, so
+    // re-extraction silently repointed a stored id at different text: on
+    // 2026-09-13 `8481264b#0` meant a 3838-char blob in the morning and a
+    // 103-char atomic fact by evening, and anything holding that id —
+    // supersedes:[…], memory_feedback(fact_id), the planned
+    // plan_decision(plan_id, fact_id) — resolved to the WRONG fact with
+    // nothing reporting an error. A content digest makes the id change iff the
+    // fact changes, so a stale reference DANGLES instead. Dangling is
+    // detectable and recoverable; silently wrong is neither.
+    //
+    // The `sourceId` prefix stays stable across re-extraction (it derives from
+    // the ledger file, which does not change), so provenance survives even when
+    // a fact is rephrased.
+    id: `${sourceId}#${factDigest(fact.body)}`,
     space,
     project: slug(project),
     kind: fact.kind,
