@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import {
   extractFacts,
   buildExtractionPrompt,
+  floorEntities,
 } from "../dist/gateway/src/extract.js";
 import { fakeGenText } from "./helpers.mjs";
 
@@ -122,5 +123,57 @@ test("extractFacts drops facts with an empty body but keeps the rest", async () 
   assert.deepEqual(
     facts.map((f) => f.body),
     ["kept"],
+  );
+});
+
+test("floorEntities pulls identifier-shaped tags so an untagged fact is impossible", () => {
+  // Why this exists: the LLM extractor returns entities:[] when it fails, and
+  // an untagged fact is invisible to entityRank — one of three generators.
+  // RRF scores by how many lists a doc appears in, so on 2026-09-13 the only
+  // doc of 425 containing "Mosaic" ranked 16th for a query of its own rarest
+  // terms, because it reached BM25 alone.
+  const tags = floorEntities(
+    "Set ADMIN_GITHUB_IDS in `wrangler.toml` so requireOperator resolves. " +
+      "See gateway/src/rank.ts and the product-repos:registry blob.",
+  );
+  assert.ok(tags.includes("admin_github_ids"), "ALLCAPS constants");
+  assert.ok(tags.includes("wrangler.toml"), "backticked spans");
+  // Paths and namespaces split on / and : — deliberate. entityRank tokenizes
+  // tags before matching, so "rank.ts" still overlaps a query about
+  // gateway/src/rank.ts, and the shorter tag matches more phrasings.
+  assert.ok(
+    tags.includes("rank.ts"),
+    "dotted filenames survive path splitting",
+  );
+  assert.ok(tags.includes("product-repos"), "kebab identifiers");
+});
+
+test("floorEntities is deduped, lowercased, bounded, and never empty-ish junk", () => {
+  const tags = floorEntities(
+    "`a` `ab` " + "WEBHOOK_SECRET ".repeat(30) + "x_y ".repeat(30),
+  );
+  assert.ok(tags.length <= 12, "capped so tags stay few and stable");
+  assert.equal(new Set(tags).size, tags.length, "deduped");
+  assert.ok(
+    tags.every((t) => t === t.toLowerCase()),
+    "normalized",
+  );
+  assert.ok(
+    tags.every((t) => t.length >= 3),
+    "1-2 char noise dropped",
+  );
+});
+
+test("the extraction floor tags the fact it falls back to", async () => {
+  // extractFacts(null, …) takes the floor path directly.
+  const [fact] = await extractFacts(null, {
+    file: "x.md",
+    type: "decision",
+    payload: "Pinned gitleaks in `ci.yml` because GITHUB_API rate-limited.",
+  });
+  assert.equal(fact.body.startsWith("Pinned gitleaks"), true);
+  assert.ok(
+    fact.entities.length > 0,
+    "the floor must never emit an untagged fact",
   );
 });

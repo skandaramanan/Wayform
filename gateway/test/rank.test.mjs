@@ -10,6 +10,8 @@ import {
   CANON_BOOST,
   TAU,
   FEEDBACK_PENALTY,
+  RRF_K,
+  TAU_RANK_DEPTH,
 } from "../dist/gateway/src/rank.js";
 
 test("adjustScores demotes a net-negative fact below an identical clean one", () => {
@@ -147,8 +149,24 @@ test("adjustScores: decisions get a boost; status decays with age", () => {
   assert.deepEqual(out.map((s) => s.id).slice(0, 1), ["d"]); // sorted desc
 });
 
-test("TAU is a small positive floor below a single-list top-1 RRF score", () => {
-  assert.ok(TAU > 0 && TAU < 1 / 61);
+test("TAU stays below a single-list top-1 RRF score for whatever RRF_K is", () => {
+  // Was `TAU < 1 / 61`, which hardcoded the old RRF_K=60 into a literal — the
+  // same coupling bug the constants had. Assert the INVARIANT instead, so
+  // retuning RRF_K can never silently invalidate the floor.
+  const singleListTop1 = 1 / (RRF_K + 1);
+  assert.ok(TAU > 0, "a floor of zero would admit everything");
+  assert.ok(
+    TAU < singleListTop1,
+    `TAU ${TAU} must stay under a lone top-1 hit ${singleListTop1} or an exact keyword match gets dropped`,
+  );
+});
+
+test("TAU keeps a single-generator hit admissible to a fixed rank depth", () => {
+  // The property that actually matters: how deep a lone hit may sit and still
+  // clear the floor. Holding it fixed is what makes a RRF_K change safe.
+  const scoreAtDepth = 1 / (RRF_K + TAU_RANK_DEPTH + 1);
+  assert.equal(TAU, scoreAtDepth);
+  assert.ok(1 / (RRF_K + TAU_RANK_DEPTH + 2) < TAU, "one rank deeper is cut");
 });
 
 test("adjustScores: a canon fact outranks a same-similarity normal decision", () => {

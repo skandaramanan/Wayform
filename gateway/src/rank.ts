@@ -95,7 +95,27 @@ export function cosineTopK(
   return out.sort((x, y) => y.score - x.score).slice(0, topK);
 }
 
-const RRF_K = 60;
+/**
+ * RRF damping. 60 is the constant from the original RRF paper, tuned for
+ * TREC-scale runs of thousands of documents per list. Our lists are capped at
+ * DEFAULT_TOP_K=50, so K=60 exceeded the list length and flattened everything:
+ * rank 0 and rank 9 differed by 13%, which meant the `decision` kind prior
+ * (1.2x) outweighed THIRTEEN ranks of real relevance and `canon` (1.5x)
+ * outweighed thirty-one. Priors beat the signal they were meant to nudge.
+ *
+ * 5 measured best over the real 425-doc corpus (eval harness, rank-based):
+ * MRR 0.3058 -> 0.7667 together with the extraction floor-tag fix, top-3 1/5
+ * -> 5/5. K=2 is worse (0.6667), so this is an optimum and not a limit.
+ */
+export const RRF_K = 5;
+
+/**
+ * How deep a single-generator hit may sit and still clear TAU. Holding this
+ * fixed is what keeps TAU meaningful when RRF_K changes: at the old K=60 the
+ * hardcoded TAU of 0.01 admitted a lone hit down to rank 39, and a bare K
+ * change would silently have moved that to rank 94.
+ */
+export const TAU_RANK_DEPTH = 39;
 
 /** Reciprocal rank fusion: parameter-free, robust with zero training data (§5.2). */
 export function rrfFuse(lists: Scored[][]): Map<string, number> {
@@ -111,11 +131,14 @@ export function rrfFuse(lists: Scored[][]): Map<string, number> {
 /**
  * Relevance floor on the adjusted score: candidates below τ are dropped even
  * when budget remains — returning nothing is a first-class outcome (§5.4).
- * Set below a single-generator top-1 RRF score (1/61 ≈ 0.0164) so an exact
- * keyword hit always survives; the single most important calibration target
- * once retrieval_log accumulates data (§7).
+ *
+ * DERIVED from RRF_K rather than hardcoded, because the two are the same
+ * calibration: τ only means anything relative to the score scale RRF_K sets.
+ * This evaluates to 0.01 at the historical K=60 — byte-identical behaviour —
+ * and rescales automatically with K. It stays below a single-generator top-1
+ * (1/(K+1)) by construction, so an exact keyword hit always survives.
  */
-export const TAU = 0.01;
+export const TAU = 1 / (RRF_K + TAU_RANK_DEPTH + 1);
 
 /** Canon tier boost (§5.3): a standing rule relevant to the query should
  *  essentially always clear a slot, so this sits above the strongest kind

@@ -52,10 +52,52 @@ export function buildExtractionPrompt(entry: ParsedEntry): string {
   ].join("\n");
 }
 
-/** The Phase A floor: one whole-entry normal fact. */
+/**
+ * Deterministic entity tags for the extraction floor.
+ *
+ * The LLM path returns `entities: []` when it fails, and an untagged fact is
+ * invisible to entityRank — one of the three candidate generators. RRF scores
+ * by how many lists a doc appears in, so losing a generator is not a small
+ * penalty: on 2026-09-13 the only doc in 425 containing "Mosaic" ranked 16th
+ * for a query built from its own rarest terms, because it reached BM25 alone
+ * while short tagged facts reached more.
+ *
+ * Identifier-shaped tokens are the distinctive terms in an engineering corpus
+ * and need no model: snake_case, kebab-case, dotted paths, ALLCAPS constants,
+ * and backticked spans. Ordered by first appearance and capped, so tags stay
+ * few and stable rather than exhaustive.
+ */
+export function floorEntities(body: string, cap = 12): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  const push = (raw: string) => {
+    const t = raw.toLowerCase().replace(/^[^a-z0-9]+|[^a-z0-9]+$/g, "");
+    if (t.length < 3 || t.length > 40 || seen.has(t)) return;
+    seen.add(t);
+    out.push(t);
+  };
+  for (const m of body.matchAll(/`([^`\n]{3,40})`/g)) push(m[1]);
+  for (const m of body.matchAll(
+    /\b[A-Za-z][A-Za-z0-9]*(?:[_.-][A-Za-z0-9]+)+\b/g,
+  )) {
+    push(m[0]);
+  }
+  for (const m of body.matchAll(/\b[A-Z]{3,}(?:_[A-Z0-9]+)*\b/g)) push(m[0]);
+  return out.slice(0, cap);
+}
+
+/**
+ * The Phase A floor: one whole-entry normal fact — but never an untagged one.
+ * See floorEntities() for why empty tags are a ranking bug, not a cosmetic gap.
+ */
 function floor(entry: ParsedEntry): ExtractedFact[] {
   return [
-    { kind: entry.type, tier: "normal", body: entry.payload, entities: [] },
+    {
+      kind: entry.type,
+      tier: "normal",
+      body: entry.payload,
+      entities: floorEntities(entry.payload),
+    },
   ];
 }
 
