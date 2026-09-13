@@ -15,8 +15,17 @@ import type { IndexDb, IndexedDoc } from "./index-db.js";
 import type { Embedder } from "./retrieval.js";
 import { extractFacts, type GenText, type ExtractedFact } from "./extract.js";
 import { applySupersession } from "./supersede.js";
+import { remainingNeurons } from "./neuron-budget.js";
 
 const GH = "https://api.github.com";
+
+/**
+ * Neurons an entry may need before ingest declines to start it. One entry can
+ * cost up to MAX_CHUNKS_PER_ENTRY extractions plus supersession judging, so
+ * reserve generously: stopping one entry early is cheap, half-extracting the
+ * back half of a corpus is not.
+ */
+const ENTRY_NEURON_RESERVE = 600;
 
 export interface SpaceRepo {
   space: string;
@@ -102,11 +111,36 @@ export async function ingestEntries(
   space: string,
   project: string,
   entries: ParsedEntry[],
-  opts: { authorSupersedes?: string[] } = {},
+  opts: {
+    authorSupersedes?: string[];
+    /** Neurons left today, or null if unknown. See ENTRY_NEURON_RESERVE. */
+    budgetLeft?: () => Promise<number | null>;
+  } = {},
 ): Promise<number> {
   if (entries.length === 0) return 0;
   let count = 0;
   for (const entry of entries) {
+    // Stop DELIBERATELY when the day's allocation cannot cover this entry,
+    // instead of letting every remaining one silently floor. The caller keeps
+    // its cursor, so the next tick resumes here with a fresh budget rather than
+    // rebuilding the rest of the corpus without the model.
+    if (gen && opts.budgetLeft) {
+      const left = await opts.budgetLeft();
+      if (left !== null && left < ENTRY_NEURON_RESERVE) {
+        console.log(
+          JSON.stringify({
+            evt: "ingest_budget_stop",
+            space,
+            project: slug(project),
+            remaining: left,
+            entriesDone: count > 0 ? undefined : 0,
+            stoppedAt: entry.file,
+            note: "resumes next tick; entries after this one are NOT indexed",
+          }),
+        );
+        break;
+      }
+    }
     const facts = await extractFacts(gen, entry);
     let vecs: number[][] = facts.map(() => []);
     if (embed) {
@@ -168,7 +202,12 @@ export async function ingestFiles(
       byProject.set(project, list);
     }
     for (const [project, entries] of byProject) {
-      count += await ingestEntries(db, embed, gen, sr.space, project, entries);
+      count += await ingestEntries(db, embed, gen, sr.space, project, entries, {
+        // Bulk path: stop cleanly when the day's allocation runs out rather
+        // than floor-indexing the remainder. The caller's cursor survives, so
+        // the next tick resumes with a fresh budget.
+        budgetLeft: () => remainingNeurons(env),
+      });
     }
   }
   if (opts.setSha ?? true) {

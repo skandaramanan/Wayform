@@ -211,6 +211,22 @@ function parseModelJson(text: string): unknown {
 const CHUNK_CHARS = 1200;
 
 /**
+ * Hard cap on extraction calls per entry.
+ *
+ * Chunking multiplies neuron cost: a 4333-char entry is 5 chunks, so 5
+ * extractions instead of 1. The daily allocation is 9500 neurons at ~100 per
+ * call — 95 calls A DAY, account-wide — and it was fully spent on both
+ * 2026-09-12 and 2026-09-13. Uncapped, a handful of long writes exhausts the
+ * day and everything after silently floors.
+ *
+ * Beyond the cap the remaining text is floored as one fact. That is a real
+ * quality loss, chosen over an invisible one: a floored fact is still TAGGED
+ * (floorEntities), so it reaches all three candidate generators rather than
+ * being stranded on BM25.
+ */
+const MAX_CHUNKS_PER_ENTRY = 4;
+
+/**
  * Split on blank lines, packing paragraphs up to CHUNK_CHARS. Paragraph
  * boundaries keep a decision and its "because" together; a hard character cut
  * would strand the reason in a different chunk from the claim.
@@ -249,8 +265,22 @@ export async function extractFacts(
   const chunks = chunkPayload(entry.payload);
   if (chunks.length > 1) {
     const all: ExtractedFact[] = [];
-    for (const payload of chunks) {
+    const extracted = chunks.slice(0, MAX_CHUNKS_PER_ENTRY);
+    for (const payload of extracted) {
       all.push(...(await extractOne(gen, { ...entry, payload })));
+    }
+    const rest = chunks.slice(MAX_CHUNKS_PER_ENTRY);
+    if (rest.length > 0) {
+      console.log(
+        JSON.stringify({
+          evt: "extract_chunk_cap",
+          file: entry.file,
+          chunks: chunks.length,
+          extracted: extracted.length,
+          floored: rest.length,
+        }),
+      );
+      all.push(...floor({ ...entry, payload: rest.join("\n\n") }));
     }
     return all;
   }

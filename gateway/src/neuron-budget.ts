@@ -39,8 +39,19 @@ export async function reserveNeurons(env: Env, cost: number): Promise<boolean> {
     return true;
   }
   if (spent + cost > DAILY_NEURON_BUDGET) {
+    // Structured like every other control-path signal (webhook_rejected,
+    // pr_drop, admin_denied) so it is greppable in `wrangler tail`. This
+    // fired all day on 2026-09-12 AND 2026-09-13 and nothing surfaced it: a
+    // reindex reported success while quietly indexing the back half of the
+    // corpus with no model at all.
     console.log(
-      `neuron_budget: exhausted spent=${spent} cost=${cost} budget=${DAILY_NEURON_BUDGET} — extraction skipped, entry stored unindexed`,
+      JSON.stringify({
+        evt: "neuron_budget_exhausted",
+        spent,
+        cost,
+        budget: DAILY_NEURON_BUDGET,
+        impact: "extraction skipped — entry stored as one floor fact",
+      }),
     );
     return false;
   }
@@ -55,4 +66,24 @@ export async function reserveNeurons(env: Env, cost: number): Promise<boolean> {
     // best-effort: an unrecorded spend just costs one entry's worth of budget
   }
   return true;
+}
+
+/**
+ * Neurons still available today, or null when the counter cannot be read
+ * (fail-open: a broken counter must not halt indexing).
+ *
+ * Exists so a BULK operation can stop deliberately instead of discovering
+ * exhaustion one throw at a time. On 2026-09-13 a reindex of 202 entries ran
+ * against a 95-call/day allocation: it spent the budget partway, then every
+ * remaining entry silently took the floor path, and the reindex still reported
+ * success while leaving the index WORSE than the one it replaced.
+ */
+export async function remainingNeurons(env: Env): Promise<number | null> {
+  try {
+    const raw = await env.ROUTING.get(budgetKey());
+    const spent = raw ? Number.parseInt(raw, 10) || 0 : 0;
+    return Math.max(0, DAILY_NEURON_BUDGET - spent);
+  } catch {
+    return null;
+  }
 }

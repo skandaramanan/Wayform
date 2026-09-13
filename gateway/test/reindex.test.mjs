@@ -67,7 +67,13 @@ test("POST /mcp/admin/reindex is operator-gated and rebuilds registered spaces",
   );
   assert.equal(res.status, 200);
   const out = await res.json();
-  assert.deepEqual(out, { reindexed: { s1: 1 } });
+  assert.deepEqual(out.reindexed, { s1: 1 });
+  // The response now carries the day's remaining allocation. A reindex that
+  // outruns the budget still returns a plausible count while the entries after
+  // the stop are NOT indexed — on 2026-09-13 that made a degrading rebuild of
+  // 202 entries against a 95-call/day budget look like a successful one.
+  assert.equal(typeof out.budget.neuronsLeft, "number");
+  assert.match(out.budget.note, /sufficient|allocation spent/);
   assert.equal((await db.listDocs("s1", "memorylayer")).length, 1);
 });
 
