@@ -155,12 +155,41 @@ export function checkEnvFile(cwd: string, env: NodeJS.ProcessEnv): CheckResult {
  * them 0600 (see init-env.ts); a loose copy usually predates that hardening.
  * No-op check on Windows, where POSIX mode bits are not meaningful.
  */
+/**
+ * Does this hook env file actually hold a credential?
+ *
+ * The same FILENAME is two different things: `init --remote` writes a
+ * credential-free hosted config (its own header says "Safe to commit for
+ * teammates"), while local-mode `init` writes CONTEXT_REPO_URL, which can carry
+ * a token. Judging by name warned on every fresh clone of a hosted repo about a
+ * file with nothing to hide — a warning that is always wrong trains people to
+ * ignore the check.
+ *
+ * Unreadable is treated as sensitive: refusing to answer is not evidence of
+ * safety.
+ */
+function holdsCredential(file: string): boolean {
+  let text: string;
+  try {
+    text = fs.readFileSync(file, "utf8");
+  } catch {
+    return true;
+  }
+  return /(?:^|\n)\s*(?:MEMORYLAYER|WAYFORM)_GATEWAY_TOKEN\s*=\s*\S/.test(text)
+    ? true
+    : /(?:mlk_|wfi_)[A-Za-z0-9_-]{20,}/.test(text) ||
+        // a context-repo URL with embedded userinfo (https://<token>@host/…)
+        /(?:^|\n)\s*CONTEXT_REPO_URL\s*=\s*\S+:\/\/[^@\s/]+@/.test(text);
+}
+
 export function checkSecretPerms(cwd: string): CheckResult[] {
   if (process.platform === "win32") return [];
   const loose: string[] = [];
   for (const rel of SECRET_FILES) {
     const file = path.join(cwd, rel);
     if (!fs.existsSync(file)) continue;
+    // Judge by CONTENTS, not filename — see holdsCredential().
+    if (!holdsCredential(file)) continue;
     if ((fs.statSync(file).mode & 0o077) !== 0) loose.push(rel);
   }
   if (loose.length === 0) {

@@ -56,7 +56,13 @@ export async function handleHookRead(
   try {
     const deps = indexDeps(env);
     if (deps) {
-      const docs = await deps.db.listDocs(member.space, slug(project));
+      // Briefing-shaped read: canon + questions + recent decisions + an entity
+      // manifest, none of which touch a vector. SELECT * decoded the whole
+      // project's embeddings on every session open for nothing.
+      const docs = await deps.db.listDocsNoEmbeddings(
+        member.space,
+        slug(project),
+      );
       const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
       const conflicts: {
         oldFactId: string;

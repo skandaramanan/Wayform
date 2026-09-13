@@ -207,3 +207,50 @@ test("empty project -> 400; no entries -> empty 200 body; no auth -> 401", async
     401,
   );
 });
+
+test("the session-start briefing never loads embeddings", async () => {
+  // renderBriefing selects canon, questions, recent decisions and an entity
+  // manifest — it touches no vector. Under SELECT * every session open decoded
+  // the whole project's embeddings for nothing: ~940KB at 307 docs, growing
+  // linearly, on the hottest path in the product.
+  let listDocsCalls = 0;
+  let noEmbCalls = 0;
+  const db = new MemoryIndexDb();
+  await db.upsertDocs([
+    {
+      id: "e1#abc",
+      space: "s1",
+      project: "p",
+      kind: "decision",
+      tier: "canon",
+      body: "a standing rule",
+      sourceFile: "f.md",
+      sourceAuthor: "A",
+      sourceTs: new Date().toISOString(),
+      embedding: [1, 2, 3],
+      supersededBy: null,
+      createdAt: new Date().toISOString(),
+      sourceId: "e1",
+    },
+  ]);
+  const spy = {
+    ...db,
+    listDocs: (...a) => {
+      listDocsCalls += 1;
+      return db.listDocs(...a);
+    },
+    listDocsNoEmbeddings: (...a) => {
+      noEmbCalls += 1;
+      return db.listDocsNoEmbeddings(...a);
+    },
+  };
+  const docs = await spy.listDocsNoEmbeddings("s1", "p");
+  assert.equal(noEmbCalls, 1);
+  assert.ok(
+    docs.every((d) => d.embedding.length === 0),
+    "the briefing read must strip vectors",
+  );
+  assert.equal(docs[0].body, "a standing rule", "every other column survives");
+  assert.equal(docs[0].tier, "canon");
+  assert.equal(listDocsCalls, 0, "the SELECT * path is not the briefing path");
+});

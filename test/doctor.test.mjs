@@ -3,7 +3,12 @@ import assert from "node:assert/strict";
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { checkEnvFile, redactSecrets, runDoctor } from "../dist/doctor.js";
+import {
+  checkEnvFile,
+  checkSecretPerms,
+  redactSecrets,
+  runDoctor,
+} from "../dist/doctor.js";
 import { saveStoredOAuth } from "../dist/keychain.js";
 
 function cfg(repoPath, repoUrl = "https://token@github.com/org/memory.git") {
@@ -243,7 +248,14 @@ test("runDoctor fails with wayform login when hosted and not logged in", async (
 test("runDoctor warns on loose secret-file perms", async () => {
   const tmp = fs.mkdtempSync(path.join(os.tmpdir(), "ml-doc-"));
   try {
+    // Must be a file that ACTUALLY holds a credential: since perms are judged
+    // by contents, a credential-free hosted config at 0644 correctly no longer
+    // warns, so writeRemoteEnv alone would make this test assert nothing.
     writeRemoteEnv(tmp);
+    fs.appendFileSync(
+      path.join(tmp, ".memorylayer-hook.env"),
+      "CONTEXT_REPO_URL=https://ghp_exampletoken@github.com/o/r.git\n",
+    );
     fs.chmodSync(path.join(tmp, ".memorylayer-hook.env"), 0o644);
     const lines = [];
     const code = await runDoctor({
@@ -345,5 +357,46 @@ test("a slow read on a reachable gateway warns, and does not say unreachable", a
     assert.doesNotMatch(out, /unreachable/);
   } finally {
     fs.rmSync(tmp, { recursive: true, force: true });
+  }
+});
+
+test("perms warns on a credential-bearing file, stays quiet on a hosted one", () => {
+  // Same FILENAME, two different things: init --remote writes a
+  // credential-free hosted config ("Safe to commit for teammates"), local init
+  // writes CONTEXT_REPO_URL which can embed a token. Judging by name warned on
+  // every fresh clone of a hosted repo about a file with nothing to hide — and
+  // a warning that is always wrong trains people to ignore the check.
+  const dir = fs.mkdtempSync(path.join(os.tmpdir(), "wf-perms-"));
+  try {
+    const hosted = path.join(dir, ".wayform-hook.env");
+    fs.writeFileSync(
+      hosted,
+      "WAYFORM_GATEWAY_URL=https://gw.test\nWAYFORM_PROJECT=p\n",
+    );
+    fs.chmodSync(hosted, 0o644);
+    assert.equal(
+      checkSecretPerms(dir).every((r) => r.status === "ok"),
+      true,
+      "a credential-free hosted config must not warn at 0644",
+    );
+
+    fs.writeFileSync(
+      hosted,
+      "CONTEXT_REPO_URL=https://ghp_exampletoken@github.com/o/r.git\n",
+    );
+    fs.chmodSync(hosted, 0o644);
+    assert.ok(
+      checkSecretPerms(dir).some((r) => r.status === "warn"),
+      "a tokened CONTEXT_REPO_URL at 0644 must still warn",
+    );
+
+    fs.chmodSync(hosted, 0o600);
+    assert.equal(
+      checkSecretPerms(dir).every((r) => r.status === "ok"),
+      true,
+      "...and stops warning once it is owner-only",
+    );
+  } finally {
+    fs.rmSync(dir, { recursive: true, force: true });
   }
 });

@@ -86,6 +86,16 @@ export interface IndexDb {
   upsertDocs(docs: IndexedDoc[]): Promise<void>;
   /** Live (unsuperseded) docs; project omitted = whole space. */
   listDocs(space: string, project?: string): Promise<IndexedDoc[]>;
+  /**
+   * Same rows as listDocs but WITHOUT the embedding column.
+   *
+   * The session-start briefing (renderBriefing) selects canon, questions,
+   * recent decisions and an entity manifest — it never touches a vector. Under
+   * `SELECT *` every session open decoded the whole project's embeddings into
+   * JS arrays for nothing: at 307 docs that is ~940KB of pure waste on the
+   * hottest path in the product, growing linearly with the corpus.
+   */
+  listDocsNoEmbeddings(space: string, project?: string): Promise<IndexedDoc[]>;
   /** Candidate-generation scan for the §5 read path; see QueryScan. */
   queryScan(
     space: string,
@@ -234,6 +244,37 @@ function docBinds(d: IndexedDoc): unknown[] {
 }
 
 export function d1IndexDb(db: D1Like): IndexDb {
+  /**
+   * Shared body for listDocs / listDocsNoEmbeddings. `cols` is a literal from
+   * this file only — never caller input — so it cannot carry injection.
+   */
+  const listDocsCols = async (
+    cols: string,
+    space: string,
+    project?: string,
+  ): Promise<IndexedDoc[]> => {
+    const sql =
+      `SELECT ${cols} FROM docs WHERE space = ? AND superseded_by IS NULL` +
+      (project !== undefined ? " AND project = ?" : "");
+    const stmt =
+      project !== undefined
+        ? db.prepare(sql).bind(space, project)
+        : db.prepare(sql).bind(space);
+    const { results } = await stmt.all();
+    const { results: tagRows } = await db
+      .prepare("SELECT fact_id, entity FROM fact_entities WHERE space = ?")
+      .bind(space)
+      .all();
+    const tags = new Map<string, string[]>();
+    for (const r of tagRows) {
+      const id = r.fact_id as string;
+      const list = tags.get(id) ?? [];
+      list.push(r.entity as string);
+      tags.set(id, list);
+    }
+    return results.map((r) => rowToDoc(r, tags.get(r.id as string) ?? []));
+  };
+
   return {
     async upsertDocs(docs) {
       if (docs.length === 0) return;
@@ -242,27 +283,17 @@ export function d1IndexDb(db: D1Like): IndexDb {
       );
     },
     async listDocs(space, project) {
-      const sql =
-        "SELECT * FROM docs WHERE space = ? AND superseded_by IS NULL" +
-        (project !== undefined ? " AND project = ?" : "");
-      const stmt =
-        project !== undefined
-          ? db.prepare(sql).bind(space, project)
-          : db.prepare(sql).bind(space);
-      const { results } = await stmt.all();
-      const { results: tagRows } = await db
-        .prepare("SELECT fact_id, entity FROM fact_entities WHERE space = ?")
-        .bind(space)
-        .all();
-      const tags = new Map<string, string[]>();
-      for (const r of tagRows) {
-        const id = r.fact_id as string;
-        const list = tags.get(id) ?? [];
-        list.push(r.entity as string);
-        tags.set(id, list);
-      }
-      return results.map((r) => rowToDoc(r, tags.get(r.id as string) ?? []));
+      return listDocsCols("*", space, project);
     },
+    async listDocsNoEmbeddings(space, project) {
+      // Every column the briefing reads, minus the vector blob.
+      return listDocsCols(
+        "id, space, project, kind, tier, body, source_file, source_author, source_ts, superseded_by",
+        space,
+        project,
+      );
+    },
+
     async queryScan(space, tokens, opts = {}) {
       // Shared live-docs-in-scope predicate; `alias` prefixes columns when
       // the docs table is joined under an alias.
