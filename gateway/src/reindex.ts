@@ -18,6 +18,7 @@ import { listSpaceRepos, requireOperator } from "./tenancy.js";
 import { indexDeps } from "./deps.js";
 import { reindexSpace, type SpaceRepo } from "./ingest.js";
 import { installationToken } from "./github-auth.js";
+import { remainingNeurons } from "./neuron-budget.js";
 
 const GH = "https://api.github.com";
 
@@ -77,7 +78,26 @@ export async function handleAdminReindex(
       };
     }
   }
-  return Response.json(pagination ? { reindexed, pagination } : { reindexed });
+  // Report the day's remaining allocation alongside the count. A reindex that
+  // outruns the budget still returns a plausible `reindexed` number while the
+  // entries after the stop are NOT indexed — on 2026-09-13 that made a
+  // degrading rebuild look like a successful one.
+  const neuronsLeft = await remainingNeurons(env);
+  const budget =
+    neuronsLeft === null
+      ? undefined
+      : {
+          neuronsLeft,
+          note:
+            neuronsLeft < 600
+              ? "day's allocation spent — remaining entries were NOT extracted; re-run tomorrow to finish"
+              : "sufficient for further pages today",
+        };
+  return Response.json({
+    reindexed,
+    ...(pagination ? { pagination } : {}),
+    ...(budget ? { budget } : {}),
+  });
 }
 
 async function headSha(

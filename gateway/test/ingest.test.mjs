@@ -363,3 +363,67 @@ test("ingestEntries is idempotent per entry: re-ingesting replaces the fact set"
   assert.equal(docs.length, 1);
   assert.equal(docs[0].body, "single fact now");
 });
+
+test("ingest STOPS when the day's neuron budget cannot cover the next entry", async () => {
+  // The failure this prevents, observed 2026-09-13: a reindex of 202 entries
+  // ran against a 95-extraction/day allocation. It spent the budget partway,
+  // then every remaining entry silently took the floor path — and the reindex
+  // still reported success while leaving the index WORSE than the one it
+  // replaced. Stopping deliberately keeps the caller's cursor, so the next tick
+  // resumes with a fresh budget instead of rebuilding without the model.
+  const db = new MemoryIndexDb();
+  const mk = (id) => ({
+    author: "A",
+    type: "decision",
+    timestamp: "2026-01-01T00:00:00Z",
+    id,
+    payload: `entry ${id}`,
+    file: `context/p/a/${id}.md`,
+  });
+  let genCalls = 0;
+  const gen = async () => {
+    genCalls += 1;
+    return JSON.stringify([
+      { kind: "decision", tier: "normal", body: "f", entities: ["x"] },
+    ]);
+  };
+
+  // Plenty of budget: every entry is extracted.
+  const n1 = await ingestEntries(
+    db,
+    fakeEmbed,
+    gen,
+    "s1",
+    "p",
+    [mk("a"), mk("b")],
+    {
+      budgetLeft: async () => 9500,
+    },
+  );
+  assert.equal(n1, 2);
+  const callsWithBudget = genCalls;
+  assert.ok(callsWithBudget >= 2, "both entries reached the model");
+
+  // Exhausted: it must decline to start, not floor its way through.
+  genCalls = 0;
+  const n2 = await ingestEntries(
+    db,
+    fakeEmbed,
+    gen,
+    "s1",
+    "p",
+    [mk("c"), mk("d")],
+    {
+      budgetLeft: async () => 0,
+    },
+  );
+  assert.equal(genCalls, 0, "no model call is attempted past the budget");
+  assert.equal(n2, 0, "and nothing is indexed rather than floor-indexed");
+
+  // Unknown budget fails OPEN — a broken counter must not halt indexing.
+  genCalls = 0;
+  await ingestEntries(db, fakeEmbed, gen, "s1", "p", [mk("e")], {
+    budgetLeft: async () => null,
+  });
+  assert.ok(genCalls > 0, "a null reading must not stop ingest");
+});
