@@ -28,6 +28,16 @@ export class MemoryIndexDb implements IndexDb {
   async upsertDocs(docs: IndexedDoc[]): Promise<void> {
     for (const d of docs) this.docs.set(`${d.space} ${d.id}`, d);
   }
+  /** Mirrors the D1 impl: same rows, embeddings stripped. */
+
+  async listDocsNoEmbeddings(space: string, project?: string) {
+    return (await this.listDocs(space, project)).map((d) => ({
+      ...d,
+
+      embedding: [],
+    }));
+  }
+
   async listDocs(space: string, project?: string): Promise<IndexedDoc[]> {
     return [...this.docs.values()].filter(
       (d) =>
