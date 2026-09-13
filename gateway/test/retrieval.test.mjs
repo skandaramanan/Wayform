@@ -350,9 +350,145 @@ test("renderBriefing includes canon, open questions, 7-day decisions, and a topi
   assert.match(text, /Infra cost must stay \$0/); // canon always shown
   assert.match(text, /Should preferences travel/); // open question
   assert.match(text, /Chose D1 for the index/); // recent decision (<7d)
-  assert.doesNotMatch(text, /Ancient decision/); // >7d decision excluded from the recent section
+  // A quiet week (1 decision in window) backfills with the latest decisions,
+  // newest first, under an honest title.
+  assert.match(text, /## Latest decisions/);
+  assert.ok(text.indexOf("Chose D1") < text.indexOf("Ancient decision"));
   assert.match(text, /memory covers:/); // topic manifest line
   assert.match(text, /infra-cost \(1\)/); // manifest counts entities
+});
+
+test("renderBriefing spends ONE budget across all sections", () => {
+  // Regression: the budget was per-section, so canon, questions, conflicts
+  // and decisions could each fill it — a 16KB briefing on a 4000 budget.
+  const now = new Date("2026-07-08T00:00:00Z");
+  const body = (i) => `fact ${i} ` + "word ".repeat(70); // ~350 chars
+  const docs = [
+    ...Array.from({ length: 10 }, (_, i) =>
+      bdoc(`c${i}`, "constraint", "canon", body(i), [], "2026-07-01T00:00:00Z"),
+    ),
+    ...Array.from({ length: 10 }, (_, i) =>
+      bdoc(`d${i}`, "decision", "normal", body(i), [], "2026-07-07T00:00:00Z"),
+    ),
+    ...Array.from({ length: 10 }, (_, i) =>
+      bdoc(`q${i}`, "question", "normal", body(i), [], "2026-07-07T00:00:00Z"),
+    ),
+  ];
+  const text = renderBriefing("memorylayer", docs, 500, now);
+  const bullets = text.split("\n").filter((l) => l.startsWith("- "));
+  const spent = bullets.reduce((n, l) => n + Math.ceil(l.length / 4) + 12, 0);
+  assert.ok(spent <= 500, `bullets cost ${spent} tokens against a 500 budget`);
+  assert.match(
+    text,
+    /Standing rules/,
+    "the highest-priority section fills first",
+  );
+  assert.doesNotMatch(text, /Open questions/, "the lowest is what gets cut");
+});
+
+test("renderBriefing clips a long fact to one line that points at the rest", () => {
+  const now = new Date("2026-07-08T00:00:00Z");
+  const long = "PRODUCT PIVOT.\n\n" + "the plan is the object. ".repeat(200);
+  const text = renderBriefing(
+    "memorylayer",
+    [bdoc("blob#0", "decision", "normal", long, [], "2026-07-07T00:00:00Z")],
+    4000,
+    now,
+  );
+  const line = text.split("\n").find((l) => l.includes("PRODUCT PIVOT"));
+  assert.ok(
+    line,
+    "the fact stays on one line — no blank lines inside a bullet",
+  );
+  assert.ok(line.length < 600, `clipped line is ${line.length} chars`);
+  assert.match(line, /truncated — search_memory/);
+  assert.match(line, /fact id blob#0/);
+});
+
+test("renderBriefing drops open questions older than 30 days", () => {
+  const now = new Date("2026-09-13T00:00:00Z");
+  const text = renderBriefing(
+    "memorylayer",
+    [
+      bdoc(
+        "old",
+        "question",
+        "normal",
+        "Fix strategy still OPEN",
+        [],
+        "2026-07-03T00:00:00Z",
+      ),
+      bdoc(
+        "new",
+        "question",
+        "normal",
+        "Where does generation run?",
+        [],
+        "2026-09-10T00:00:00Z",
+      ),
+    ],
+    4000,
+    now,
+  );
+  assert.match(text, /Where does generation run/);
+  assert.doesNotMatch(text, /Fix strategy still OPEN/);
+});
+
+test("renderBriefing keeps the 7-day window when the week is busy, and never repeats canon", () => {
+  const now = new Date("2026-07-08T00:00:00Z");
+  const docs = [
+    ...Array.from({ length: 8 }, (_, i) =>
+      bdoc(
+        `d${i}`,
+        "decision",
+        "normal",
+        `busy decision ${i}`,
+        [],
+        "2026-07-06T00:00:00Z",
+      ),
+    ),
+    bdoc(
+      "old",
+      "decision",
+      "normal",
+      "Ancient decision.",
+      [],
+      "2026-01-01T00:00:00Z",
+    ),
+    bdoc(
+      "cd",
+      "decision",
+      "canon",
+      "Canon decision stays canon.",
+      [],
+      "2026-07-07T00:00:00Z",
+    ),
+  ];
+  const text = renderBriefing("memorylayer", docs, 4000, now);
+  assert.match(text, /## Recent decisions \(last 7 days\)/);
+  assert.doesNotMatch(text, /Ancient decision/);
+  assert.equal(text.split("Canon decision stays canon.").length - 1, 1);
+});
+
+test("renderBriefing's manifest drops generic tags and the project's own name", () => {
+  const now = new Date("2026-07-08T00:00:00Z");
+  const text = renderBriefing(
+    "MemoryLayer",
+    [
+      bdoc(
+        "a",
+        "decision",
+        "normal",
+        "x",
+        ["memorylayer", "not", "decided", "d1"],
+        "2026-07-07T00:00:00Z",
+      ),
+    ],
+    4000,
+    now,
+  );
+  const line = text.split("\n").find((l) => l.startsWith("memory covers:"));
+  assert.equal(line, "memory covers: d1 (1)");
 });
 
 test("renderBriefing caps the topic manifest at 40 entities with a '+N more' suffix", () => {

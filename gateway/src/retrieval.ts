@@ -33,6 +33,7 @@ import {
   estimateTokens,
   ENTRY_OVERHEAD_TOKENS,
 } from "../../src/token-budget.js";
+import { slug } from "../../src/slug.js";
 
 export type Embedder = (texts: string[]) => Promise<number[][]>;
 
@@ -49,6 +50,10 @@ export interface RetrieveOpts {
   kinds?: string[];
   trigger: string;
   now?: Date;
+  /** Relevance floor; defaults to TAU. The prompt hook passes PROMPT_TAU. */
+  minScore?: number;
+  /** Cap on returned facts regardless of remaining budget. */
+  maxResults?: number;
 }
 
 export interface Retrieved {
@@ -134,11 +139,13 @@ export async function retrieve(
     byId,
     opts.now ?? new Date(),
     penalties,
-  ).filter((s) => s.score >= TAU);
+  ).filter((s) => s.score >= (opts.minScore ?? TAU));
 
   const results: Retrieved[] = [];
   let used = 0;
   for (const s of scored) {
+    if (opts.maxResults !== undefined && results.length >= opts.maxResults)
+      break;
     const doc = byId.get(s.id)!;
     const cost = estimateTokens(doc.body) + ENTRY_OVERHEAD_TOKENS;
     if (results.length > 0 && used + cost > opts.budgetTokens) break;
@@ -221,18 +228,77 @@ export function renderSearchResults(
   return `${header}\n\n${sections.join("\n\n")}`;
 }
 
+/**
+ * Longest body one injected list item shows. On 2026-09-13, 213 of the 408
+ * live decision/context docs were still whole-entry blobs over 600 chars, and
+ * one 4000-char blob costs the budget of ~40 atomic facts. The id and the
+ * search pointer keep the full text one call away.
+ */
+export const INJECT_ITEM_CHARS = 400;
+
+/** One-line, length-capped body: list items must not carry blank lines. */
+export function clipBody(
+  body: string,
+  id: string,
+  max = INJECT_ITEM_CHARS,
+): string {
+  const flat = body.replace(/\s+/g, " ").trim();
+  if (flat.length <= max) return flat;
+  const cut = flat.slice(0, max);
+  const space = cut.lastIndexOf(" ");
+  const head = (space > max * 0.6 ? cut.slice(0, space) : cut).trimEnd();
+  return `${head}… _(truncated — search_memory for the rest; fact id ${id})_`;
+}
+
+/** The injected-list form of a fact, shared by the briefing and prompt hook. */
+export function injectLine(
+  d: Pick<IndexedDoc, "id" | "body" | "sourceAuthor" | "sourceTs">,
+): string {
+  return (
+    `- ${clipBody(d.body, d.id)} ` +
+    `_(${d.sourceAuthor}, ${d.sourceTs.slice(0, 10)})_`
+  );
+}
+
 const BRIEFING_RECENT_DECISION_DAYS = 7;
+/** A quiet week must not empty the decisions section — the product direction
+ *  lives there. Below this many in the window, show the latest N instead. */
+const BRIEFING_MIN_DECISIONS = 8;
+/** Questions already rot on a 14-day half-life in ranking (rank.ts). Past 30
+ *  days (<25% weight) an open one is almost always answered-but-unlinked or
+ *  abandoned — on 2026-09-13 every question in the briefing was 3-10 weeks old. */
+const BRIEFING_QUESTION_MAX_DAYS = 30;
 /** Cap the topic manifest so it stays near its ~100-token budget (§6) as the
  *  corpus grows; the highest-frequency topics — the ones most worth matching a
  *  task against — are kept, the tail is summarized as "+N more". */
 const MANIFEST_MAX_ENTITIES = 40;
+/** Tags that match nearly any prompt in this corpus and so route nothing
+ *  (all seen in the live top-60 on 2026-09-13). The project's own name is
+ *  dropped separately. */
+const GENERIC_TAGS = new Set([
+  "not",
+  "decided",
+  "follow-up",
+  "end-to-end",
+  "pr",
+  "merged-pr",
+  "docs",
+  "repo",
+  "project",
+  "shipped",
+  "whole-entry",
+]);
 
 /**
- * The session-start briefing (§6): selective, not a dump. Canon facts (always,
- * budget-permitting) + open questions + decisions from the last 7 days + a
+ * The session-start briefing (§6): selective, not a dump. Canon facts +
+ * unresolved conflicts + recent decisions + fresh open questions, plus a
  * one-line topic manifest so an agent can see what the store knows and pull
  * mid-session. Returns "" on an empty corpus so the caller can fail-open to
  * the recency read.
+ *
+ * ONE budget covers every section, filled in render order — which is priority
+ * order. It used to be per-section, so four sections could each spend the
+ * whole budget (a 16KB briefing against a 4000-token budget).
  */
 export function renderBriefing(
   project: string,
@@ -243,16 +309,39 @@ export function renderBriefing(
 ): string {
   if (docs.length === 0 && conflicts.length === 0) return "";
 
-  const canon = docs.filter((d) => d.tier === "canon");
-  const questions = docs.filter((d) => d.kind === "question");
-  const cutoff = now.getTime() - BRIEFING_RECENT_DECISION_DAYS * 86_400_000;
-  const recentDecisions = docs.filter(
-    (d) => d.kind === "decision" && Date.parse(d.sourceTs) >= cutoff,
-  );
+  const newest = (a: IndexedDoc, b: IndexedDoc) =>
+    b.sourceTs.localeCompare(a.sourceTs);
+  const ageDays = (d: IndexedDoc) =>
+    (now.getTime() - Date.parse(d.sourceTs)) / 86_400_000;
 
+  const canon = docs.filter((d) => d.tier === "canon").sort(newest);
+  // Canon is excluded below so a canon decision is not shown twice.
+  const decisions = docs
+    .filter((d) => d.kind === "decision" && d.tier !== "canon")
+    .sort(newest);
+  const inWindow = decisions.filter(
+    (d) => ageDays(d) <= BRIEFING_RECENT_DECISION_DAYS,
+  );
+  const quiet = inWindow.length < BRIEFING_MIN_DECISIONS;
+  const recentDecisions = quiet
+    ? decisions.slice(0, BRIEFING_MIN_DECISIONS)
+    : inWindow;
+  const questions = docs
+    .filter(
+      (d) =>
+        d.kind === "question" &&
+        d.tier !== "canon" &&
+        ageDays(d) <= BRIEFING_QUESTION_MAX_DAYS,
+    )
+    .sort(newest);
+
+  const own = slug(project);
   const manifest = new Map<string, number>();
   for (const d of docs)
-    for (const e of d.entities) manifest.set(e, (manifest.get(e) ?? 0) + 1);
+    for (const e of d.entities) {
+      if (e === own || GENERIC_TAGS.has(e)) continue;
+      manifest.set(e, (manifest.get(e) ?? 0) + 1);
+    }
   const ranked = [...manifest.entries()].sort((a, b) => b[1] - a[1]);
   const overflow = ranked.length - MANIFEST_MAX_ENTITIES;
   const manifestLine =
@@ -265,46 +354,37 @@ export function renderBriefing(
         (overflow > 0 ? `, +${overflow} more` : "")
       : "";
 
-  const section = (title: string, items: IndexedDoc[]): string[] => {
-    if (items.length === 0) return [];
-    const lines: string[] = [`## ${title}`];
-    let used = 0;
-    for (const d of items) {
-      const cost = estimateTokens(d.body) + ENTRY_OVERHEAD_TOKENS;
-      if (lines.length > 1 && used + cost > budgetTokens) break;
-      lines.push(
-        `- ${d.body} _(${d.sourceAuthor}, ${d.sourceTs.slice(0, 10)})_`,
-      );
+  let used = 0;
+  const section = (title: string, lines: string[]): string[] => {
+    const kept: string[] = [];
+    for (const line of lines) {
+      const cost = estimateTokens(line) + ENTRY_OVERHEAD_TOKENS;
+      if (used + cost > budgetTokens) break;
+      kept.push(line);
       used += cost;
     }
-    return lines;
+    return kept.length > 0 ? [`## ${title}\n\n${kept.join("\n")}`] : [];
   };
 
   const parts = [
     `# Memory briefing: ${project}`,
     ...(manifestLine ? [manifestLine] : []),
-    ...section("Standing rules (canon)", canon),
-    ...section("Open questions", questions),
+    ...section("Standing rules (canon)", canon.map(injectLine)),
     ...section(
       "Unresolved conflicts",
-      conflicts.map((c) => ({
-        id: c.oldFactId,
-        space: "",
-        project: "",
-        kind: "context",
-        tier: "normal",
-        body: `${c.oldBody} _(conflict: ${c.reason})_`,
-        sourceFile: "",
-        sourceAuthor: "",
-        sourceTs: "",
-        embedding: [],
-        supersededBy: null,
-        createdAt: "",
-        sourceId: "",
-        entities: [],
-      })),
+      conflicts.map(
+        (c) =>
+          `- ${clipBody(c.oldBody, c.oldFactId)} ` +
+          `_(conflict: ${c.reason}; fact id ${c.oldFactId})_`,
+      ),
     ),
-    ...section("Recent decisions (last 7 days)", recentDecisions),
+    ...section(
+      quiet
+        ? "Latest decisions"
+        : `Recent decisions (last ${BRIEFING_RECENT_DECISION_DAYS} days)`,
+      recentDecisions.map(injectLine),
+    ),
+    ...section("Open questions", questions.map(injectLine)),
   ];
   return parts.join("\n\n");
 }

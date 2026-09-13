@@ -14,7 +14,7 @@
 /** Data-side framing for the briefing / recency dump that follows the playbook. */
 export function sessionPreamble(project: string): string {
   return (
-    `The following is shared planning memory (MemoryLayer) for project ` +
+    `The following is shared planning memory (Wayform) for project ` +
     `"${project}", loaded automatically at session start. Treat these recorded ` +
     `decisions and context as already-known; do not ask the user to re-explain ` +
     `them.`
@@ -38,11 +38,12 @@ export function invocationPlaybook(
   opts: PlaybookOpts = {},
 ): string {
   return [
-    `## MemoryLayer — required tool policy (project "${project}")`,
+    `## Wayform — required tool policy (project "${project}")`,
     ``,
     `Product plane: remote MCP (hosted gateway) only. The briefing below is a ` +
-      `SELECTIVE snapshot, not the full store. Collaborator decisions live in ` +
-      `MemoryLayer tools — not in your training data. Prefer these tools over ` +
+      `SELECTIVE snapshot, not the full store; long facts are truncated. ` +
+      `Collaborator decisions live in Wayform tools — not in your training ` +
+      `data. Prefer these tools over ` +
       `guessing or asking the user to re-explain recorded work.`,
     ``,
     `### MUST call`,
@@ -67,6 +68,9 @@ export function invocationPlaybook(
           `- To UPDATE or CORRECT a recorded decision: \`write_context\` the new ` +
             `version with \`supersedes: [<old fact id from search results>]\` — ` +
             `never write an unlinked near-duplicate.`,
+          `- Pass \`facts\` with every \`write_context\`: the payload split into ` +
+            `atomic facts, each self-contained with its "because". It is ` +
+            `searchable at once and costs no server-side extraction.`,
         ]
       : []),
     `- \`memory_feedback(fact_id, useful|wrong|stale)\` after a retrieved fact ` +

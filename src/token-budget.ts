@@ -12,6 +12,14 @@ export function estimateTokens(text: string): number {
 /** Default token budget for a read when the caller doesn't specify one. */
 export const DEFAULT_BUDGET_TOKENS = 4000;
 
+/**
+ * Budget for the per-prompt push (UserPromptSubmit → /hook/prompt). It fires on
+ * EVERY turn, on top of the session-start briefing, so it cannot share the read
+ * budget: at 4000 it injected ~3.5k tokens per message. 1500 is the Phase C
+ * spec default (decision 63917dee).
+ */
+export const PROMPT_BUDGET_TOKENS = 1500;
+
 /** Approx fixed overhead per rendered entry block (header line + separator). */
 export const ENTRY_OVERHEAD_TOKENS = 12;
 

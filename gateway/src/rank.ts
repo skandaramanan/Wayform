@@ -140,6 +140,17 @@ export function rrfFuse(lists: Scored[][]): Map<string, number> {
  */
 export const TAU = 1 / (RRF_K + TAU_RANK_DEPTH + 1);
 
+/**
+ * Stricter floor for UNREQUESTED injection (the prompt hook). τ is tuned for
+ * search, where a rank-39 hit is a fair answer to a question the agent chose to
+ * ask. The prompt hook pushes into every turn uninvited, so a marginal hit is
+ * pure cost: on 2026-09-13 "what was injected at session start" pulled the
+ * rate limiter, the 8B model eval and a sales strategy. A lone-generator hit
+ * must sit in the top 10 to be pushed; derived from RRF_K like TAU.
+ */
+export const PROMPT_RANK_DEPTH = 9;
+export const PROMPT_TAU = 1 / (RRF_K + PROMPT_RANK_DEPTH + 1);
+
 /** Canon tier boost (§5.3): a standing rule relevant to the query should
  *  essentially always clear a slot, so this sits above the strongest kind
  *  prior (1.2). Calibration target once retrieval_log accumulates data (§7). */

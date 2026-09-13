@@ -59,10 +59,21 @@ export async function handleHookRead(
       // Briefing-shaped read: canon + questions + recent decisions + an entity
       // manifest, none of which touch a vector. SELECT * decoded the whole
       // project's embeddings on every session open for nothing.
-      const docs = await deps.db.listDocsNoEmbeddings(
+      const listed = await deps.db.listDocsNoEmbeddings(
         member.space,
         slug(project),
       );
+      // A fact a member flagged wrong/stale (net-negative memory_feedback)
+      // must stop riding along in every session. retrieve() only soft-demotes,
+      // which suits search — the agent asked. The briefing is unrequested, so
+      // a flagged fact is dropped here; it stays searchable.
+      let flagged = new Map<string, number>();
+      try {
+        flagged = await deps.db.feedbackPenalties(member.space);
+      } catch {
+        // fail-open: feedback must never break the session read
+      }
+      const docs = listed.filter((d) => !flagged.has(d.id));
       const since = new Date(Date.now() - 7 * 86_400_000).toISOString();
       const conflicts: {
         oldFactId: string;
