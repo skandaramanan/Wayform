@@ -59,13 +59,13 @@ test("hook read returns injectable plain text with playbook + preamble", async (
   assert.equal(res.status, 200);
   assert.match(res.headers.get("content-type"), /text\/plain/);
   const text = await res.text();
-  assert.match(text, /^## MemoryLayer — required tool policy/);
+  assert.match(text, /^## Wayform — required tool policy/);
   assert.match(text, /search_memory/);
   assert.match(text, /write_context/);
   assert.match(text, /memory_feedback/);
   assert.match(
     text,
-    /The following is shared planning memory \(MemoryLayer\) for project "roadmap"/,
+    /The following is shared planning memory \(Wayform\) for project "roadmap"/,
   );
   assert.match(text, /# Shared context: roadmap/);
 });
@@ -173,6 +173,45 @@ test("/mcp/hook/read serves the index briefing when facts exist", async () => {
   assert.match(text, /Infra cost must stay \$0/);
   assert.match(text, /memory covers:/);
   assert.match(text, /search_memory/);
+});
+
+test("/mcp/hook/read drops a fact members flagged wrong or stale", async () => {
+  // retrieve() only soft-demotes flagged facts, which suits search. The
+  // briefing is unrequested, so memory_feedback must actually remove a fact
+  // from it — otherwise a known-bad canon rule rides along in every session.
+  const indexDb = new MemoryIndexDb();
+  const fact = (id, body) => ({
+    id,
+    space: "team-a",
+    project: "roadmap",
+    kind: "constraint",
+    tier: "canon",
+    body,
+    sourceFile: "f",
+    sourceAuthor: "Ada",
+    sourceTs: "2026-02-01T00:00:00Z",
+    embedding: [],
+    supersededBy: null,
+    createdAt: "2026-07-08T00:00:00Z",
+    sourceId: id,
+    entities: [],
+  });
+  await indexDb.upsertDocs([
+    fact("keep#0", "Infra cost must stay $0."),
+    fact("bad#0", "Model-invoked reads are only 60-85% reliable."),
+  ]);
+  await indexDb.recordFeedback({
+    space: "team-a",
+    project: "roadmap",
+    factId: "bad#0",
+    member: "ada",
+    verdict: "stale",
+    ts: "2026-09-13T00:00:00Z",
+  });
+  const { env } = await setup(ROUTES, { indexDb });
+  const text = await (await handleRequest(get(), env)).text();
+  assert.match(text, /Infra cost must stay \$0/);
+  assert.doesNotMatch(text, /60-85% reliable/);
 });
 
 test("/mcp/hook/read falls back to the recency dump when the index is unconfigured", async () => {

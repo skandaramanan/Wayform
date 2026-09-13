@@ -15,6 +15,7 @@ import {
   type HookClient,
 } from "./hook-clients.js";
 import { isMain } from "./is-main.js";
+import { PROMPT_BUDGET_TOKENS } from "./token-budget.js";
 
 export async function runPromptHook(): Promise<void> {
   const client: HookClient = resolveClient(envVar("HOOK_CLIENT"));
@@ -47,7 +48,7 @@ export async function runPromptHook(): Promise<void> {
       cfg,
       project,
       prompt,
-      cfg.readBudgetTokens,
+      PROMPT_BUDGET_TOKENS,
     );
     if (text == null || text === "") emitEmpty();
     process.stdout.write(renderPromptContext(client, text as string));

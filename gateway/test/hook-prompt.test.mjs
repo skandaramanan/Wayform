@@ -106,6 +106,42 @@ test("hook prompt returns the on-topic fact for a matching prompt (Cursor regres
   assert.match(await res.text(), /Cursor MCP config is project-scoped/);
 });
 
+test("hook prompt pushes at most PROMPT_MAX_RESULTS clipped facts, even when asked for more budget", async () => {
+  // Regression: it used the 4000-token read budget and τ, injecting ~3.5k
+  // tokens of loosely related facts on every turn.
+  const db = new MemoryIndexDb();
+  await seed(
+    db,
+    Array.from({ length: 20 }, (_, i) => ({
+      ...doc(
+        `g${i}`,
+        `gateway auth hardening step ${i}. ` + "detail ".repeat(200),
+      ),
+      space: "team-a",
+    })),
+  );
+  const { env } = await setup({ indexDb: db, embedder: fakeEmbed });
+  const res = await handleRequest(
+    post({
+      project: "memorylayer",
+      prompt: "gateway auth hardening",
+      budget: 100000,
+    }),
+    env,
+  );
+  const text = await res.text();
+  const bullets = text.split("\n").filter((l) => l.startsWith("- "));
+  assert.ok(
+    bullets.length > 0 && bullets.length <= 5,
+    `${bullets.length} facts pushed`,
+  );
+  assert.ok(
+    bullets.every((l) => l.length < 600),
+    "every pushed fact is clipped",
+  );
+  assert.match(text, /Wayform, project "memorylayer"/);
+});
+
 test("hook prompt is silent (empty 200) when nothing clears tau", async () => {
   const db = new MemoryIndexDb();
   await seed(db, [

@@ -29,7 +29,7 @@ test("composeSessionStartText puts policy before data and keeps the preamble", (
     "# Shared context: roadmap\n\nhello",
   );
   const policyAt = text.indexOf("required tool policy");
-  const dataAt = text.indexOf("shared planning memory (MemoryLayer)");
+  const dataAt = text.indexOf("shared planning memory (Wayform)");
   const bodyAt = text.indexOf("# Shared context: roadmap");
   assert.ok(policyAt >= 0 && dataAt > policyAt && bodyAt > dataAt);
   assert.match(text, /search_memory/);
