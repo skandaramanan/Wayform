@@ -192,7 +192,11 @@ test("reconcileAll deletes an abandoned cursor once the sha has caught up", asyn
   assert.equal(await env.ROUTING.get("reindex-cursor:s1"), null);
 });
 
-test("reconcileAll restarts at offset 0 when the cursor belongs to a different head", async () => {
+test("reconcileAll resumes a cursor even after the head moved — rebuilds no longer wipe", async () => {
+  // This used to restart at offset 0, because resuming a WIPING rebuild
+  // against a new head skipped the wiped range. Rebuilds are now
+  // non-destructive, so restarting would only re-walk (and, pre-ingest_state,
+  // re-extract) pages that are already done.
   const db = new MemoryIndexDb();
   const page = CRON_REINDEX_PAGE;
   const env = envWithManyEntries(db, page * 2 + 5);
@@ -203,10 +207,12 @@ test("reconcileAll restarts at offset 0 when the cursor belongs to a different h
     repo: "r",
     branch: "main",
   });
-  // Cursor from a rebuild of an older head: resuming it would skip the wiped
-  // range 0..page for the new head. Must restart (wipe + first page).
   await env.ROUTING.put("reindex-cursor:s1", `stalesha:${page}`);
   await reconcileAll(env);
   assert.equal((await db.listDocs("s1")).length, page);
-  assert.equal(await env.ROUTING.get("reindex-cursor:s1"), `headsha:${page}`);
+  assert.equal(
+    await env.ROUTING.get("reindex-cursor:s1"),
+    `headsha:${page * 2}`,
+    "continued from the saved offset",
+  );
 });

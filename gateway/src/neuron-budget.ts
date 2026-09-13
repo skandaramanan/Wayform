@@ -6,6 +6,10 @@
  * against the Paid plan's included amounts at pilot scale, so they need no
  * guard — this counter is the whole overage story.
  *
+ * Each model call reserves an estimate sized by what the call is for, then
+ * settles against the token usage the model reports (deps.ts), so the counter
+ * tracks the real bill instead of a flat per-call guess.
+ *
  * Tripping the budget throws, which extract.ts already treats as fail-open
  * (entry lands in the ledger unindexed, logged non-silently) — the same
  * degradation the Free plan produced at the cap, just chosen instead of
@@ -17,13 +21,15 @@ import type { Env } from "./env.js";
  *  calls (bge-base, a few neurons each) which share the same allocation. */
 export const DAILY_NEURON_BUDGET = 9500;
 
-/** Measured ~77 neurons per llama-3.3-70b-fp8-fast extraction at
- *  EXTRACT_MAX_TOKENS=1024; rounded up so the estimate errs toward stopping
- *  early rather than into an overage. */
-export const EXTRACT_NEURON_COST = 100;
-
 const budgetKey = () =>
   `neuron-budget:${new Date().toISOString().slice(0, 10)}`;
+
+const TTL = { expirationTtl: 48 * 60 * 60 };
+
+async function readSpent(env: Env): Promise<number> {
+  const raw = await env.ROUTING.get(budgetKey());
+  return raw ? Number.parseInt(raw, 10) || 0 : 0;
+}
 
 /**
  * Reserve `cost` neurons against today's budget. Returns false when the day's
@@ -33,8 +39,7 @@ const budgetKey = () =>
 export async function reserveNeurons(env: Env, cost: number): Promise<boolean> {
   let spent = 0;
   try {
-    const raw = await env.ROUTING.get(budgetKey());
-    spent = raw ? Number.parseInt(raw, 10) || 0 : 0;
+    spent = await readSpent(env);
   } catch {
     return true;
   }
@@ -50,22 +55,35 @@ export async function reserveNeurons(env: Env, cost: number): Promise<boolean> {
         spent,
         cost,
         budget: DAILY_NEURON_BUDGET,
-        impact: "extraction skipped — entry stored as one floor fact",
+        impact:
+          "model call skipped — extraction floors and is retried after the reset; judging is skipped",
       }),
     );
     return false;
   }
   try {
     // ponytail: read-modify-write races can under-count under concurrency, so
-    // the true ceiling is budget + (concurrent writes x cost) — bounded by the
+    // the true ceiling is budget + (concurrent calls x cost) — bounded by the
     // headroom above, worth cents. Use a Durable Object if exactness matters.
-    await env.ROUTING.put(budgetKey(), String(spent + cost), {
-      expirationTtl: 48 * 60 * 60,
-    });
+    await env.ROUTING.put(budgetKey(), String(spent + cost), TTL);
   } catch {
-    // best-effort: an unrecorded spend just costs one entry's worth of budget
+    // best-effort: an unrecorded spend just costs one call's worth of budget
   }
   return true;
+}
+
+/**
+ * Settle a reservation against what the call actually used. Without this the
+ * counter drifts from the real bill in whichever direction the estimate errs.
+ * Best-effort and never below zero.
+ */
+export async function adjustNeurons(env: Env, delta: number): Promise<void> {
+  try {
+    const spent = await readSpent(env);
+    await env.ROUTING.put(budgetKey(), String(Math.max(0, spent + delta)), TTL);
+  } catch {
+    // best-effort: the next reservation reads whatever did land
+  }
 }
 
 /**
@@ -80,9 +98,7 @@ export async function reserveNeurons(env: Env, cost: number): Promise<boolean> {
  */
 export async function remainingNeurons(env: Env): Promise<number | null> {
   try {
-    const raw = await env.ROUTING.get(budgetKey());
-    const spent = raw ? Number.parseInt(raw, 10) || 0 : 0;
-    return Math.max(0, DAILY_NEURON_BUDGET - spent);
+    return Math.max(0, DAILY_NEURON_BUDGET - (await readSpent(env)));
   } catch {
     return null;
   }

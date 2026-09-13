@@ -10,9 +10,18 @@ import { EMBED_SCAN_CAP } from "./index-db.js";
 import { cosineTopK } from "./rank.js";
 
 export const SYNC_COSINE_FLOOR = 0.7;
-export const ASYNC_COSINE_FLOOR = 0.6;
+/**
+ * Async (ingest-time) judging. It was floor 0.6 / top-10 per NEW fact with no
+ * overall cap — one 5-fact entry could make 50 judge calls, including against
+ * its own sibling facts — and the push webhook then re-ran all of it for the
+ * same file. Now: the sync floor, the top 3 per fact, and at most
+ * ASYNC_JUDGE_LIMIT per entry, the strongest pairs across all of its facts.
+ * Retune against the cosine scores in the `dup_gate` logs.
+ */
+export const ASYNC_COSINE_FLOOR = 0.7;
 export const SYNC_CANDIDATE_K = 10;
-export const ASYNC_CANDIDATE_K = 10;
+export const ASYNC_CANDIDATE_K = 3;
+export const ASYNC_JUDGE_LIMIT = 4;
 /**
  * Cap on how many candidates the sync write-path conflict check sends to the
  * LLM judge. detectWriteConflicts runs BEFORE write_context returns, so every
@@ -66,6 +75,9 @@ export interface WriteCheck {
    *  floor — the caller must then skip the commit entirely. */
   duplicate: DuplicateHit | null;
   conflicts: ConflictHit[];
+  /** Old facts the judge already called "relates": async ingest need not pay
+   *  to judge them again against the same entry. */
+  relatedIds?: string[];
 }
 
 function sharesEntity(a: string[], b: string[]): boolean {
@@ -73,23 +85,43 @@ function sharesEntity(a: string[], b: string[]): boolean {
   return b.some((e) => set.has(e));
 }
 
-/** Entity-scoped cosine top-K; project-wide fallback when new fact has no entities. */
+/**
+ * Entity-scoped cosine top-K with scores; project-wide fallback when the new
+ * fact has no entities. Excludes facts already superseded and the new fact's
+ * own siblings (same ledger entry) — judging an entry against itself only
+ * ever bought a "relates".
+ */
+function scoredCandidates(
+  liveFacts: IndexedDoc[],
+  newFact: IndexedDoc,
+  topK: number,
+  cosineFloor: number,
+): { doc: IndexedDoc; score: number }[] {
+  let pool = liveFacts.filter(
+    (d) =>
+      d.id !== newFact.id &&
+      !d.supersededBy &&
+      (!newFact.sourceId || d.sourceId !== newFact.sourceId),
+  );
+  if (newFact.entities.length > 0) {
+    pool = pool.filter((d) => sharesEntity(d.entities, newFact.entities));
+  }
+  if (pool.length === 0) return [];
+  const byId = new Map(pool.map((d) => [d.id, d]));
+  return cosineTopK(pool, newFact.embedding, topK)
+    .filter((s) => s.score >= cosineFloor && byId.has(s.id))
+    .map((s) => ({ doc: byId.get(s.id)!, score: s.score }));
+}
+
 export function supersessionCandidates(
   liveFacts: IndexedDoc[],
   newFact: IndexedDoc,
   topK: number,
   cosineFloor: number,
 ): IndexedDoc[] {
-  let pool = liveFacts.filter((d) => d.id !== newFact.id);
-  if (newFact.entities.length > 0) {
-    pool = pool.filter((d) => sharesEntity(d.entities, newFact.entities));
-  }
-  if (pool.length === 0) return [];
-  const ranked = cosineTopK(pool, newFact.embedding, topK).filter(
-    (s) => s.score >= cosineFloor,
+  return scoredCandidates(liveFacts, newFact, topK, cosineFloor).map(
+    (c) => c.doc,
   );
-  const byId = new Map(pool.map((d) => [d.id, d]));
-  return ranked.map((s) => byId.get(s.id)!).filter(Boolean);
 }
 
 export function buildJudgePrompt(
@@ -144,7 +176,9 @@ export async function judgePair(
   newFact: { body: string; kind: string },
   oldFact: { id: string; body: string; kind: string },
 ): Promise<JudgeResult> {
-  const out = await gen(buildJudgePrompt(newFact, oldFact));
+  const out = await gen(buildJudgePrompt(newFact, oldFact), {
+    purpose: "judge",
+  });
   const { verdict, reason } = parseJudgeVerdict(out);
   return {
     verdict,
@@ -171,11 +205,19 @@ export async function applySupersession(
   space: string,
   project: string,
   newFacts: IndexedDoc[],
-  opts: { authorSupersedes?: string[] } = {},
+  opts: {
+    authorSupersedes?: string[];
+    /** Only these new facts are judged (others existed before). */
+    judgeIds?: Set<string>;
+    /** Old facts not worth judging again (already judged "relates"). */
+    skipOldIds?: Set<string>;
+    /** The project's live facts, when the caller already holds them. */
+    live?: IndexedDoc[];
+  } = {},
 ): Promise<void> {
   if (newFacts.length === 0) return;
   const primaryId = newFacts[0].id;
-  const live = await db.listDocs(space, project);
+  const live = opts.live ?? (await db.listDocs(space, project));
   const skip = new Set(opts.authorSupersedes ?? []);
   const ts = () => new Date().toISOString();
 
@@ -198,34 +240,60 @@ export async function applySupersession(
 
   if (!gen) return;
 
+  // The strongest (new, old) pairs across the WHOLE entry, one verdict per old
+  // fact, capped — not every candidate of every fact.
+  const pairs: { newFact: IndexedDoc; old: IndexedDoc; score: number }[] = [];
   for (const newFact of newFacts) {
-    const cands = supersessionCandidates(
+    if (opts.judgeIds && !opts.judgeIds.has(newFact.id)) continue;
+    for (const c of scoredCandidates(
       live,
       newFact,
       ASYNC_CANDIDATE_K,
       ASYNC_COSINE_FLOOR,
-    ).filter((c) => !skip.has(c.id));
-    for (const old of cands) {
-      const result = await judgePair(
+    )) {
+      if (skip.has(c.doc.id) || opts.skipOldIds?.has(c.doc.id)) continue;
+      pairs.push({ newFact, old: c.doc, score: c.score });
+    }
+  }
+  pairs.sort((a, b) => b.score - a.score);
+  const chosen: typeof pairs = [];
+  const judged = new Set<string>();
+  for (const p of pairs) {
+    if (judged.has(p.old.id)) continue;
+    judged.add(p.old.id);
+    chosen.push(p);
+    if (chosen.length >= ASYNC_JUDGE_LIMIT) break;
+  }
+
+  // Independent calls, so they run in parallel; a call that throws (e.g. an
+  // exhausted budget) costs only its own verdict.
+  const verdicts = await Promise.all(
+    chosen.map((p) =>
+      judgePair(
         gen,
-        { body: newFact.body, kind: newFact.kind },
-        old,
-      );
-      const autoLinked = result.verdict === "replaces";
-      await logJudgment(db, {
-        space,
-        project,
-        newFactId: newFact.id,
-        oldFactId: old.id,
-        verdict: result.verdict,
-        autoLinked,
-        reason: result.reason,
-        ts: ts(),
-      });
-      if (autoLinked) {
-        await db.markSuperseded(space, old.id, newFact.id);
-        old.supersededBy = newFact.id;
-      }
+        { body: p.newFact.body, kind: p.newFact.kind },
+        p.old,
+      ).catch(() => null),
+    ),
+  );
+  for (let i = 0; i < chosen.length; i++) {
+    const result = verdicts[i];
+    if (!result) continue;
+    const { newFact, old } = chosen[i];
+    const autoLinked = result.verdict === "replaces" && !old.supersededBy;
+    await logJudgment(db, {
+      space,
+      project,
+      newFactId: newFact.id,
+      oldFactId: old.id,
+      verdict: result.verdict,
+      autoLinked,
+      reason: result.reason,
+      ts: ts(),
+    });
+    if (autoLinked) {
+      await db.markSuperseded(space, old.id, newFact.id);
+      old.supersededBy = newFact.id;
     }
   }
 }
@@ -340,6 +408,7 @@ export async function detectWriteConflicts(
     SYNC_COSINE_FLOOR,
   ).slice(0, SYNC_JUDGE_LIMIT);
   const hits: ConflictHit[] = [];
+  const related: string[] = [];
   const ts = new Date().toISOString();
 
   const judgeOne = async (old: IndexedDoc): Promise<void> => {
@@ -354,6 +423,7 @@ export async function detectWriteConflicts(
       reason: result.reason,
       ts,
     });
+    if (result.verdict === "relates") related.push(old.id);
     if (result.verdict === "contradicts" || result.verdict === "uncertain") {
       hits.push({
         factId: old.id,
@@ -383,7 +453,7 @@ export async function detectWriteConflicts(
   } else {
     await judgeAll();
   }
-  return { duplicate: null, conflicts: hits };
+  return { duplicate: null, conflicts: hits, relatedIds: [...related] };
 }
 
 export function formatDuplicateResult(

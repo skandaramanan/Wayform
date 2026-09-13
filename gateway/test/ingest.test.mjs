@@ -166,7 +166,7 @@ test("ingestFiles fetches, parses, skips junk, groups by project, records sha", 
     "pushsha",
     env.githubFetch,
   );
-  assert.equal(n, 2);
+  assert.equal(n.count, 2);
   assert.equal((await db.listDocs("s1", "memorylayer")).length, 1);
   assert.equal((await db.listDocs("s1", "other-proj")).length, 1);
   assert.equal(await db.getLastIndexedSha("s1"), "pushsha");
@@ -358,6 +358,9 @@ test("ingestEntries is idempotent per entry: re-ingesting replaces the fact set"
     "s1",
     "p",
     [entry],
+    // Unchanged content is now skipped outright; force models a deliberate
+    // re-extraction (e.g. a better prompt) to check replacement semantics.
+    { force: true },
   );
   const docs = await db.listDocs("s1", "p");
   assert.equal(docs.length, 1);

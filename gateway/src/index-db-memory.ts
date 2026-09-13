@@ -9,6 +9,7 @@ import type {
   GoldenCandidate,
   IndexDb,
   IndexedDoc,
+  IngestState,
   QueryScan,
   RetrievalLogEntry,
   SupersessionLogEntry,
@@ -22,6 +23,7 @@ import {
 export class MemoryIndexDb implements IndexDb {
   private docs = new Map<string, IndexedDoc>();
   private shas = new Map<string, string>();
+  private ingestStates = new Map<string, IngestState>();
   readonly logged: RetrievalLogEntry[] = [];
   readonly supersessionLogged: SupersessionLogEntry[] = [];
 
@@ -102,6 +104,9 @@ export class MemoryIndexDb implements IndexDb {
   async deleteSpace(space: string): Promise<void> {
     for (const key of this.docs.keys()) {
       if (key.startsWith(`${space} `)) this.docs.delete(key);
+    }
+    for (const key of this.ingestStates.keys()) {
+      if (key.startsWith(`${space} `)) this.ingestStates.delete(key);
     }
     this.shas.delete(space);
   }
@@ -219,5 +224,79 @@ export class MemoryIndexDb implements IndexDb {
       .filter((e) => e.space === space && (!autoLinkedOnly || e.autoLinked))
       .slice(-limit)
       .reverse();
+  }
+  async getIngestStates(
+    space: string,
+    files: string[],
+  ): Promise<Map<string, IngestState>> {
+    const out = new Map<string, IngestState>();
+    for (const f of files) {
+      const s = this.ingestStates.get(`${space} ${f}`);
+      if (s) out.set(f, { ...s });
+    }
+    return out;
+  }
+  async putIngestState(state: IngestState): Promise<void> {
+    this.ingestStates.set(`${state.space} ${state.sourceFile}`, { ...state });
+  }
+  async hasIngestState(space: string): Promise<boolean> {
+    return [...this.ingestStates.values()].some((s) => s.space === space);
+  }
+  async listRetryable(
+    space: string,
+    version: string,
+    pendingBeforeIso: string,
+    flooredBeforeIso: string,
+    limit: number,
+  ): Promise<string[]> {
+    return [...this.ingestStates.values()]
+      .filter(
+        (s) =>
+          s.space === space &&
+          ((s.status === "floored" && s.updatedAt < flooredBeforeIso) ||
+            (s.status === "pending" && s.updatedAt < pendingBeforeIso) ||
+            s.version !== version),
+      )
+      .sort((a, b) => (a.updatedAt < b.updatedAt ? -1 : 1))
+      .slice(0, limit)
+      .map((s) => s.sourceFile);
+  }
+  async listSourceFiles(space: string): Promise<string[]> {
+    return [
+      ...new Set(
+        [...this.docs.values()]
+          .filter((d) => d.space === space)
+          .map((d) => d.sourceFile),
+      ),
+    ];
+  }
+  async docStatsByFile(
+    space: string,
+    files: string[],
+  ): Promise<Map<string, { docs: number; maxBody: number }>> {
+    const want = new Set(files);
+    const out = new Map<string, { docs: number; maxBody: number }>();
+    for (const d of this.docs.values()) {
+      if (d.space !== space || !want.has(d.sourceFile)) continue;
+      const s = out.get(d.sourceFile) ?? { docs: 0, maxBody: 0 };
+      s.docs += 1;
+      s.maxBody = Math.max(s.maxBody, d.body.length);
+      out.set(d.sourceFile, s);
+    }
+    return out;
+  }
+  async docsBySource(space: string, sourceId: string): Promise<IndexedDoc[]> {
+    return [...this.docs.values()]
+      .filter((d) => d.space === space && d.sourceId === sourceId)
+      .map((d) => ({ ...d }));
+  }
+  async deleteBySourceFiles(space: string, files: string[]): Promise<void> {
+    const gone = new Set(files);
+    const ids = [...this.docs.values()]
+      .filter((d) => d.space === space && gone.has(d.sourceFile))
+      .map((d) => d.id);
+    await this.clearSupersessionPointersTo(space, ids);
+    for (const id of ids) this.docs.delete(`${space} ${id}`);
+    for (const f of files) this.ingestStates.delete(`${space} ${f}`);
   }
 }

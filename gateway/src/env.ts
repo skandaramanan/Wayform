@@ -51,7 +51,10 @@ export interface AiBinding {
   run(
     model: string,
     input: { prompt: string; max_tokens?: number },
-  ): Promise<{ response: string }>;
+  ): Promise<{
+    response: string;
+    usage?: { prompt_tokens: number; completion_tokens: number };
+  }>;
 }
 
 export interface Env {
@@ -98,7 +101,10 @@ export interface Env {
   /** Test seam for D1-backed identity uniqueness. */
   membershipClaims?: MembershipClaimStore;
   /** Test seam: injected text-gen. Production leaves it unset (uses AI). */
-  genText?: (prompt: string) => Promise<string>;
+  genText?: (
+    prompt: string,
+    opts?: { purpose?: "extract" | "judge" },
+  ) => Promise<string>;
   /** Test seam: force the near-duplicate write gate on/off. Production
    *  leaves it unset (behavior comes from DUP_GATE_ENFORCE in supersede.ts). */
   dupGateEnforce?: boolean;

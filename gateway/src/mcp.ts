@@ -13,6 +13,12 @@ import type { EntryType } from "../../src/frontmatter.js";
 import { indexDeps } from "./deps.js";
 import { retrieve, renderSearchResults } from "./retrieval.js";
 import { ingestEntries } from "./ingest.js";
+import {
+  clientFacts,
+  FACT_KINDS,
+  MAX_CLIENT_FACTS,
+  MAX_CLIENT_FACT_CHARS,
+} from "./extract.js";
 import { inviteGithubUser, revokeGithubUser } from "./spaces.js";
 import { listSessions, revokeSession } from "./sessions.js";
 import {
@@ -123,6 +129,41 @@ const TOOLS = [
           items: { type: "string" },
           description:
             "Live fact ids this entry replaces or corrects (shown as `id:` in search results). Use whenever updating/amending a recorded decision. Skips conflict checks for those ids; links after ingest without judge.",
+        },
+        facts: {
+          type: "array",
+          maxItems: MAX_CLIENT_FACTS,
+          description:
+            "Strongly preferred: the payload pre-split into atomic facts, each " +
+            "understandable ALONE and carrying its own 'because'. When given, " +
+            "the server indexes exactly these instead of running its own LLM " +
+            "extraction — searchable immediately, no extraction cost, and " +
+            "reused on every re-index. The payload stays the human-readable " +
+            "record.",
+          items: {
+            type: "object",
+            properties: {
+              kind: { type: "string", enum: [...FACT_KINDS] },
+              body: {
+                type: "string",
+                maxLength: MAX_CLIENT_FACT_CHARS,
+                description: "One self-contained fact.",
+              },
+              tier: {
+                type: "string",
+                enum: ["normal", "canon"],
+                description:
+                  "'canon' ONLY for standing rules ('always X', 'never Y'); status updates are never canon.",
+              },
+              entities: {
+                type: "array",
+                items: { type: "string" },
+                description:
+                  "Short topic tags, e.g. 'mcp-config', 'neuron-budget'.",
+              },
+            },
+            required: ["body"],
+          },
         },
       },
       required: ["project", "payload"],
@@ -470,6 +511,9 @@ async function toolsCall(
         const authorSupersedes = Array.isArray(args.supersedes)
           ? args.supersedes.filter((x): x is string => typeof x === "string")
           : [];
+        // Writer-split facts are validated here and persisted with the entry,
+        // so this and every later re-index skips server-side extraction.
+        const facts = clientFacts(args.facts, { type }) ?? undefined;
         const deps = indexDeps(env);
         // Conflict + duplicate check runs BEFORE the commit: it reads only
         // the index and the payload, so ordering it first costs nothing and
@@ -511,7 +555,7 @@ async function toolsCall(
           env,
           member,
           project,
-          { type, payload },
+          { type, payload, facts },
           fetchImpl,
         );
         // Hook projection must rebuild; recency is warmed (not deleted) so the
@@ -547,7 +591,9 @@ async function toolsCall(
                 member.space,
                 project,
                 [entry],
-                { authorSupersedes },
+                // Old facts the pre-commit check already judged "relates"
+                // are not worth a second paid verdict for the same entry.
+                { authorSupersedes, skipJudgeOld: check.relatedIds },
               );
             }
           } catch {
