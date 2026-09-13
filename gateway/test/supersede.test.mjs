@@ -271,7 +271,19 @@ test("ingestEntries with authorSupersedes marks old facts", async () => {
   await ingestEntries(db, fakeEmbed, gen, "s1", "memorylayer", [entry], {
     authorSupersedes: ["e0#0"],
   });
-  assert.equal((await db.getDoc("s1", "e0#0"))?.supersededBy, "e1#0");
+  // Ids are content-derived, so assert PROVENANCE (which entry superseded it)
+  // rather than a literal id. Pinning the literal is what made a stored
+  // reference silently repoint at different text when re-extraction renumbered.
+  const superseder = (await db.getDoc("s1", "e0#0"))?.supersededBy;
+  assert.ok(
+    superseder?.startsWith("e1#"),
+    `expected a fact from entry e1, got ${superseder}`,
+  );
+  const live = await db.listDocs("s1", "memorylayer");
+  assert.ok(
+    live.some((d) => d.id === superseder && d.body === "new fact"),
+    "the superseding id must resolve to the fact that actually replaced it",
+  );
 });
 
 // --- near-duplicate write gate (log-only rollout), 2026-07-17 ---

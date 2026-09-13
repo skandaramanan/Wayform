@@ -4,6 +4,7 @@ import {
   extractFacts,
   buildExtractionPrompt,
   floorEntities,
+  chunkPayload,
 } from "../dist/gateway/src/extract.js";
 import { fakeGenText } from "./helpers.mjs";
 
@@ -87,9 +88,13 @@ test("extractJsonArray is not fooled by brackets inside string values", async ()
 
 test("fail-open floor: null gen → one normal fact = whole entry body", async () => {
   const facts = await extractFacts(null, entry("some prose", "context"));
-  assert.deepEqual(facts, [
-    { kind: "context", tier: "normal", body: "some prose", entities: [] },
-  ]);
+  assert.equal(facts.length, 1);
+  assert.equal(facts[0].body, "some prose");
+  assert.equal(facts[0].kind, "context");
+  assert.equal(facts[0].tier, "normal");
+  // Was `entities: []`. The floor now ALWAYS tags: an untagged fact is
+  // invisible to entityRank, so an empty list is the bug, not the contract.
+  assert.ok(facts[0].entities.length > 0);
 });
 
 test("fail-open floor: malformed / non-JSON / throwing gen → one normal fact", async () => {
@@ -97,9 +102,10 @@ test("fail-open floor: malformed / non-JSON / throwing gen → one normal fact",
     async () => "not json at all",
     entry("prose body"),
   );
-  assert.deepEqual(bad, [
-    { kind: "decision", tier: "normal", body: "prose body", entities: [] },
-  ]);
+  assert.equal(bad.length, 1);
+  assert.equal(bad[0].body, "prose body");
+  assert.equal(bad[0].kind, "decision");
+  assert.ok(bad[0].entities.length > 0, "a parse failure must still tag");
   const boom = await extractFacts(async () => {
     throw new Error("model down");
   }, entry("prose body"));
@@ -176,4 +182,85 @@ test("the extraction floor tags the fact it falls back to", async () => {
     fact.entities.length > 0,
     "the floor must never emit an untagged fact",
   );
+});
+
+test("chunkPayload leaves short entries alone and splits long ones on paragraphs", () => {
+  assert.deepEqual(chunkPayload("short"), ["short"]);
+  const paras = ["A".repeat(500), "B".repeat(500), "C".repeat(500)].join(
+    "\n\n",
+  );
+  const out = chunkPayload(paras, 1200);
+  assert.ok(out.length > 1, "a 1500-char payload must split at 1200");
+  assert.ok(
+    out.every((c) => c.length <= 1200 * 2),
+    "chunks stay bounded",
+  );
+  // A decision and its "because" must not land in different chunks.
+  assert.ok(
+    out.every((c) => !c.startsWith("\n")),
+    "no ragged paragraph edges",
+  );
+  assert.equal(
+    out.join("").replace(/\n/g, ""),
+    paras.replace(/\n/g, ""),
+    "no text lost",
+  );
+});
+
+test("chunkPayload still breaks a single paragraph that exceeds the budget", () => {
+  const out = chunkPayload("X".repeat(5000), 1000);
+  assert.ok(out.length >= 3, "one giant paragraph cannot be left whole");
+  assert.equal(out.join(""), "X".repeat(5000), "no text lost");
+});
+
+test("a long entry is extracted chunk by chunk, so one bad chunk floors only itself", async () => {
+  // Measured 2026-09-13: 181/202 entries came back as ONE whole-entry fact and
+  // 57 of those were 1500ch+, holding 52% of corpus text. Bounding each call is
+  // the fix; this asserts a failure no longer collapses the WHOLE entry.
+  const good = JSON.stringify([
+    { kind: "decision", tier: "normal", body: "chunk fact", entities: ["x"] },
+  ]);
+  let call = 0;
+  const gen = async () => {
+    call += 1;
+    return call === 2 ? "not json at all" : good;
+  };
+  const payload = ["P".repeat(900), "Q".repeat(900), "R".repeat(900)].join(
+    "\n\n",
+  );
+  const facts = await extractFacts(gen, {
+    file: "x.md",
+    type: "decision",
+    payload,
+  });
+  assert.ok(call >= 3, "each chunk gets its own call");
+  assert.ok(facts.length >= 3, "good chunks still yield their facts");
+  assert.ok(
+    facts.some((f) => f.body === "chunk fact"),
+    "the chunks that parsed produced real facts",
+  );
+  assert.ok(
+    facts.every((f) => f.entities.length > 0),
+    "even the floored chunk carries tags",
+  );
+});
+
+test("floorEntities NEVER returns an empty list", () => {
+  // The invariant: never empty for a body containing any token of 3+ chars.
+  // An untagged fact is invisible to entityRank, which is how a doc ends up
+  // competing on one generator instead of three. Identifier extraction alone
+  // did not guarantee this — prose with no identifiers returned [], a
+  // pathological run with no word breaks returned [], and so did a terse fact
+  // whose words are all shorter than the prose fallback's threshold.
+  for (const body of [
+    "We decided to abandon the orchestration surface entirely.",
+    "Q".repeat(900),
+    "short one",
+    "we use D1 not KV",
+    "ALLCAPS_CONSTANT and `backticked` and dotted.path",
+  ]) {
+    const tags = floorEntities(body);
+    assert.ok(tags.length > 0, `empty tags for: ${body.slice(0, 40)}`);
+    assert.ok(tags.every((t) => t.length >= 3 && t.length <= 40));
+  }
 });

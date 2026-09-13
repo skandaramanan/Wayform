@@ -83,6 +83,29 @@ export function floorEntities(body: string, cap = 12): string[] {
     push(m[0]);
   }
   for (const m of body.matchAll(/\b[A-Z]{3,}(?:_[A-Z0-9]+)*\b/g)) push(m[0]);
+
+  // Prose with no identifier-shaped tokens would otherwise return [] and land
+  // right back in the bug this function exists to prevent — a fact invisible to
+  // entityRank. Fall back to the longest distinct words: length correlates with
+  // specificity, so they are the terms a query is most likely to share.
+  if (out.length === 0) {
+    const words = [
+      ...new Set(body.toLowerCase().match(/[a-z][a-z0-9-]{5,}/g) ?? []),
+    ];
+    words.sort((a, b) => b.length - a.length);
+    // Truncate rather than reject: push() drops anything over 40 chars, and a
+    // pathological run with no word breaks would otherwise leave us at [] —
+    // exactly the state this fallback exists to make impossible.
+    for (const w of words.slice(0, cap)) push(w.slice(0, 40));
+  }
+  // Last resort: a terse fact ("we use D1 not KV") is all short words and would
+  // still be untagged. Any token of 3+ chars beats none.
+  if (out.length === 0) {
+    for (const w of body.toLowerCase().match(/[a-z0-9][a-z0-9-]{2,}/g) ?? []) {
+      push(w.slice(0, 40));
+      if (out.length >= cap) break;
+    }
+  }
   return out.slice(0, cap);
 }
 
@@ -170,11 +193,74 @@ function parseModelJson(text: string): unknown {
   return JSON.parse(extractJsonArray(body) ?? body);
 }
 
+/**
+ * Target size for one extraction call, in characters.
+ *
+ * Measured 2026-09-13: 181 of 202 entries came back as a SINGLE whole-entry
+ * fact, and 57 of those were over 1500 chars — together holding 52% of all
+ * corpus text. Those blobs took the floor path (their tags are
+ * floorEntities-shaped), i.e. the model failed to return parseable JSON on a
+ * long input. Asking for "1-5 facts" from 4000+ characters is the wrong shape
+ * of request regardless: a long entry holds far more than five decisions.
+ *
+ * Chunking bounds every call instead, so a long entry yields many atomic facts
+ * rather than one blob. Atomicity is not cosmetic — the injection budget is
+ * token-capped, so one 1000-token blob crowds out ~6 real decisions, and a
+ * blob holding ten decisions can never have one of them superseded.
+ */
+const CHUNK_CHARS = 1200;
+
+/**
+ * Split on blank lines, packing paragraphs up to CHUNK_CHARS. Paragraph
+ * boundaries keep a decision and its "because" together; a hard character cut
+ * would strand the reason in a different chunk from the claim.
+ */
+export function chunkPayload(payload: string, max = CHUNK_CHARS): string[] {
+  if (payload.length <= max) return [payload];
+  const paras = payload.split(/\n\s*\n/);
+  const out: string[] = [];
+  let buf = "";
+  for (const para of paras) {
+    if (buf && buf.length + para.length + 2 > max) {
+      out.push(buf);
+      buf = para;
+    } else {
+      buf = buf ? `${buf}\n\n${para}` : para;
+    }
+  }
+  if (buf) out.push(buf);
+  // A single paragraph longer than max still has to be broken somewhere.
+  return out.flatMap((c) =>
+    c.length <= max * 2
+      ? [c]
+      : (c.match(new RegExp(`[\\s\\S]{1,${max}}`, "g")) ?? [c]),
+  );
+}
+
 export async function extractFacts(
   gen: GenText | null,
   entry: ParsedEntry,
 ): Promise<ExtractedFact[]> {
   if (!gen) return floor(entry);
+
+  // Long entries are extracted chunk by chunk: each call stays small enough to
+  // return parseable JSON, and a chunk that still fails only floors ITS OWN
+  // slice instead of collapsing the whole entry into one untagged blob.
+  const chunks = chunkPayload(entry.payload);
+  if (chunks.length > 1) {
+    const all: ExtractedFact[] = [];
+    for (const payload of chunks) {
+      all.push(...(await extractOne(gen, { ...entry, payload })));
+    }
+    return all;
+  }
+  return extractOne(gen, entry);
+}
+
+async function extractOne(
+  gen: GenText,
+  entry: ParsedEntry,
+): Promise<ExtractedFact[]> {
   let out: string;
   try {
     out = await gen(buildExtractionPrompt(entry));
