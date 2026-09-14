@@ -35,7 +35,6 @@ import {
 import { EXTRACTOR_VERSION } from "./extract.js";
 import { installationToken } from "./github-auth.js";
 import { remainingNeurons } from "./neuron-budget.js";
-import type { IndexDb } from "./index-db.js";
 
 const GH = "https://api.github.com";
 
@@ -211,11 +210,15 @@ export const RETRY_SWEEP_LIMIT = 10;
 
 const reindexCursorKey = (space: string) => `reindex-cursor:${space}`;
 
-/** Indexed before ingest_state existed: it needs one adopting pass. */
-async function isLegacy(db: IndexDb, space: string): Promise<boolean> {
-  if (await db.hasIngestState(space)) return false;
-  return (await db.listSourceFiles(space)).length > 0;
-}
+/**
+ * Set to EXTRACTOR_VERSION when a full paged pass over the space completes.
+ * Until it matches, the cron walks the whole tree once: entries indexed before
+ * ingest_state existed, or under an older extractor, have no row the retry
+ * sweep could find, so only a tree walk reaches them. It replaced a "no
+ * ingest_state rows yet" check that went false the moment ANY write landed —
+ * on 2026-09-14 three fresh writes hid 102 floored legacy entries from it.
+ */
+const backfillKey = (space: string) => `index-backfill:${space}`;
 
 export async function reconcileAll(env: Env): Promise<void> {
   const deps = indexDeps(env);
@@ -246,14 +249,20 @@ export async function reconcileAll(env: Env): Promise<void> {
           fetchImpl,
           { offset, limit: CRON_REINDEX_PAGE },
         );
-        if (r.nextOffset === null) await env.ROUTING.delete(key);
-        else await env.ROUTING.put(key, `${head}:${r.nextOffset}`);
+        if (r.nextOffset === null) {
+          await env.ROUTING.delete(key);
+          await env.ROUTING.put(backfillKey(sr.space), EXTRACTOR_VERSION);
+        } else {
+          await env.ROUTING.put(key, `${head}:${r.nextOffset}`);
+        }
       };
 
       const indexed = await deps.db.getLastIndexedSha(sr.space);
+      const backfilled =
+        (await env.ROUTING.get(backfillKey(sr.space))) === EXTRACTOR_VERSION;
       if (Number.isFinite(resumeAt)) {
         await pagedPass(resumeAt);
-      } else if (indexed === null || (await isLegacy(deps.db, sr.space))) {
+      } else if (indexed === null || !backfilled) {
         await pagedPass(0);
       } else if (indexed !== head) {
         const diff = await compareFiles(env, sr, indexed, head, fetchImpl);

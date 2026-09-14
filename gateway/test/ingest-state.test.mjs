@@ -383,6 +383,7 @@ test("the cron catches up through the compare API — no tree listing, no full p
     entry("old", "old decision"),
   ]);
   await db.setLastIndexedSha("s1", "basesha");
+  await env.ROUTING.put("index-backfill:s1", EXTRACTOR_VERSION);
 
   await reconcileAll(env);
   assert.deepEqual(
@@ -427,6 +428,7 @@ test("the cron retries a floored entry once its cooldown passes, not every tick"
   );
   await registerSpaceRepo(env, SR);
   await db.setLastIndexedSha("s1", "headsha");
+  await env.ROUTING.put("index-backfill:s1", EXTRACTOR_VERSION);
   await db.upsertDocs([doc("f1#1", path("f1"), "decision text")]);
   const floored = {
     space: "s1",

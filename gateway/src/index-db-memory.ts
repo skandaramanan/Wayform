@@ -149,9 +149,22 @@ export class MemoryIndexDb implements IndexDb {
     space: string,
     sourceId: string,
     docs: IndexedDoc[],
+    opts: { repointTo?: string } = {},
   ): Promise<void> {
-    const deleting = await this.idsBySource(space, sourceId);
-    await this.clearSupersessionPointersTo(space, deleting);
+    const keep = new Set(docs.map((d) => d.id));
+    const deleting = (await this.idsBySource(space, sourceId)).filter(
+      (id) => !keep.has(id),
+    );
+    if (opts.repointTo) {
+      const gone = new Set(deleting);
+      for (const d of this.docs.values()) {
+        if (d.space === space && d.supersededBy && gone.has(d.supersededBy)) {
+          d.supersededBy = opts.repointTo;
+        }
+      }
+    } else {
+      await this.clearSupersessionPointersTo(space, deleting);
+    }
     for (const [key, d] of this.docs) {
       if (d.space === space && d.sourceId === sourceId) this.docs.delete(key);
     }
@@ -238,9 +251,6 @@ export class MemoryIndexDb implements IndexDb {
   }
   async putIngestState(state: IngestState): Promise<void> {
     this.ingestStates.set(`${state.space} ${state.sourceFile}`, { ...state });
-  }
-  async hasIngestState(space: string): Promise<boolean> {
-    return [...this.ingestStates.values()].some((s) => s.space === space);
   }
   async listRetryable(
     space: string,

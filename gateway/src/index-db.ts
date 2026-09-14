@@ -121,11 +121,15 @@ export interface IndexDb {
     limit: number,
   ): Promise<RetrievalLogEntry[]>;
   /** Delete-then-insert every fact for one ledger entry, in one batch —
-   *  idempotent under non-deterministic extraction (roadmap §3). */
+   *  idempotent under non-deterministic extraction (roadmap §3). Facts that
+   *  were superseded BY a fact that does not survive are re-pointed to
+   *  `repointTo` (else un-superseded), so re-extraction cannot resurrect
+   *  what the entry replaced. Pointers to surviving ids are untouched. */
   replaceBySource(
     space: string,
     sourceId: string,
     docs: IndexedDoc[],
+    opts?: { repointTo?: string },
   ): Promise<void>;
   markSuperseded(
     space: string,
@@ -156,9 +160,6 @@ export interface IndexDb {
     files: string[],
   ): Promise<Map<string, IngestState>>;
   putIngestState(state: IngestState): Promise<void>;
-  /** Whether the space has any ingest_state at all (false = indexed before
-   *  the table existed, so it needs one adopting pass). */
-  hasIngestState(space: string): Promise<boolean>;
   /** Files worth another extraction: floored before `flooredBeforeIso`,
    *  pending since before `pendingBeforeIso`, or on another extractor
    *  version. Oldest first. */
@@ -567,21 +568,24 @@ export function d1IndexDb(db: D1Like): IndexDb {
         ts: r.ts as string,
       }));
     },
-    async replaceBySource(space, sourceId, docs) {
+    async replaceBySource(space, sourceId, docs, opts = {}) {
       const { results: existing } = await db
         .prepare("SELECT id FROM docs WHERE space = ? AND source_id = ?")
         .bind(space, sourceId)
         .all();
-      const deleting = existing.map((r) => r.id as string);
+      const keep = new Set(docs.map((d) => d.id));
+      const deleting = existing
+        .map((r) => r.id as string)
+        .filter((id) => !keep.has(id));
       const stmts: D1Stmt[] = [];
       if (deleting.length > 0) {
         const placeholders = deleting.map(() => "?").join(", ");
         stmts.push(
           db
             .prepare(
-              `UPDATE docs SET superseded_by = NULL WHERE space = ? AND superseded_by IN (${placeholders})`,
+              `UPDATE docs SET superseded_by = ? WHERE space = ? AND superseded_by IN (${placeholders})`,
             )
-            .bind(space, ...deleting),
+            .bind(opts.repointTo ?? null, space, ...deleting),
         );
       }
       stmts.push(
@@ -742,15 +746,6 @@ export function d1IndexDb(db: D1Like): IndexDb {
         )
         .bind(s.space, s.sourceFile, s.digest, s.version, s.status, s.updatedAt)
         .run();
-    },
-    async hasIngestState(space) {
-      const row = await db
-        .prepare(
-          "SELECT 1 AS present FROM ingest_state WHERE space = ? LIMIT 1",
-        )
-        .bind(space)
-        .first();
-      return row !== null;
     },
     async listRetryable(
       space,

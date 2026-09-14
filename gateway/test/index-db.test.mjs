@@ -304,18 +304,38 @@ test("clearSupersessionPointersTo un-hides facts pointing at deleted ids", async
   assert.ok(live.some((d) => d.id === "victim"));
 });
 
-test("replaceBySource clears inbound pointers before delete", async () => {
+test("replaceBySource clears pointers to ids that vanish, keeps pointers to ids that survive", async () => {
   const db = new MemoryIndexDb();
   await db.upsertDocs([
-    doc({ id: "other", sourceId: "other" }),
-    doc({ id: "e1#0", sourceId: "e1" }),
+    doc({ id: "a", sourceId: "a" }),
+    doc({ id: "b", sourceId: "b" }),
+    doc({ id: "e1#keep", sourceId: "e1" }),
+    doc({ id: "e1#gone", sourceId: "e1" }),
   ]);
-  await db.markSuperseded("s1", "other", "e1#0");
+  await db.markSuperseded("s1", "a", "e1#keep");
+  await db.markSuperseded("s1", "b", "e1#gone");
   await db.replaceBySource("s1", "e1", [
-    doc({ id: "e1#0", sourceId: "e1", body: "rewritten" }),
+    doc({ id: "e1#keep", sourceId: "e1" }),
   ]);
-  const live = await db.listDocs("s1");
-  assert.ok(live.some((d) => d.id === "other"));
+  const live = (await db.listDocs("s1")).map((d) => d.id);
+  assert.ok(!live.includes("a"), "same content-derived id: still superseded");
+  assert.ok(
+    live.includes("b"),
+    "its superseder is gone and nothing replaces it",
+  );
+});
+
+test("replaceBySource re-points pointers to vanishing ids when told where", async () => {
+  const db = new MemoryIndexDb();
+  await db.upsertDocs([
+    doc({ id: "old", sourceId: "old" }),
+    doc({ id: "e1#v1", sourceId: "e1" }),
+  ]);
+  await db.markSuperseded("s1", "old", "e1#v1");
+  await db.replaceBySource("s1", "e1", [doc({ id: "e1#v2", sourceId: "e1" })], {
+    repointTo: "e1#v2",
+  });
+  assert.equal((await db.getDoc("s1", "old")).supersededBy, "e1#v2");
 });
 
 test("clearAllSupersession wipes edges and returns count", async () => {

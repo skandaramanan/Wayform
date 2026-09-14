@@ -279,9 +279,22 @@ export async function ingestEntriesDetailed(
     const docs = facts.map((f, j) =>
       factToDoc(space, project, entry, f, j, []),
     );
+    // Every previous fact superseded by the same fact means the entry as a
+    // whole was replaced: its re-extracted facts stay replaced even though
+    // their content-derived ids are new.
+    const wholeEntryBy =
+      prev.length > 0 &&
+      prev.every(
+        (d) => d.supersededBy && d.supersededBy === prev[0].supersededBy,
+      )
+        ? prev[0].supersededBy
+        : null;
     for (const d of docs) {
       const before = prevById.get(d.id);
-      if (!before) continue;
+      if (!before) {
+        d.supersededBy = wholeEntryBy;
+        continue;
+      }
       // Same content-derived id = same text: keep its vector, and keep it
       // superseded if it was — re-ingest used to resurrect superseded facts.
       d.embedding = before.embedding;
@@ -298,7 +311,12 @@ export async function ingestEntriesDetailed(
         // fail-open: index facts without vectors — BM25 still serves recall
       }
     }
-    await db.replaceBySource(space, sourceId, docs);
+    // Facts THIS entry superseded point at ids re-extraction is about to
+    // delete; clearing those pointers resurrected them (2026-09-14). Hand
+    // them to the entry's first new fact instead.
+    await db.replaceBySource(space, sourceId, docs, {
+      repointTo: docs[0]?.id,
+    });
     if (live) {
       live = live
         .filter((d) => d.sourceId !== sourceId)
