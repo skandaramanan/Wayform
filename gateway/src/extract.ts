@@ -310,7 +310,13 @@ export async function extractFactsDetailed(
       );
       facts.push(...floor({ ...entry, payload: rest.join("\n\n") }));
     }
-    return { facts, floored: parts.some((p) => p.floored) };
+    // Floored only when EVERY chunk failed. `floored` queues a full retry of
+    // the entry, and on 2026-09-14 seven long entries that had already
+    // yielded 7-26 facts were queued to re-buy every chunk for one bad slice.
+    // ponytail: a single failed chunk stays one floor fact until the entry
+    // changes or EXTRACTOR_VERSION bumps; add per-chunk retry state if that
+    // measurably hurts recall.
+    return { facts, floored: parts.every((p) => p.floored) };
   }
   return extractOne(gen, entry);
 }
