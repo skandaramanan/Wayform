@@ -88,6 +88,9 @@ test("reconcileAll reindexes only spaces whose indexed sha lags HEAD", async () 
     branch: "main",
   });
   await db.setLastIndexedSha("s1", "headsha"); // already current
+  // …and already backfilled under this extractor version.
+  const { EXTRACTOR_VERSION } = await import("../dist/gateway/src/extract.js");
+  await env.ROUTING.put("index-backfill:s1", EXTRACTOR_VERSION);
   await reconcileAll(env);
   assert.equal((await db.listDocs("s1")).length, 0); // untouched
 
