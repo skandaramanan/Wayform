@@ -179,9 +179,7 @@ function coerce(raw: unknown, entry: { type: string }): ExtractedFact[] | null {
  * `]` regex over-grabs when prose contains stray brackets; depth-scanning stops
  * at the matching close. Returns null when no balanced array exists.
  */
-function extractJsonArray(text: string): string | null {
-  const start = text.indexOf("[");
-  if (start === -1) return null;
+function balancedArrayAt(text: string, start: number): string | null {
   let depth = 0;
   let inStr = false;
   let esc = false;
@@ -198,16 +196,39 @@ function extractJsonArray(text: string): string | null {
   return null;
 }
 
+/** Bound on candidate `[` positions tried per completion. */
+const MAX_ARRAY_STARTS = 50;
+
 /**
- * Parse a fact array out of a model completion: strip an optional ```json```
- * fence, then pull the first balanced `[…]` array (dropping any surrounding
- * prose). Genuinely malformed JSON still throws → the caller floors to the
- * whole entry (correct fail-open).
+ * Parse a fact array out of a model completion by trying each `[` in turn
+ * until a balanced span parses as an array of objects. The array is not
+ * reliably the first `[` nor inside the first code fence: on 2026-09-17 a PR
+ * summary came back as rambling markdown with a ```bash block and link
+ * brackets before the real array, and grabbing the first fence floored it
+ * every day. No candidate parses → throws → the caller floors (fail-open).
  */
 function parseModelJson(text: string): unknown {
-  const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
-  const body = (fenced ? fenced[1] : text).trim();
-  return JSON.parse(extractJsonArray(body) ?? body);
+  let tried = 0;
+  for (
+    let i = text.indexOf("[");
+    i !== -1 && tried < MAX_ARRAY_STARTS;
+    i = text.indexOf("[", i + 1), tried++
+  ) {
+    const span = balancedArrayAt(text, i);
+    if (!span) continue;
+    try {
+      const value: unknown = JSON.parse(span);
+      if (
+        Array.isArray(value) &&
+        value.some((x) => x !== null && typeof x === "object")
+      ) {
+        return value;
+      }
+    } catch {
+      // not this bracket; try the next
+    }
+  }
+  return JSON.parse(text.trim());
 }
 
 /**

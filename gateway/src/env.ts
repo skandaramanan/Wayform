@@ -52,7 +52,8 @@ export interface AiBinding {
     model: string,
     input: { prompt: string; max_tokens?: number },
   ): Promise<{
-    response: string;
+    /** A string, or the already-parsed value when the completion was JSON. */
+    response: unknown;
     usage?: { prompt_tokens: number; completion_tokens: number };
   }>;
 }
