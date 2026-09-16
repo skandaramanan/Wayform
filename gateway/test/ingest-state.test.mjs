@@ -194,6 +194,9 @@ test("a floored entry is recorded, left alone without a model, and re-extracted 
     "without a model there is nothing better to do",
   );
 
+  // A floored entry is only retried once its cooldown has passed.
+  const st0 = (await db.getIngestStates("s1", [e.file])).get(e.file);
+  await db.putIngestState({ ...st0, updatedAt: "2026-01-01T00:00:00Z" });
   const gen = countingGen(oneFact("an extracted fact"));
   const b = await ingestEntriesDetailed(
     db,

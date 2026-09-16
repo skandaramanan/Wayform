@@ -177,8 +177,11 @@ function isCurrent(
   if (st.status === "pending") {
     return now - Date.parse(st.updatedAt) < PENDING_STALE_MS;
   }
-  // floored: only a model can improve it.
-  return gen === null;
+  // floored: only a model can improve it, and only the retry sweep may try
+  // again once the cooldown passes. Tree walks used to re-extract floored
+  // entries on every pass, burning the day's budget on the same failures and
+  // holding the backfill cursor on their page (2026-09-15..17).
+  return gen === null || now - Date.parse(st.updatedAt) < FLOORED_RETRY_MS;
 }
 
 async function putState(db: IndexDb, state: IngestState): Promise<void> {

@@ -93,7 +93,14 @@ export function indexDeps(
               neuronsFor(u.prompt_tokens, u.completion_tokens) - estimate;
             if (delta !== 0) await adjustNeurons(env, delta);
           }
-          return out.response;
+          // Workers AI parses the completion itself when it is valid JSON, so
+          // `response` arrives as an OBJECT exactly when the model did its job.
+          // Every parser downstream calls string methods on it, threw, and
+          // fell back: clean extractions floored and clean verdicts became
+          // "uncertain" (found 2026-09-17 replaying floored entries).
+          return typeof out.response === "string"
+            ? out.response
+            : JSON.stringify(out.response);
         }
       : null);
   return { db, embed, gen };
