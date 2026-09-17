@@ -175,13 +175,24 @@ export function entityRank(
 ): Scored[] {
   const qTerms = new Set(tokenize(query));
   if (qTerms.size === 0) return [];
+  // Each matched tag counts by rarity (IDF over this pool), not 1. A raw count
+  // let tags on a tenth of the corpus ("memorylayer" 121, "gateway" 114)
+  // outrank the answer: on 2026-09-17 "account was on the Free plan" ranked
+  // first for a query about the plan-layer pivot.
+  const df = new Map<string, number>();
+  for (const d of docs) {
+    for (const e of new Set(d.entities ?? [])) df.set(e, (df.get(e) ?? 0) + 1);
+  }
+  const n = docs.length;
   const out: Scored[] = [];
   for (const d of docs) {
-    let overlap = 0;
-    for (const e of d.entities ?? []) {
-      if (tokenize(e).some((t) => qTerms.has(t))) overlap += 1;
+    let score = 0;
+    for (const e of new Set(d.entities ?? [])) {
+      if (tokenize(e).some((t) => qTerms.has(t))) {
+        score += Math.log(1 + n / (df.get(e) ?? 1));
+      }
     }
-    if (overlap > 0) out.push({ id: d.id, score: overlap });
+    if (score > 0) out.push({ id: d.id, score });
   }
   return out.sort((a, b) => b.score - a.score);
 }

@@ -68,12 +68,18 @@ for (const c of cases) {
   const ids = adjustScores(rrfFuse([bm, en]), byId, new Date()).map(
     (s) => s.id,
   );
-  const i = ids.indexOf(c.expect);
+  // `expect` lists the ENTRY ids (fact-id prefixes) that answer the query.
+  // Entries split into many facts and duplicates get superseded, so pinning
+  // one fact id went stale as soon as the corpus was re-extracted (2026-09-17).
+  const accept = (Array.isArray(c.expect) ? c.expect : [c.expect]).map(
+    (e) => e.split("#")[0],
+  );
+  const i = ids.findIndex((id) => accept.includes(id.split("#")[0]));
   const rank = i < 0 ? Infinity : i + 1;
   ranks.push(rank);
   rr += i < 0 ? 0 : 1 / rank;
   console.log(
-    `  rank ${(rank === Infinity ? "MISS" : String(rank)).padStart(4)}  ${c.expect.padEnd(14)} ${c.note ?? ""}`,
+    `  rank ${(rank === Infinity ? "MISS" : String(rank)).padStart(4)}  ${accept.join("|").padEnd(28)} ${c.note ?? ""}`,
   );
 }
 const n = cases.length;

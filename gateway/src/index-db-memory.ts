@@ -309,4 +309,33 @@ export class MemoryIndexDb implements IndexDb {
     for (const id of ids) this.docs.delete(`${space} ${id}`);
     for (const f of files) this.ingestStates.delete(`${space} ${f}`);
   }
+  async supersessionSuggestions(space: string): Promise<Map<string, string>> {
+    const out = new Map<string, string>();
+    for (const e of this.supersessionLogged) {
+      if (
+        e.space !== space ||
+        e.verdict !== "replaces" ||
+        e.autoLinked ||
+        e.reason === "author-supersedes"
+      ) {
+        continue;
+      }
+      const oldDoc = this.docs.get(`${space} ${e.oldFactId}`);
+      const newDoc = this.docs.get(`${space} ${e.newFactId}`);
+      if (oldDoc && newDoc && !oldDoc.supersededBy) {
+        out.set(e.oldFactId, e.newFactId);
+      }
+    }
+    return out;
+  }
+  async repairDanglingSupersession(space: string): Promise<void> {
+    const docs = [...this.docs.values()].filter((d) => d.space === space);
+    const ids = new Set(docs.map((d) => d.id));
+    for (const d of docs) {
+      if (!d.supersededBy || ids.has(d.supersededBy)) continue;
+      const source = d.supersededBy.split("#")[0];
+      d.supersededBy =
+        docs.find((x) => x.sourceId === source && x.id !== d.id)?.id ?? null;
+    }
+  }
 }

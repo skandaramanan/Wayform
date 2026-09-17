@@ -242,16 +242,19 @@ test("retrieve applies feedback penalties and fails open when the map load throw
   );
 });
 
-test("renderSearchResults groups by kind and carries provenance", () => {
+test("renderSearchResults groups by entry and carries provenance", () => {
   const results = [
     { doc: doc("d1", "we chose D1"), score: 0.03 },
     { doc: doc("c1", "pilot background", { kind: "context" }), score: 0.02 },
   ];
   const text = renderSearchResults("memorylayer", "index", results, 10);
   assert.match(text, /# Memory search: "index"/);
-  assert.match(text, /2 of 10 indexed entries cleared the relevance bar/);
-  assert.match(text, /## decision — Skanda — 2026-07-04/);
-  assert.match(text, /source: context\/memorylayer\/skanda\/d1\.md/);
+  assert.match(text, /2 entries cleared the relevance bar/);
+  assert.match(
+    text,
+    /## Skanda — 2026-07-04 — source: context\/memorylayer\/skanda\/d1\.md/,
+  );
+  assert.match(text, /\[decision\] we chose D1/);
   // Fact id must be visible — memory_feedback and supersedes both consume it.
   assert.match(text, /id: d1/);
   const none = renderSearchResults("memorylayer", "xyz", [], 10);

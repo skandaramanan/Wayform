@@ -11,7 +11,11 @@ import { slug } from "../../src/slug.js";
 import { DEFAULT_BUDGET_TOKENS } from "../../src/token-budget.js";
 import type { EntryType } from "../../src/frontmatter.js";
 import { indexDeps } from "./deps.js";
-import { retrieve, renderSearchResults } from "./retrieval.js";
+import {
+  retrieve,
+  renderSearchResults,
+  SEARCH_MAX_FACTS,
+} from "./retrieval.js";
 import { ingestEntries } from "./ingest.js";
 import {
   clientFacts,
@@ -448,6 +452,9 @@ async function toolsCall(
             query,
             budgetTokens: DEFAULT_BUDGET_TOKENS,
             kinds,
+            // Candidates for renderSearchResults, which groups them by entry.
+            // Uncapped, a 4000-token budget of short facts returned ~68.
+            maxResults: SEARCH_MAX_FACTS,
             trigger: "search_memory",
           });
           return finish(

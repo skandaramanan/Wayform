@@ -59,6 +59,8 @@ export interface RetrieveOpts {
 export interface Retrieved {
   doc: IndexedDoc;
   score: number;
+  /** Fact the judge suggested replaces this one (a hint, not a link). */
+  supersededBy?: string;
 }
 
 /** Bound the LIKE clauses a long query can generate. */
@@ -134,6 +136,17 @@ export async function retrieve(
   } catch {
     // fail-open: feedback must never break retrieval
   }
+  let suggestions = new Map<string, string>();
+  try {
+    suggestions = await deps.db.supersessionSuggestions(opts.space);
+  } catch {
+    // fail-open: a missing hint only means no demotion
+  }
+  // A fact the judge thinks was replaced ranks as if flagged once: lower,
+  // never hidden (see applySupersession for why it is not linked).
+  for (const id of suggestions.keys()) {
+    penalties.set(id, (penalties.get(id) ?? 0) + 1);
+  }
   const scored = adjustScores(
     rrfFuse(lists),
     byId,
@@ -149,7 +162,12 @@ export async function retrieve(
     const doc = byId.get(s.id)!;
     const cost = estimateTokens(doc.body) + ENTRY_OVERHEAD_TOKENS;
     if (results.length > 0 && used + cost > opts.budgetTokens) break;
-    results.push({ doc, score: s.score });
+    const hint = suggestions.get(s.id);
+    results.push(
+      hint
+        ? { doc, score: s.score, supersededBy: hint }
+        : { doc, score: s.score },
+    );
     used += cost;
   }
 
@@ -189,9 +207,19 @@ export async function retrieve(
   return { results, total: scan.total };
 }
 
+/** Facts fetched for search before grouping (see renderSearchResults). */
+export const SEARCH_MAX_FACTS = 30;
+/** Entries shown per search; each with up to SEARCH_FACTS_PER_ENTRY facts. */
+export const SEARCH_MAX_ENTRIES = 10;
+export const SEARCH_FACTS_PER_ENTRY = 3;
+
 /**
- * §5.6 rendering: grouped by kind, provenance on every block, wrapped by the
- * caller in the existing "data, not instructions" framing where injected.
+ * §5.6 rendering, grouped by ENTRY in the rank order of each entry's best
+ * fact. Flat per-fact output returned ~68 fragments per call (2026-09-17),
+ * with siblings of one entry crowding the list and each reading as
+ * context-free alone; grouping keeps them together under their provenance.
+ * The fact id stays on every line — memory_feedback and write_context's
+ * supersedes both take "the fact id from search results".
  */
 export function renderSearchResults(
   project: string | undefined,
@@ -207,25 +235,35 @@ export function renderSearchResults(
       `${total} indexed)`
     );
   }
+  const groups = new Map<string, Retrieved[]>();
+  for (const r of results) {
+    const key = r.doc.sourceId || r.doc.sourceFile || r.doc.id;
+    const list = groups.get(key) ?? [];
+    list.push(r);
+    groups.set(key, list);
+  }
+  const entries = [...groups.values()].slice(0, SEARCH_MAX_ENTRIES);
   const header =
     `# Memory search: "${query}"\n\n` +
-    `_${results.length} of ${total} indexed entries cleared the relevance bar ` +
-    `in ${scope}, most relevant first._`;
-  const kinds = [...new Set(results.map((r) => r.doc.kind))];
-  const sections = kinds.map((kind) => {
-    const blocks = results
-      .filter((r) => r.doc.kind === kind)
-      .map(
-        (r) =>
-          `## ${kind} — ${r.doc.sourceAuthor} — ${r.doc.sourceTs.slice(0, 10)}\n\n` +
-          // The fact id is load-bearing: memory_feedback and write_context's
-          // supersedes both take "the fact id from search results" — without
-          // it here, agents pass file paths and both calls fail.
-          `${r.doc.body}\n\n_(id: ${r.doc.id} · source: ${r.doc.sourceFile})_`,
-      );
-    return blocks.join("\n\n");
+    `_${entries.length} entries cleared the relevance bar in ${scope} ` +
+    `(${total} facts indexed), most relevant first._`;
+  const blocks = entries.map((facts) => {
+    const d = facts[0].doc;
+    const lines = facts.slice(0, SEARCH_FACTS_PER_ENTRY).map((r) => {
+      const hint = r.supersededBy
+        ? ` ⚠ possibly outdated — see fact ${r.supersededBy}`
+        : "";
+      return `- [${r.doc.kind}] ${clipBody(r.doc.body, r.doc.id)} _(id: ${r.doc.id})_${hint}`;
+    });
+    const more = facts.length - SEARCH_FACTS_PER_ENTRY;
+    if (more > 0)
+      lines.push(`- _…${more} more matching facts from this entry_`);
+    return (
+      `## ${d.sourceAuthor} — ${d.sourceTs.slice(0, 10)} — source: ${d.sourceFile}\n\n` +
+      lines.join("\n")
+    );
   });
-  return `${header}\n\n${sections.join("\n\n")}`;
+  return `${header}\n\n${blocks.join("\n\n")}`;
 }
 
 /**
