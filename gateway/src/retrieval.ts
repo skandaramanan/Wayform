@@ -253,7 +253,7 @@ export function renderSearchResults(
       const hint = r.supersededBy
         ? ` ⚠ possibly outdated — see fact ${r.supersededBy}`
         : "";
-      return `- [${r.doc.kind}] ${clipBody(r.doc.body, r.doc.id)} _(id: ${r.doc.id})_${hint}`;
+      return `- [${r.doc.kind}] ${clipBody(r.doc.body, r.doc.id, INJECT_ITEM_CHARS, false)} _(id: ${r.doc.id})_${hint}`;
     });
     const more = facts.length - SEARCH_FACTS_PER_ENTRY;
     if (more > 0)
@@ -279,13 +279,17 @@ export function clipBody(
   body: string,
   id: string,
   max = INJECT_ITEM_CHARS,
+  /** false when the caller already prints the fact id on the same line. */
+  pointToId = true,
 ): string {
   const flat = body.replace(/\s+/g, " ").trim();
   if (flat.length <= max) return flat;
   const cut = flat.slice(0, max);
   const space = cut.lastIndexOf(" ");
   const head = (space > max * 0.6 ? cut.slice(0, space) : cut).trimEnd();
-  return `${head}… _(truncated — search_memory for the rest; fact id ${id})_`;
+  return pointToId
+    ? `${head}… _(truncated — search_memory for the rest; fact id ${id})_`
+    : `${head}… _(truncated)_`;
 }
 
 /** The injected-list form of a fact, shared by the briefing and prompt hook. */

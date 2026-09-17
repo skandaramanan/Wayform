@@ -13,7 +13,8 @@
  * Tripping the budget throws, which extract.ts already treats as fail-open
  * (entry lands in the ledger unindexed, logged non-silently) — the same
  * degradation the Free plan produced at the cap, just chosen instead of
- * imposed. Raise DAILY_NEURON_BUDGET deliberately if you'd rather pay.
+ * imposed. Raise the limit for ONE day with a dated KV key (below) if you'd
+ * rather pay to finish a job sooner.
  */
 import type { Env } from "./env.js";
 
@@ -21,14 +22,38 @@ import type { Env } from "./env.js";
  *  calls (bge-base, a few neurons each) which share the same allocation. */
 export const DAILY_NEURON_BUDGET = 9500;
 
-const budgetKey = () =>
-  `neuron-budget:${new Date().toISOString().slice(0, 10)}`;
+/**
+ * Ceiling on any one-day raise, whatever the KV key says: 90,000 neurons is
+ * at most (90,000 - 10,000 free) x $0.011/1k = $0.88 of overage. A typo in the
+ * key can therefore never unlock a real bill.
+ */
+export const NEURON_BUDGET_HARD_MAX = 90_000;
+
+const today = () => new Date().toISOString().slice(0, 10);
+const budgetKey = () => `neuron-budget:${today()}`;
+/** `neuron-budget-limit:<YYYY-MM-DD>` = a number. It only ever applies to its
+ *  own UTC date, so a raise expires by itself at midnight. */
+export const budgetLimitKey = (date = today()) => `neuron-budget-limit:${date}`;
 
 const TTL = { expirationTtl: 48 * 60 * 60 };
 
 async function readSpent(env: Env): Promise<number> {
   const raw = await env.ROUTING.get(budgetKey());
   return raw ? Number.parseInt(raw, 10) || 0 : 0;
+}
+
+/** Today's limit: the dated raise if one is set, never above the hard max. */
+export async function dailyNeuronLimit(env: Env): Promise<number> {
+  try {
+    const raw = await env.ROUTING.get(budgetLimitKey());
+    const raised = raw ? Number.parseInt(raw, 10) : Number.NaN;
+    if (Number.isFinite(raised) && raised > DAILY_NEURON_BUDGET) {
+      return Math.min(raised, NEURON_BUDGET_HARD_MAX);
+    }
+  } catch {
+    // fall through to the default
+  }
+  return DAILY_NEURON_BUDGET;
 }
 
 /**
@@ -43,7 +68,8 @@ export async function reserveNeurons(env: Env, cost: number): Promise<boolean> {
   } catch {
     return true;
   }
-  if (spent + cost > DAILY_NEURON_BUDGET) {
+  const limit = await dailyNeuronLimit(env);
+  if (spent + cost > limit) {
     // Structured like every other control-path signal (webhook_rejected,
     // pr_drop, admin_denied) so it is greppable in `wrangler tail`. This
     // fired all day on 2026-09-12 AND 2026-09-13 and nothing surfaced it: a
@@ -54,7 +80,7 @@ export async function reserveNeurons(env: Env, cost: number): Promise<boolean> {
         evt: "neuron_budget_exhausted",
         spent,
         cost,
-        budget: DAILY_NEURON_BUDGET,
+        budget: limit,
         impact:
           "model call skipped — extraction floors and is retried after the reset; judging is skipped",
       }),
@@ -98,7 +124,8 @@ export async function adjustNeurons(env: Env, delta: number): Promise<void> {
  */
 export async function remainingNeurons(env: Env): Promise<number | null> {
   try {
-    return Math.max(0, DAILY_NEURON_BUDGET - (await readSpent(env)));
+    const limit = await dailyNeuronLimit(env);
+    return Math.max(0, limit - (await readSpent(env)));
   } catch {
     return null;
   }

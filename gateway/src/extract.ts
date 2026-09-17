@@ -32,7 +32,9 @@ export interface ExtractedFact {
  * Entries indexed under an older version are re-extracted by the cron's retry
  * sweep a few per tick — never by wiping and rebuilding the whole space.
  */
-export const EXTRACTOR_VERSION = "2026-09-13.1";
+// 2026-09-17.1: facts must name their subject (no "it"/"the issue"). The bump
+// re-extracts the corpus via the cron, a few entries per tick within budget.
+export const EXTRACTOR_VERSION = "2026-09-17.1";
 
 export const FACT_KINDS = [
   "decision",
