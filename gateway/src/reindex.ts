@@ -228,6 +228,8 @@ export async function reconcileAll(env: Env): Promise<void> {
     try {
       const head = await headSha(env, sr, fetchImpl);
       if (!head) continue;
+      // Costs no neurons, so it runs even on days the budget is spent.
+      await deps.db.repairDanglingSupersession(sr.space).catch(() => {});
       if (deps.gen) {
         const left = await remainingNeurons(env);
         if (left !== null && left < ENTRY_NEURON_RESERVE) continue;

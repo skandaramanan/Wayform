@@ -181,6 +181,14 @@ export interface IndexDb {
   docsBySource(space: string, sourceId: string): Promise<IndexedDoc[]>;
   /** Remove every doc, tag and ingest_state row derived from these files. */
   deleteBySourceFiles(space: string, files: string[]): Promise<void>;
+  /** old fact id → new fact id for judge "replaces" verdicts, which are
+   *  suggestions and never links, where both facts exist and the old one is
+   *  live. Retrieval demotes and annotates these instead of hiding them. */
+  supersessionSuggestions(space: string): Promise<Map<string, string>>;
+  /** Re-point superseded_by values whose target fact no longer exists to a
+   *  live fact of the same entry, or clear them when the entry is gone — a
+   *  dangling pointer otherwise hides its fact forever. */
+  repairDanglingSupersession(space: string): Promise<void>;
 }
 
 export interface IngestState {
@@ -828,6 +836,36 @@ export function d1IndexDb(db: D1Like): IndexDb {
             .bind(space, ...chunk),
         ]);
       }
+    },
+    async supersessionSuggestions(space) {
+      const { results } = await db
+        .prepare(
+          "SELECT l.old_fact_id AS o, l.new_fact_id AS n FROM supersession_log l " +
+            "JOIN docs od ON od.space = l.space AND od.id = l.old_fact_id AND od.superseded_by IS NULL " +
+            "JOIN docs nd ON nd.space = l.space AND nd.id = l.new_fact_id " +
+            "WHERE l.space = ? AND l.verdict = 'replaces' AND l.auto_linked = 0 " +
+            "AND l.reason != 'author-supersedes' ORDER BY l.ts LIMIT 2000",
+        )
+        .bind(space)
+        .all();
+      const out = new Map<string, string>();
+      for (const r of results) out.set(r.o as string, r.n as string);
+      return out;
+    },
+    async repairDanglingSupersession(space) {
+      // instr() is 0 for an id without '#', which yields '' and no match, so
+      // the pointer is cleared rather than re-pointed.
+      await db
+        .prepare(
+          "UPDATE docs SET superseded_by = (" +
+            "SELECT d2.id FROM docs d2 WHERE d2.space = docs.space " +
+            "AND d2.source_id = substr(docs.superseded_by, 1, instr(docs.superseded_by, '#') - 1) " +
+            "AND d2.id != docs.id LIMIT 1) " +
+            "WHERE space = ? AND superseded_by IS NOT NULL " +
+            "AND superseded_by NOT IN (SELECT id FROM docs WHERE space = ?)",
+        )
+        .bind(space, space)
+        .run();
     },
   };
 }

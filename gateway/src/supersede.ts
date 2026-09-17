@@ -276,25 +276,28 @@ export async function applySupersession(
       ).catch(() => null),
     ),
   );
+  // A judge "replaces" is recorded as a SUGGESTION and never links. Audited
+  // 2026-09-17: roughly half of 73 auto-links were false ("MEMORYLAYER_* ->
+  // WAYFORM_* fallback" replacing "the app will be a Living Confluence"), and
+  // no cosine threshold separated true from false (false links at 0.85, true
+  // at 0.74) — atomic facts are too short for the judge to tell "replaces"
+  // from "relates". A false link hides a true fact and no reindex undoes it;
+  // a suggestion only demotes and annotates (retrieval reads these rows).
+  // Author `supersedes` above still links.
   for (let i = 0; i < chosen.length; i++) {
     const result = verdicts[i];
     if (!result) continue;
     const { newFact, old } = chosen[i];
-    const autoLinked = result.verdict === "replaces" && !old.supersededBy;
     await logJudgment(db, {
       space,
       project,
       newFactId: newFact.id,
       oldFactId: old.id,
       verdict: result.verdict,
-      autoLinked,
+      autoLinked: false,
       reason: result.reason,
       ts: ts(),
     });
-    if (autoLinked) {
-      await db.markSuperseded(space, old.id, newFact.id);
-      old.supersededBy = newFact.id;
-    }
   }
 }
 

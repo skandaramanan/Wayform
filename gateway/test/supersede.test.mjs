@@ -88,7 +88,10 @@ test("judgePair returns replaces from fake judge", async () => {
   assert.equal(r.verdict, "replaces");
 });
 
-test("applySupersession auto-links on replaces only", async () => {
+test("a judge 'replaces' is a suggestion: logged and demoted, never linked", async () => {
+  // Auditing 73 production auto-links (2026-09-17) found about half false,
+  // with no similarity threshold separating them. A false link hides a true
+  // fact; a suggestion only demotes it.
   const db = new MemoryIndexDb();
   const emb = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
   const old = liveDoc("old#0", "project-scoped MCP", ["cursor"], emb);
@@ -98,11 +101,12 @@ test("applySupersession auto-links on replaces only", async () => {
     "project-scoped": '{"verdict":"replaces","reason":"policy change"}',
   });
   await applySupersession(db, gen, "s1", "memorylayer", [newF]);
-  assert.equal((await db.getDoc("s1", "old#0"))?.supersededBy, "new#0");
-  assert.deepEqual(
-    (await db.listDocs("s1")).map((d) => d.id),
-    ["new#0"],
-  );
+  assert.equal((await db.getDoc("s1", "old#0"))?.supersededBy, null);
+  assert.equal((await db.listDocs("s1")).length, 2, "both facts stay visible");
+  const logged = db.supersessionLogged.find((e) => e.oldFactId === "old#0");
+  assert.equal(logged.verdict, "replaces");
+  assert.equal(logged.autoLinked, false);
+  assert.equal((await db.supersessionSuggestions("s1")).get("old#0"), "new#0");
 });
 
 test("applySupersession does not link on contradicts", async () => {

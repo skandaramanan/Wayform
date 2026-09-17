@@ -1,0 +1,27 @@
+[
+  {
+    "query": "Mosaic competitor positioning Living Confluence pivot to the plan layer",
+    "expect": ["72c7c756"],
+    "note": "product pivot (entry split into ~31 facts)"
+  },
+  {
+    "query": "why does the session start hook inject context automatically",
+    "expect": ["8481264b"],
+    "note": "session-start read hook"
+  },
+  {
+    "query": "webhook secret mismatch made every delivery silently fail",
+    "expect": ["a90c854d", "b3a69113"],
+    "note": "two entries record the same WEBHOOK_SECRET finding; either is a correct answer"
+  },
+  {
+    "query": "error 1102 bounded retrieval embedding scan cap",
+    "expect": ["b0f0304c"],
+    "note": "1102 fix"
+  },
+  {
+    "query": "wayform space create onboarding CLI install detection polling",
+    "expect": ["2bd08c51", "55334076", "e817d5a4"],
+    "note": "duplicate entries of the Plan C onboarding CLI record; 2bd08c51 was superseded by 55334076"
+  }
+]
