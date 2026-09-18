@@ -7,12 +7,8 @@
  */
 import type { Env, HandlerCtx } from "./env.js";
 import { resolveMember } from "./tenancy.js";
-import { readEntriesCached } from "./github-store.js";
-import { projectContext } from "../../src/context-format.js";
+import { readMemory } from "./memory.js";
 import { DEFAULT_BUDGET_TOKENS } from "../../src/token-budget.js";
-import { slug } from "../../src/slug.js";
-import { indexDeps } from "./deps.js";
-import { retrieve, renderSearchResults } from "./retrieval.js";
 
 export async function handleApiRead(
   req: Request,
@@ -36,37 +32,10 @@ export async function handleApiRead(
   const kinds = kindsParam ? kindsParam.split(",").filter(Boolean) : undefined;
   const trigger = url.searchParams.get("trigger")?.trim() || "api_read";
 
-  const deps = indexDeps(env);
-  if (query && deps) {
-    try {
-      const { results, total } = await retrieve(deps, {
-        space: member.space,
-        project: slug(project),
-        query,
-        budgetTokens: budget,
-        kinds,
-        trigger,
-      });
-      return Response.json({
-        text: renderSearchResults(project, query, results, total),
-        total,
-        matched: results.length,
-      });
-    } catch {
-      // fail-open to the recency read below
-    }
-  }
-
-  const { entries, total } = await readEntriesCached(
-    env,
-    member,
-    project,
-    budget,
-    env.githubFetch ?? fetch,
+  return Response.json(
+    await readMemory(
+      { env, member, ctx },
+      { project, query, budgetTokens: budget, kinds, trigger },
+    ),
   );
-  return Response.json({
-    text: projectContext(project, entries, total),
-    total,
-    matched: entries.length,
-  });
 }

@@ -12,7 +12,7 @@ import { deactivateInstallation, getSpaceByInstallation } from "./spaces.js";
 import { indexDeps } from "./deps.js";
 import { ingestFiles, ingestEntries } from "./ingest.js";
 import { writeEntry, warmRecencyCache } from "./github-store.js";
-import { hookCacheKey } from "./mcp.js";
+import { hookCacheKey } from "./memory.js";
 
 export async function verifyGithubSignature(
   secret: string,
