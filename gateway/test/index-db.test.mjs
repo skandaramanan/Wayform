@@ -117,6 +117,19 @@ test("embedding blob codec round-trips (float32 precision)", () => {
   assert.deepEqual(decodeEmbedding(encodeEmbedding([])), []);
 });
 
+test("embedding decode reads D1's byte-array BLOBs and unwraps re-encoded ones", () => {
+  const v = [0.25, -1.5, 3.75];
+  // D1 hands a BLOB back as a plain Array of byte values.
+  const bytes = [...new Uint8Array(encodeEmbedding(v))];
+  assert.deepEqual(decodeEmbedding(bytes), v);
+  // The old decode read those bytes as floats and re-ingest stored them:
+  // 4x the size per round. Two rounds deep must still recover the vector.
+  const once = [...new Uint8Array(encodeEmbedding(bytes))];
+  const twice = [...new Uint8Array(encodeEmbedding(once))];
+  assert.equal(twice.length, bytes.length * 16);
+  assert.deepEqual(decodeEmbedding(twice), v);
+});
+
 test("d1IndexDb issues parameterized SQL and decodes rows", async () => {
   const executed = [];
   const stmt = (sql) => ({
