@@ -43,11 +43,13 @@ export async function checkAction(
       budgetTokens: GUARD_BUDGET_TOKENS,
       trigger: "hook_guard",
     });
-    if (results.length === 0 || !deps.gen) return ALLOW;
+    // In-flight plan checklists are searchable, not decisions to enforce.
+    const facts = results.filter((r) => r.doc.kind !== "plan");
+    if (facts.length === 0 || !deps.gen) return ALLOW;
 
     // Judged in parallel — the agent waits on this, and the calls are
     // independent — then read back in rank order so the strongest hit wins.
-    const hits = results.slice(0, SYNC_JUDGE_LIMIT);
+    const hits = facts.slice(0, SYNC_JUDGE_LIMIT);
     const gen = deps.gen;
     const verdicts = await Promise.all(
       hits.map((hit) =>

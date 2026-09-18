@@ -99,6 +99,9 @@ function scoredCandidates(
 ): { doc: IndexedDoc; score: number }[] {
   let pool = liveFacts.filter(
     (d) =>
+      // An in-flight plan's checklist is searchable, never a decision to
+      // replace or conflict with.
+      d.kind !== "plan" &&
       d.id !== newFact.id &&
       !d.supersededBy &&
       (!newFact.sourceId || d.sourceId !== newFact.sourceId),
@@ -444,7 +447,7 @@ export async function detectWriteConflicts(
   // Cap like retrieval's embedding scan — full-pool listDocs grows with the
   // corpus and burns write-path CPU/latency for dup + conflict scoring.
   const live = (await db.listDocs(space, project))
-    .filter((d) => !skip.has(d.id))
+    .filter((d) => !skip.has(d.id) && d.kind !== "plan")
     .sort((a, b) => (a.sourceTs < b.sourceTs ? 1 : -1))
     .slice(0, EMBED_SCAN_CAP);
   if (live.length === 0) return none;

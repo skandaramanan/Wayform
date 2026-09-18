@@ -609,8 +609,14 @@ export async function reindexSpace(
       // The one thing the old offset-0 wipe did that was worth keeping:
       // index rows for ledger files that no longer exist go away.
       const inTree = new Set(blobs.map((t) => t.path));
+      // Plan docs (sourceFile plans/…) are owned by plans.ts and are never
+      // in the context/ tree; pruning them deleted every in-flight plan's
+      // searchable doc on each full pass.
       const gone = (await db.listSourceFiles(sr.space)).filter(
-        (f) => !inTree.has(f) && (!wanted || projectFromPath(f) === wanted),
+        (f) =>
+          !f.startsWith("plans/") &&
+          !inTree.has(f) &&
+          (!wanted || projectFromPath(f) === wanted),
       );
       if (gone.length > 0) await db.deleteBySourceFiles(sr.space, gone);
     }

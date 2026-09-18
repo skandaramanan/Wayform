@@ -487,3 +487,63 @@ test("rebuild after the full lifecycle reproduces D1 exactly", async () => {
     "superseded",
   ]);
 });
+
+test("an in-flight plan is one searchable doc; shipping or superseding removes it", async () => {
+  const { c } = planCtx();
+  const p = await createPlan(c, "proj", {
+    title: "Auth",
+    body: "- [ ] rotate keys",
+  });
+  const docId = `plan:${p.meta.id}`;
+  let d = await c.idx.getDoc("team-a", docId);
+  assert.equal(d.kind, "plan");
+  assert.equal(d.sourceId, docId);
+  assert.equal(d.body, "Plan #1 [draft] Auth\n\n- [ ] rotate keys");
+  assert.equal(d.embedding.length, 16);
+  await editPlan(c, "proj", "#1", { body: "- [ ] rotate every key" });
+  await transitionPlan(c, "proj", "#1", { to: "active" });
+  d = await c.idx.getDoc("team-a", docId);
+  assert.equal(d.body, "Plan #1 [active] Auth\n\n- [ ] rotate every key");
+  await transitionPlan(c, "proj", "#1", { to: "building" });
+  await transitionPlan(c, "proj", "#1", { to: "shipped" });
+  assert.equal(await c.idx.getDoc("team-a", docId), null);
+  assert.deepEqual(await c.idx.idsBySource("team-a", docId), []);
+
+  const q = await createPlan(c, "proj", { title: "Old", body: "o" });
+  await createPlan(c, "proj", { title: "New", body: "n" });
+  assert.ok(await c.idx.getDoc("team-a", `plan:${q.meta.id}`));
+  await transitionPlan(c, "proj", "#2", {
+    to: "superseded",
+    supersededBy: "#3",
+  });
+  assert.equal(await c.idx.getDoc("team-a", `plan:${q.meta.id}`), null);
+  const live = (await c.idx.listDocs("team-a", "proj")).filter(
+    (x) => x.kind === "plan",
+  );
+  assert.deepEqual(
+    live.map((x) => x.body),
+    ["Plan #3 [draft] New\n\nn"],
+  );
+});
+
+test("a failed embedding still indexes the plan doc (BM25 finds it)", async () => {
+  const { c } = planCtx();
+  c.embed = async () => {
+    throw new Error("AI down");
+  };
+  const p = await createPlan(c, "proj", { title: "T", body: "b" });
+  const d = await c.idx.getDoc("team-a", `plan:${p.meta.id}`);
+  assert.deepEqual(d.embedding, []);
+});
+
+test("rebuild restores plan docs for in-flight plans only", async () => {
+  const { c } = planCtx();
+  const a = await createPlan(c, "proj", { title: "Shipped", body: "s" });
+  await toBuilding(c);
+  await transitionPlan(c, "proj", "#1", { to: "shipped" });
+  const b = await createPlan(c, "proj", { title: "Live", body: "l" });
+  await c.idx.replaceBySource("team-a", `plan:${b.meta.id}`, []);
+  await rebuildPlans(c.env, c.db, c.idx, c.embed, MEMBER, c.fetchImpl);
+  assert.ok(await c.idx.getDoc("team-a", `plan:${b.meta.id}`));
+  assert.equal(await c.idx.getDoc("team-a", `plan:${a.meta.id}`), null);
+});
