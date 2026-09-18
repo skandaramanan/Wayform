@@ -211,3 +211,81 @@ test("admin {plans:true} rebuilds from the ledger and is operator-only", async (
     before,
   );
 });
+
+test("transition_plan walks the lifecycle and ships decisions into search", async () => {
+  const { call, la } = await setup();
+  await call(A, "create_plan", {
+    project: "p",
+    title: "Ledger plans",
+    body: "- [ ] do it",
+  });
+  assert.match(
+    (
+      await call(A, "transition_plan", {
+        project: "p",
+        plan: "#1",
+        to: "active",
+      })
+    ).text,
+    /is now active/,
+  );
+  await call(A, "transition_plan", {
+    project: "p",
+    plan: "#1",
+    to: "building",
+    agent: "claude-code",
+  });
+  const shipped = await call(A, "transition_plan", {
+    project: "p",
+    plan: "#1",
+    to: "shipped",
+    commit_sha: "abc",
+    decisions: [
+      {
+        kind: "decision",
+        body: "Plans are event logs in the ledger because append-only avoids races",
+      },
+    ],
+  });
+  assert.equal(shipped.isError, false, shipped.text);
+  assert.match(
+    shipped.text,
+    /is now shipped\. Produced decisions: [0-9a-f]{8}#\w+\./,
+  );
+  assert.ok([...la.files.keys()].some((f) => f.startsWith("context/p/ada/")));
+  const search = await call(A, "search_memory", {
+    project: "p",
+    query: "append-only ledger races",
+  });
+  assert.match(search.text, /event logs in the ledger/);
+  const read = await call(A, "read_plan", { project: "p", plan: "#1" });
+  assert.match(read.text, /state: shipped/);
+  assert.match(read.text, /- \[produced\] Plans are event logs/);
+  assert.match(read.text, /run 1 · claude-code · .* · shipped · abc/);
+  const again = await call(A, "transition_plan", {
+    project: "p",
+    plan: "#1",
+    to: "active",
+  });
+  assert.equal(again.isError, true);
+  assert.match(again.text, /illegal transition shipped → active/);
+});
+
+test("transition_plan supersedes with superseded_by and requires `to`", async () => {
+  const { call } = await setup();
+  await call(A, "create_plan", { project: "p", title: "One", body: "1" });
+  await call(A, "create_plan", { project: "p", title: "Two", body: "2" });
+  const r = await call(A, "transition_plan", {
+    project: "p",
+    plan: "#1",
+    to: "superseded",
+    superseded_by: "#2",
+  });
+  assert.match(r.text, /is now superseded/);
+  const list = await call(A, "read_plan", { project: "p" });
+  assert.match(list.text, /#1 \[superseded\] One/);
+  assert.equal(
+    (await call(A, "transition_plan", { project: "p", plan: "#2" })).isError,
+    true,
+  );
+});

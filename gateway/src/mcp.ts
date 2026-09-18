@@ -31,6 +31,7 @@ import {
   readPlan,
   renderPlan,
   renderPlanList,
+  transitionPlan,
   type PlanCtx,
 } from "./plans.js";
 import { listSessions, revokeSession } from "./sessions.js";
@@ -353,6 +354,72 @@ const TOOLS = [
     },
   },
   {
+    name: "transition_plan",
+    title: "Move a team plan through its lifecycle",
+    description:
+      "Use this to move plan #N forward: draft → active (agreed) → building " +
+      "(an agent is implementing it) → shipped (merged). When shipping, pass " +
+      "`decisions` — what the plan settled, as atomic facts with their " +
+      "'because' — so they join the team's memory; the plan's checklist then " +
+      "leaves search. Use to='superseded' with superseded_by when another " +
+      "plan replaces this one.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "The shared project name." },
+        plan: {
+          type: "string",
+          description: "Plan number ('#12' or '12') or plan id.",
+        },
+        to: {
+          type: "string",
+          enum: ["active", "building", "shipped", "superseded"],
+        },
+        agent: {
+          type: "string",
+          description: "When to='building': who builds it, e.g. 'claude-code'.",
+        },
+        commit_sha: {
+          type: "string",
+          description: "When to='shipped': the merge commit.",
+        },
+        decisions: {
+          type: "array",
+          maxItems: MAX_CLIENT_FACTS,
+          description:
+            "When to='shipped': the decisions this plan produced, each " +
+            "self-contained with its 'because'. Indexed as given — no LLM " +
+            "extraction.",
+          items: {
+            type: "object",
+            properties: {
+              kind: { type: "string", enum: [...FACT_KINDS] },
+              body: { type: "string", maxLength: MAX_CLIENT_FACT_CHARS },
+              entities: { type: "array", items: { type: "string" } },
+            },
+            required: ["body"],
+          },
+        },
+        produced_fact_ids: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "When to='shipped': ids of facts already recorded while building.",
+        },
+        supersedes: {
+          type: "array",
+          items: { type: "string" },
+          description: "When to='shipped': fact ids the new decisions replace.",
+        },
+        superseded_by: {
+          type: "string",
+          description: "When to='superseded': the replacing plan (#N or id).",
+        },
+      },
+      required: ["project", "plan", "to"],
+    },
+  },
+  {
     name: "invite_member",
     title: "Invite a GitHub user to this space",
     description:
@@ -511,6 +578,7 @@ async function toolsCall(
     "create_plan",
     "read_plan",
     "edit_plan",
+    "transition_plan",
   ];
   if (needsProject.includes(toolName ?? "") && !project)
     return finish(
@@ -892,7 +960,8 @@ async function toolsCall(
       }
       case "create_plan":
       case "read_plan":
-      case "edit_plan": {
+      case "edit_plan":
+      case "transition_plan": {
         if (!env.DB)
           return finish(
             rpcResult(
@@ -907,6 +976,7 @@ async function toolsCall(
           db: env.DB,
           idx: deps?.db ?? null,
           embed: deps?.embed ?? null,
+          gen: deps?.gen ?? null,
           fetchImpl,
         };
         const ref = typeof args.plan === "string" ? args.plan.trim() : "";
@@ -961,6 +1031,48 @@ async function toolsCall(
               toolText("missing required argument: plan", true),
             ),
           );
+        if (toolName === "transition_plan") {
+          const v = await transitionPlan(pc, project, ref, {
+            to: args.to,
+            agent: args.agent,
+            commitSha: args.commit_sha,
+            decisions: args.decisions,
+            producedFactIds: args.produced_fact_ids,
+            supersedes: args.supersedes,
+            supersededBy: args.superseded_by,
+          });
+          if (v.entry) {
+            // Same cache discipline as write_context: the hook projection
+            // rebuilds, the recency line is warmed with the new entry.
+            try {
+              await env.ROUTING.delete(hookCacheKey(member.space, project));
+              const { refresh } = await warmRecencyCache(
+                env,
+                member,
+                project,
+                v.entry,
+                fetchImpl,
+              );
+              if (ctx) ctx.waitUntil(refresh);
+              else await refresh;
+            } catch {
+              // stale cache heals via TTL
+            }
+          }
+          const produced = v.links.filter((l) => l.role === "produced");
+          return finish(
+            rpcResult(
+              msg.id,
+              toolText(
+                `Plan #${v.meta.seq} "${v.meta.title}" is now ${v.meta.state}.` +
+                  (produced.length
+                    ? ` Produced decisions: ${produced.map((l) => l.factId).join(", ")}.`
+                    : "") +
+                  (v.warning ? ` ${v.warning}` : ""),
+              ),
+            ),
+          );
+        }
         const v = await editPlan(pc, project, ref, {
           title: args.title,
           body: args.body,
