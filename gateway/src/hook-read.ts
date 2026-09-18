@@ -1,7 +1,7 @@
 import type { Env, HandlerCtx } from "./env.js";
 import { resolveMember } from "./tenancy.js";
 import { readEntriesCached } from "./github-store.js";
-import { hookCacheKey } from "./mcp.js";
+import { hookCacheKey } from "./memory.js";
 import { indexDeps } from "./deps.js";
 import { renderBriefing } from "./retrieval.js";
 import { projectContext } from "../../src/context-format.js";

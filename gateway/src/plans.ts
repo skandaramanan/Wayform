@@ -5,7 +5,7 @@
  * D1 is rebuilt from it (rebuildPlan/rebuildPlans) whenever the two could
  * disagree.
  */
-import type { Env } from "./env.js";
+import type { Env, HandlerCtx } from "./env.js";
 import type { SpaceMember } from "./tenancy.js";
 import type { SpaceRepo } from "./ingest.js";
 import type { D1Like, IndexDb } from "./index-db.js";
@@ -13,6 +13,8 @@ import type { Embedder } from "./retrieval.js";
 import { installationToken } from "./github-auth.js";
 import { clientFacts, type GenText } from "./extract.js";
 import { ingestEntries } from "./ingest.js";
+import { indexDeps } from "./deps.js";
+import { afterEntryWritten, fetchOf, type Caller } from "./memory.js";
 import type { ParsedEntry } from "../../src/frontmatter.js";
 import {
   listLedgerDir,
@@ -65,6 +67,24 @@ export interface PlanCtx {
   /** Only the ship path's supersession judging uses it; null skips judging. */
   gen?: GenText | null;
   fetchImpl: typeof fetch;
+  /** waitUntil for post-response cache work; absent = run inline. */
+  ctx?: HandlerCtx;
+}
+
+/** The plan context for a caller, from the gateway's bindings. */
+export function planCtx(c: Caller): PlanCtx {
+  if (!c.env.DB) throw new PlanError("plans are not enabled on this gateway");
+  const deps = indexDeps(c.env);
+  return {
+    env: c.env,
+    member: c.member,
+    db: c.env.DB,
+    idx: deps?.db ?? null,
+    embed: deps?.embed ?? null,
+    gen: deps?.gen ?? null,
+    fetchImpl: fetchOf(c.env),
+    ctx: c.ctx,
+  };
 }
 
 export interface PlanLinkView {
@@ -468,6 +488,7 @@ export async function transitionPlan(
         ...(await c.idx.docsBySource(space, entry.id)).map((d) => d.id),
       );
     }
+    await afterEntryWritten(c, project, entry);
   }
   await mutate(c, project, prev, {
     ...ev,
@@ -641,4 +662,31 @@ export function renderPlan(v: PlanView): string {
   }
   lines.push("", "---", "", v.body.markdown);
   return lines.join("\n");
+}
+
+export function formatCreated(
+  v: PlanView & { unknownInherits: string[] },
+): string {
+  return (
+    `Created plan #${v.meta.seq} "${v.meta.title}" (id ${v.meta.id}, draft, v1)` +
+    (v.links.length ? ` inheriting ${v.links.length} decision(s).` : ".") +
+    (v.unknownInherits.length
+      ? ` Not linked (no such fact): ${v.unknownInherits.join(", ")}.`
+      : "")
+  );
+}
+
+export function formatEdited(v: PlanView): string {
+  return `Plan #${v.meta.seq} "${v.meta.title}" is now v${v.meta.version}.`;
+}
+
+export function formatTransitioned(v: PlanView & { warning?: string }): string {
+  const produced = v.links.filter((l) => l.role === "produced");
+  return (
+    `Plan #${v.meta.seq} "${v.meta.title}" is now ${v.meta.state}.` +
+    (produced.length
+      ? ` Produced decisions: ${produced.map((l) => l.factId).join(", ")}.`
+      : "") +
+    (v.warning ? ` ${v.warning}` : "")
+  );
 }

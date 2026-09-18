@@ -656,3 +656,33 @@ export async function handleAdminAllowlist(
   const allowlist = await addToAllowlist(env, names);
   return Response.json({ allowlist });
 }
+
+/** Membership changes are space-admin only — enforced here, not per transport. */
+function requireSpaceAdmin(member: SpaceMember, login: string): string {
+  if (member.role !== "admin")
+    throw new Error("only a space admin can invite or revoke members");
+  const l = login.trim();
+  if (!l) throw new Error("missing required argument: github_username");
+  return l;
+}
+
+export async function inviteMember(
+  env: Env,
+  member: SpaceMember,
+  login: string,
+): Promise<string> {
+  const l = requireSpaceAdmin(member, login);
+  await inviteGithubUser(env, member, l);
+  return `Invited @${l}. They click Connect (or run wayform login) with GitHub — no token to paste.`;
+}
+
+export async function revokeMember(
+  env: Env,
+  member: SpaceMember,
+  login: string,
+): Promise<string> {
+  const l = requireSpaceAdmin(member, login);
+  if ((await revokeGithubUser(env, member, l)) === "not_found")
+    throw new Error(`@${l} is not a member of this space.`);
+  return `Revoked @${l} from this space.`;
+}
