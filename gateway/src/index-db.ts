@@ -312,7 +312,7 @@ export function d1IndexDb(db: D1Like): IndexDb {
       (project !== undefined ? " AND project = ?" : "") +
       ` AND id > ? ORDER BY id LIMIT ${LIST_DOCS_PAGE}`;
     const results: Record<string, unknown>[] = [];
-    for (let after = ""; ; ) {
+    for (let after = ""; ;) {
       const binds = project !== undefined ? [space, project] : [space];
       const { results: page } = await db
         .prepare(sql)

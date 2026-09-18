@@ -178,7 +178,11 @@ test("d1IndexDb issues parameterized SQL and decodes rows", async () => {
   const list = executed.find(
     (s) => /FROM docs/i.test(s.sql) && /superseded_by IS NULL/i.test(s.sql),
   );
-  assert.deepEqual(list.params, ["s1", "memorylayer", ""], "paged from the first id");
+  assert.deepEqual(
+    list.params,
+    ["s1", "memorylayer", ""],
+    "paged from the first id",
+  );
 
   assert.equal(await db.getLastIndexedSha("s1"), "abc");
   await db.logRetrieval({
