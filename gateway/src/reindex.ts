@@ -24,6 +24,7 @@
 import type { Env, HandlerCtx } from "./env.js";
 import { listSpaceRepos, requireOperator } from "./tenancy.js";
 import { indexDeps } from "./deps.js";
+import { rebuildPlans } from "./plans.js";
 import {
   reindexSpace,
   ingestFiles,
@@ -67,6 +68,8 @@ export async function handleAdminReindex(
     wipe?: boolean;
     /** Re-extract entries even when their content is unchanged. */
     force?: boolean;
+    /** Rebuild the plan tables from the ledger's plans/ instead. */
+    plans?: boolean;
   };
   try {
     body = (await req.json()) as typeof body;
@@ -76,6 +79,26 @@ export async function handleAdminReindex(
   const repos = (await listSpaceRepos(env)).filter(
     (sr) => !body.repo || `${sr.owner}/${sr.repo}` === body.repo,
   );
+  if (body.plans === true) {
+    if (!env.DB)
+      return Response.json({ error: "plans disabled" }, { status: 503 });
+    const plans: Record<
+      string,
+      { rebuilt: number; total: number; nextOffset: number | null }
+    > = {};
+    for (const sr of repos) {
+      plans[sr.space] = await rebuildPlans(
+        env,
+        env.DB,
+        deps.db,
+        deps.embed,
+        sr,
+        env.githubFetch ?? fetch,
+        { offset: body.offset, limit: body.limit },
+      );
+    }
+    return Response.json({ plans });
+  }
   const reindexed: Record<string, number> = {};
   const skipped: Record<string, number> = {};
   let stopped = false;

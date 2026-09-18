@@ -10,6 +10,7 @@ import { slug, fsSafeTimestamp } from "../../src/slug.js";
 import { installationToken } from "./github-auth.js";
 import type { Env } from "./env.js";
 import type { SpaceMember } from "./tenancy.js";
+import type { SpaceRepo } from "./ingest.js";
 
 const GH = "https://api.github.com";
 /** Workers free plan allows 50 subrequests/request: 1 token + 1 tree + N blobs. */
@@ -71,20 +72,57 @@ export async function writeEntry(
     .trim()
     .split("\n")[0]
     .slice(0, COMMIT_SUBJECT_MAX);
+  const digest = await putLedgerFile(
+    env,
+    member,
+    file,
+    contents,
+    `${entry.type}(${slug(project)}): ${subject}`,
+    fetchImpl,
+    retryDelaysMs,
+    token,
+  );
+  return {
+    author: member.author,
+    type: entry.type,
+    timestamp,
+    id,
+    payload: entry.payload.trim(),
+    file,
+    ...(entry.facts && entry.facts.length > 0 ? { facts: entry.facts } : {}),
+    digest,
+  };
+}
 
+/**
+ * Create one ledger file (single Contents PUT = blob + tree + commit + ref)
+ * and return its git blob sha. Never overwrites: no `sha` is sent, so GitHub
+ * answers 422 for an existing path. Retries 5xx only; 4xx are deterministic.
+ */
+export async function putLedgerFile(
+  env: Env,
+  member: SpaceMember,
+  path: string,
+  contents: string,
+  message: string,
+  fetchImpl: typeof fetch = fetch,
+  retryDelaysMs: number[] = WRITE_RETRY_DELAYS_MS,
+  token?: string,
+): Promise<string> {
+  const auth =
+    token ?? (await installationToken(env, member.installationId, fetchImpl));
   const put = () =>
-    fetchImpl(`${GH}/repos/${member.owner}/${member.repo}/contents/${file}`, {
+    fetchImpl(`${GH}/repos/${member.owner}/${member.repo}/contents/${path}`, {
       method: "PUT",
-      headers: ghHeaders(token),
+      headers: ghHeaders(auth),
       body: JSON.stringify({
-        message: `${entry.type}(${slug(project)}): ${subject}`,
+        message,
         branch: member.branch,
         content: b64encodeUtf8(contents),
         committer: { name: member.author, email: member.authorEmail },
         author: { name: member.author, email: member.authorEmail },
       }),
     });
-
   let res = await put();
   for (const delay of retryDelaysMs) {
     if (res.status < 500) break;
@@ -96,16 +134,75 @@ export async function writeEntry(
       `write failed: ${res.status} ${(await res.text()).slice(0, 200)}`,
     );
   }
-  return {
-    author: member.author,
-    type: entry.type,
-    timestamp,
-    id,
-    payload: entry.payload.trim(),
-    file,
-    ...(entry.facts && entry.facts.length > 0 ? { facts: entry.facts } : {}),
-    digest: await gitBlobSha(contents),
-  };
+  return gitBlobSha(contents);
+}
+
+/** One ledger file's text, or null when it does not exist. */
+export async function readLedgerFile(
+  env: Env,
+  sr: SpaceRepo,
+  path: string,
+  fetchImpl: typeof fetch = fetch,
+  token?: string,
+): Promise<string | null> {
+  const auth =
+    token ?? (await installationToken(env, sr.installationId, fetchImpl));
+  const res = await fetchImpl(
+    `${GH}/repos/${sr.owner}/${sr.repo}/contents/${path}?ref=${sr.branch}`,
+    {
+      headers: {
+        ...ghHeaders(auth),
+        accept: "application/vnd.github.raw+json",
+      },
+    },
+  );
+  if (res.status === 404) return null;
+  if (!res.ok) throw new Error(`ledger read failed: ${res.status} ${path}`);
+  return res.text();
+}
+
+/** File paths directly inside a ledger directory; [] when it is absent. */
+export async function listLedgerDir(
+  env: Env,
+  sr: SpaceRepo,
+  dir: string,
+  fetchImpl: typeof fetch = fetch,
+  token?: string,
+): Promise<string[]> {
+  const auth =
+    token ?? (await installationToken(env, sr.installationId, fetchImpl));
+  const res = await fetchImpl(
+    `${GH}/repos/${sr.owner}/${sr.repo}/contents/${dir}?ref=${sr.branch}`,
+    { headers: ghHeaders(auth) },
+  );
+  if (res.status === 404) return [];
+  if (!res.ok) throw new Error(`ledger list failed: ${res.status} ${dir}`);
+  const items = (await res.json()) as { path: string; type: string }[];
+  return Array.isArray(items)
+    ? items.filter((i) => i.type === "file").map((i) => i.path)
+    : [];
+}
+
+/** Every blob path under `prefix` (one recursive Trees call). */
+export async function listLedgerTree(
+  env: Env,
+  sr: SpaceRepo,
+  prefix: string,
+  fetchImpl: typeof fetch = fetch,
+  token?: string,
+): Promise<string[]> {
+  const auth =
+    token ?? (await installationToken(env, sr.installationId, fetchImpl));
+  const res = await fetchImpl(
+    `${GH}/repos/${sr.owner}/${sr.repo}/git/trees/${sr.branch}?recursive=1`,
+    { headers: ghHeaders(auth) },
+  );
+  if (res.status === 404 || res.status === 409) return [];
+  if (!res.ok) throw new Error(`tree read failed: ${res.status}`);
+  const tree = (await res.json()) as { tree: { path: string; type: string }[] };
+  return tree.tree
+    .filter((t) => t.type === "blob" && t.path.startsWith(prefix))
+    .map((t) => t.path);
 }
 
 /**
