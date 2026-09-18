@@ -239,17 +239,46 @@ export function encodeEmbedding(v: number[]): ArrayBuffer {
   return new Float32Array(v).buffer as ArrayBuffer;
 }
 
-export function decodeEmbedding(b: ArrayBuffer | null): number[] {
-  if (!b || b.byteLength === 0) return [];
-  return [...new Float32Array(b)];
+/** D1 returns a BLOB column as a plain Array of byte values, not an
+ *  ArrayBuffer. Reading those bytes AS floats made every vector 3072 byte
+ *  values instead of 768 floats (cosine was noise), and re-ingest wrote the
+ *  bad decode back 4x larger each round — 49KB rows by 2026-09-18, which
+ *  pushed the cron past 128MB. A decode that is all integers 0..255 is such
+ *  a wrapped blob; unwrap until real floats remain. */
+function embeddingF32(b: ArrayBuffer | ArrayLike<number> | null): Float32Array {
+  if (!b) return new Float32Array(0);
+  let bytes =
+    b instanceof ArrayBuffer
+      ? new Uint8Array(b)
+      : Uint8Array.from(b as ArrayLike<number>);
+  for (;;) {
+    if (bytes.byteLength % 4 !== 0) return new Float32Array(0);
+    const f = new Float32Array(
+      bytes.buffer,
+      bytes.byteOffset,
+      bytes.byteLength / 4,
+    );
+    if (
+      f.length === 0 ||
+      !f.every((x) => Number.isInteger(x) && x >= 0 && x <= 255)
+    ) {
+      return f;
+    }
+    bytes = Uint8Array.from(f);
+  }
 }
 
-/** Zero-copy decode for the query path: a Float32Array view instead of a
- *  boxed number[]. Spreading 768 floats per doc (decodeEmbedding) was a
- *  material share of the free-plan 10ms CPU budget at ~131 docs (the 1102). */
-export function decodeEmbeddingF32(b: ArrayBuffer | null): Float32Array {
-  if (!b || b.byteLength === 0) return new Float32Array(0);
-  return new Float32Array(b);
+export function decodeEmbedding(
+  b: ArrayBuffer | ArrayLike<number> | null,
+): number[] {
+  return [...embeddingF32(b)];
+}
+
+/** Zero-copy decode for the query path when D1 hands back an ArrayBuffer. */
+export function decodeEmbeddingF32(
+  b: ArrayBuffer | ArrayLike<number> | null,
+): Float32Array {
+  return embeddingF32(b);
 }
 
 /** Recency cap on cosine's embedding scan — bounds the query path's largest
