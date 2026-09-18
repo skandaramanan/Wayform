@@ -36,6 +36,15 @@ export async function deepHealth(env: Env): Promise<Response> {
     )
     .bind(hourAgo)
     .first();
+  // The split-on-shipped rule in production: a shipped or superseded plan's
+  // checklist must be out of the index (plans.ts syncPlanDoc).
+  const leaked = await db
+    .prepare(
+      "SELECT COUNT(*) AS n FROM docs d JOIN plan p " +
+        "ON d.space = p.space AND d.id = 'plan:' || p.id " +
+        "WHERE p.state IN ('shipped', 'superseded')",
+    )
+    .first();
   const lastRun = await env.ROUTING.get(CRON_LAST_RUN_KEY);
 
   const checks = {
@@ -45,6 +54,7 @@ export async function deepHealth(env: Env): Promise<Response> {
       docs.length > 0 &&
       cosineTopK(docs, docs[0].embedding, 1)[0]?.id === docs[0].id,
     noStuckPending: Number(stuck?.n ?? 0) === 0,
+    shippedPlansUnindexed: Number(leaked?.n ?? 0) === 0,
     cronRanLastHour: !!lastRun && lastRun > hourAgo,
   };
   const ok = Object.values(checks).every(Boolean);

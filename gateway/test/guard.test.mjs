@@ -201,3 +201,27 @@ test("guard endpoint allows when action is missing", async () => {
   const res = await handleRequest(guardReq({ project: "memorylayer" }), env);
   assert.equal((await res.json()).decision, "allow");
 });
+
+test("a plan doc is never judged as a decision to enforce", async () => {
+  const plan = {
+    ...doc(
+      "plan:p1234567",
+      "Plan #1 [building] Add Postgres\n\n- [ ] add postgres",
+    ),
+    kind: "plan",
+  };
+  let judged = 0;
+  const out = await checkAction(
+    {
+      db: fakeDb([plan]),
+      embed: async (texts) => texts.map(() => [1, 0]),
+      gen: async () => {
+        judged += 1;
+        return '{"verdict":"contradicts","reason":"x"}';
+      },
+    },
+    { space: "s1", project: "memorylayer", action: "Edit: remove postgres" },
+  );
+  assert.equal(out.decision, "allow");
+  assert.equal(judged, 0);
+});

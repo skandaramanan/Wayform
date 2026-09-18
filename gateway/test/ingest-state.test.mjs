@@ -617,3 +617,26 @@ test("an entry is recorded ok once its facts are written, even if judging never 
   assert.equal(st?.status, "ok");
   assert.equal((await db.idsBySource("s1", "e9")).length, 1);
 });
+
+test("a full pass prunes vanished ledger entries but never plan docs", async () => {
+  const db = new MemoryIndexDb();
+  await ingestEntriesDetailed(db, fakeEmbed, null, "s1", "memorylayer", [
+    entry("gone", "old"),
+  ]);
+  await db.replaceBySource("s1", "plan:p1234567", [
+    doc(
+      "plan:p1234567",
+      "plans/memorylayer/p1234567",
+      "Plan #1 [draft] T\n\nb",
+      {
+        kind: "plan",
+        sourceId: "plan:p1234567",
+      },
+    ),
+  ]);
+  const env = treeEnv([{ path: path("a"), raw: md("a", "A") }], []);
+  await reindexSpace(env, db, fakeEmbed, null, SR, env.githubFetch);
+  const ids = (await db.listDocs("s1")).map((d) => d.id);
+  assert.ok(ids.includes("plan:p1234567"), "plan doc survived the prune");
+  assert.ok(!ids.some((id) => id.startsWith("gone#")), "vanished entry pruned");
+});

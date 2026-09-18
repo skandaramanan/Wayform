@@ -24,7 +24,9 @@ import {
 import {
   eventPath,
   foldEvents,
+  INDEXED_STATES,
   planDir,
+  planDocBody,
   PlanError,
   serializeEvent,
   step,
@@ -157,7 +159,63 @@ async function mutate(
       `plan #${s.meta.seq} changed concurrently — re-read it and retry`,
     );
   }
+  const markdown =
+    s.body?.markdown ??
+    (await getBody(c.db, c.member.space, s.meta.id))?.markdown ??
+    "";
+  await syncPlanDoc(c.idx, c.embed, c.member.space, s.meta, markdown);
   return s;
+}
+
+/** The docs kind of an in-flight plan's searchable body. */
+export const PLAN_KIND = "plan";
+
+/**
+ * The split-on-shipped rule, on the retrieval side: a draft/active/building
+ * plan is ONE docs row (`plan:<id>`) so search finds work in flight; in any
+ * other state that row is deleted, so plan #500 never retrieves 499 retired
+ * checklists. Ingest never indexes plans/ (projectFromPath is context/-only),
+ * so this is the only way a plan body reaches the index. Supersession, the
+ * dup gate and the guard skip kind=plan: a checklist is not a decision.
+ */
+export async function syncPlanDoc(
+  idx: IndexDb | null,
+  embed: Embedder | null,
+  space: string,
+  meta: PlanMeta,
+  markdown: string,
+): Promise<void> {
+  if (!idx) return;
+  const sourceId = `plan:${meta.id}`;
+  if (!INDEXED_STATES.has(meta.state)) {
+    await idx.replaceBySource(space, sourceId, []);
+    return;
+  }
+  const body = planDocBody(meta, markdown);
+  let embedding: number[] = [];
+  try {
+    embedding = embed ? ((await embed([body]))[0] ?? []) : [];
+  } catch {
+    // fail-open: BM25 still finds it; the next edit re-embeds
+  }
+  await idx.replaceBySource(space, sourceId, [
+    {
+      id: sourceId,
+      space,
+      project: meta.project,
+      kind: PLAN_KIND,
+      tier: "normal",
+      body,
+      sourceFile: planDir(meta.project, meta.id),
+      sourceAuthor: meta.author,
+      sourceTs: meta.updated,
+      embedding,
+      supersededBy: null,
+      createdAt: new Date().toISOString(),
+      sourceId,
+      entities: [],
+    },
+  ]);
 }
 
 function eventBase(c: PlanCtx, plan: string, rev: number) {
@@ -436,6 +494,8 @@ export async function transitionPlan(
 /** Replace one plan's D1 rows with the replay of its ledger events. */
 async function projectFiles(
   db: D1Like,
+  idx: IndexDb | null,
+  embed: Embedder | null,
   space: string,
   planId: string,
   files: { path: string; raw: string }[],
@@ -451,7 +511,11 @@ async function projectFiles(
     await applyStep(db, space, prevRev, s);
     prevRev = s.meta.rev;
   }
-  if (meta) await bumpCounter(db, space, meta.project, meta.seq);
+  if (meta) {
+    await bumpCounter(db, space, meta.project, meta.seq);
+    const body = [...steps].reverse().find((x) => x.body)?.body;
+    await syncPlanDoc(idx, embed, space, meta, body?.markdown ?? "");
+  }
   return meta;
 }
 
@@ -479,7 +543,7 @@ export async function rebuildPlan(
         (await readLedgerFile(c.env, c.member, path, c.fetchImpl, token)) ?? "",
     })),
   );
-  return projectFiles(c.db, c.member.space, planId, files);
+  return projectFiles(c.db, c.idx, c.embed, c.member.space, planId, files);
 }
 
 /**
@@ -490,8 +554,8 @@ export async function rebuildPlan(
 export async function rebuildPlans(
   env: Env,
   db: D1Like,
-  _idx: IndexDb | null,
-  _embed: Embedder | null,
+  idx: IndexDb | null,
+  embed: Embedder | null,
   sr: SpaceRepo,
   fetchImpl: typeof fetch,
   opts: { offset?: number; limit?: number } = {},
@@ -516,7 +580,7 @@ export async function rebuildPlans(
         raw: (await readLedgerFile(env, sr, path, fetchImpl, token)) ?? "",
       })),
     );
-    await projectFiles(db, sr.space, dir.split("/")[2], files);
+    await projectFiles(db, idx, embed, sr.space, dir.split("/")[2], files);
   }
   const end = offset + page.length;
   return {

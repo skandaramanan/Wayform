@@ -413,3 +413,38 @@ test("formatDuplicateResult names the fact and the supersedes escape hatch", () 
   assert.match(text, /similarity 0\.97/);
   assert.match(text, /supersedes: \["o1"\]/);
 });
+
+test("plan docs are never supersession candidates, conflicts or duplicates", async () => {
+  const [emb] = await fakeEmbed(["Plan #1 [active] Move plans to the ledger"]);
+  const plan = {
+    ...liveDoc(
+      "plan:p1234567",
+      "Plan #1 [active] Move plans to the ledger",
+      ["plans"],
+      emb,
+    ),
+    kind: "plan",
+    sourceId: "plan:p1234567",
+  };
+  const fact = { ...plan, id: "new#0", kind: "decision", sourceId: "new" };
+  assert.deepEqual(supersessionCandidates([plan], fact, 10, 0), []);
+
+  const db = new MemoryIndexDb();
+  await db.upsertDocs([plan]);
+  let judged = 0;
+  const check = await detectWriteConflicts(
+    db,
+    async () => [emb],
+    async () => {
+      judged += 1;
+      return '{"verdict":"replaces","reason":"same"}';
+    },
+    "s1",
+    "memorylayer",
+    "Plan #1 [active] Move plans to the ledger",
+    { enforceDup: true },
+  );
+  assert.equal(check.duplicate, null);
+  assert.deepEqual(check.conflicts, []);
+  assert.equal(judged, 0);
+});

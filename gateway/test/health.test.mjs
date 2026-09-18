@@ -9,11 +9,11 @@ const blob = (seed) => {
   const v = Array.from({ length: 768 }, (_, i) => Math.sin(seed * 1000 + i));
   return [...new Uint8Array(new Float32Array(v).buffer)];
 };
-function env({ rows, stuck = 0, lastRun }) {
+function env({ rows, stuck = 0, leaked = 0, lastRun }) {
   const stmt = (sql) => ({
     bind: () => stmt(sql),
     all: async () => ({ results: rows }),
-    first: async () => ({ n: stuck }),
+    first: async () => ({ n: sql.includes("JOIN plan") ? leaked : stuck }),
   });
   const kv = new Map(lastRun ? [[CRON_LAST_RUN_KEY, lastRun]] : []);
   return {
@@ -39,6 +39,7 @@ test("deep health fails on mis-sized vectors, stuck claims or a stale cron", asy
   for (const [e, check] of [
     [env({ rows: wrapped, lastRun: now() }), "embeddingsDecode"],
     [env({ rows, stuck: 2, lastRun: now() }), "noStuckPending"],
+    [env({ rows, leaked: 1, lastRun: now() }), "shippedPlansUnindexed"],
     [env({ rows, lastRun: "2026-01-01T00:00:00Z" }), "cronRanLastHour"],
     [env({ rows }), "cronRanLastHour"],
   ]) {
@@ -46,4 +47,26 @@ test("deep health fails on mis-sized vectors, stuck claims or a stale cron", asy
     assert.equal(res.status, 503);
     assert.equal((await res.json()).checks[check], false, check);
   }
+});
+
+test("shippedPlansUnindexed runs real SQL against the real schema", async () => {
+  const { sqliteD1 } = await import("./sqlite-d1.mjs");
+  const db = sqliteD1();
+  db.raw.exec(
+    "INSERT INTO plan (space,id,project,seq,title,author,state,version,rev,runs,created,updated) " +
+      "VALUES ('s','p1','proj',1,'t','a','shipped',1,4,1,'x','x')," +
+      "('s','p2','proj',2,'t','a','building',1,3,1,'x','x')",
+  );
+  const put = (id) =>
+    db.raw.exec(
+      "INSERT INTO docs (id,space,project,kind,tier,body,source_file,source_author,source_ts,created_at,source_id) " +
+        `VALUES ('${id}','s','proj','plan','normal','b','plans/proj/x','a','x','x','${id}')`,
+    );
+  put("plan:p2");
+  const e = (d) => ({ DB: d, ROUTING: { get: async () => now() } });
+  let body = await (await deepHealth(e(db))).json();
+  assert.equal(body.checks.shippedPlansUnindexed, true);
+  put("plan:p1");
+  body = await (await deepHealth(e(db))).json();
+  assert.equal(body.checks.shippedPlansUnindexed, false);
 });
