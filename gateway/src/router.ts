@@ -15,6 +15,7 @@ import {
   handleAdminSupersessionAudit,
 } from "./admin-supersession.js";
 import { handleApiRead } from "./api-read.js";
+import { deepHealth } from "./health.js";
 import {
   handleAdminGoldenCandidate,
   handleAdminRetrievalLog,
@@ -65,6 +66,7 @@ async function route(
   const url = new URL(req.url);
 
   if (url.pathname === "/health" && req.method === "GET") {
+    if (url.searchParams.get("deep") === "1") return deepHealth(env);
     return Response.json({ ok: true });
   }
 
