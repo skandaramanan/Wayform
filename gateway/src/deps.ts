@@ -82,6 +82,10 @@ export function indexDeps(
             prompt,
             max_tokens:
               purpose === "judge" ? JUDGE_MAX_TOKENS : EXTRACT_MAX_TOKENS,
+            // The default (0.6) let the model invent specifics — dates,
+            // versions, whole decisions — and made the same entry parse one
+            // day and floor the next (2026-09-18 spot check).
+            temperature: 0,
           });
           const u = out.usage;
           if (

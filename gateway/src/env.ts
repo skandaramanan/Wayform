@@ -50,7 +50,7 @@ export interface AiBinding {
   run(model: string, input: { text: string[] }): Promise<{ data: number[][] }>;
   run(
     model: string,
-    input: { prompt: string; max_tokens?: number },
+    input: { prompt: string; max_tokens?: number; temperature?: number },
   ): Promise<{
     /** A string, or the already-parsed value when the completion was JSON. */
     response: unknown;

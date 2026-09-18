@@ -44,7 +44,7 @@ test("extractFacts parses a valid JSON array into normalized facts", async () =>
   });
   const facts = await extractFacts(
     gen,
-    entry("Cursor MCP config is project-scoped."),
+    entry("Cursor MCP config is project-scoped. Verified on 2026-07-04."),
   );
   assert.equal(facts.length, 2);
   assert.equal(facts[0].tier, "canon");

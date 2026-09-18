@@ -25,6 +25,7 @@ import {
   type ExtractedFact,
 } from "./extract.js";
 import { applySupersession } from "./supersede.js";
+import { cosineTopK } from "./rank.js";
 import { remainingNeurons } from "./neuron-budget.js";
 
 const GH = "https://api.github.com";
@@ -53,6 +54,11 @@ export const FLOORED_RETRY_MS = 24 * 60 * 60_000;
  * (2026-09-13).
  */
 export const FLOOR_BODY_CHARS = 500;
+
+/** A superseded fact whose id vanishes on re-extraction passes its pointer to
+ *  the entry's most similar new fact at or above this cosine (bge-base
+ *  paraphrase band is ~0.88-0.95). */
+export const CARRY_COSINE_FLOOR = 0.85;
 
 export interface SpaceRepo {
   space: string;
@@ -312,6 +318,20 @@ export async function ingestEntriesDetailed(
         });
       } catch {
         // fail-open: index facts without vectors — BM25 still serves recall
+      }
+    }
+    // A superseded fact whose id vanished (content ids change with wording)
+    // hands its pointer to the most similar new fact. Only whole-entry
+    // supersession carried before, so four author-stated links were dropped
+    // on 2026-09-17.
+    for (const p of prev) {
+      if (!p.supersededBy || p.embedding.length === 0) continue;
+      if (docs.some((d) => d.id === p.id)) continue;
+      const pool = docs.filter((d) => !d.supersededBy && d.embedding.length);
+      const [best] = cosineTopK(pool, p.embedding, 1);
+      if (best && best.score >= CARRY_COSINE_FLOOR) {
+        const target = docs.find((d) => d.id === best.id);
+        if (target) target.supersededBy = p.supersededBy;
       }
     }
     // Facts THIS entry superseded point at ids re-extraction is about to

@@ -281,7 +281,7 @@ test("ingestEntries extracts N facts per entry as docs rows with synthetic ids +
     type: "decision",
     timestamp: "2026-07-04T00:00:00Z",
     id: "e1",
-    payload: "Cursor MCP config is project-scoped. Verified.",
+    payload: "Cursor MCP config is project-scoped. Verified 2026-07-04.",
     file: "context/memorylayer/skanda/e.md",
   };
   const n = await ingestEntries(db, fakeEmbed, gen, "s1", "memorylayer", [
@@ -329,7 +329,7 @@ test("ingestEntries is idempotent per entry: re-ingesting replaces the fact set"
     type: "decision",
     timestamp: "2026-01-01T00:00:00Z",
     id: "e1",
-    payload: "Cursor MCP note",
+    payload: "Cursor MCP note, verified 2026-07-04",
     file: "context/p/a/f.md",
   };
   await ingestEntries(
