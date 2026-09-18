@@ -1,6 +1,6 @@
 {
   "name": "wayform",
-  "version": "0.2.0",
+  "version": "0.3.0",
   "description": "The plan layer for agent teams: git-backed plans and decisions that every coding agent inherits, across Claude Code, Cursor, and Codex.",
   "type": "module",
   "bin": {
