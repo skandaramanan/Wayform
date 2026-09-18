@@ -1,0 +1,213 @@
+// The plan tools end to end through the router: auth, space scoping, the
+// ledger commit and the D1 projection, as a client would call them.
+import { test } from "node:test";
+import assert from "node:assert/strict";
+import { handleRequest } from "../dist/gateway/src/router.js";
+import {
+  makeEnv,
+  ghFetch,
+  fakeEmbed,
+  fakeLedger,
+  seedGithubMember,
+} from "./helpers.mjs";
+import { sqliteD1 } from "./sqlite-d1.mjs";
+
+const A = {
+  space: "team-a",
+  installationId: 777,
+  owner: "acme",
+  repo: "team-a-memory",
+  author: "Ada",
+  authorEmail: "ada@acme.io",
+  githubId: 101,
+  githubLogin: "ada",
+  role: "member",
+};
+const B = {
+  space: "team-b",
+  installationId: 888,
+  owner: "acme",
+  repo: "team-b-memory",
+  author: "Bo",
+  authorEmail: "bo@acme.io",
+  githubId: 102,
+  githubLogin: "bo",
+  role: "member",
+};
+
+async function setup() {
+  const la = fakeLedger({ repo: "acme/team-a-memory" });
+  const lb = fakeLedger({ repo: "acme/team-b-memory" });
+  const env = makeEnv(ghFetch([], [...la.routes, ...lb.routes]), {
+    DB: sqliteD1(),
+    embedder: fakeEmbed,
+  });
+  for (const m of [A, B]) await seedGithubMember(env, m);
+  let id = 0;
+  const call = async (who, name, args) => {
+    env.oauthProps = { githubId: who.githubId, githubLogin: who.githubLogin };
+    const res = await handleRequest(
+      new Request("https://gw.test/mcp", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: ++id,
+          method: "tools/call",
+          params: { name, arguments: args },
+        }),
+      }),
+      env,
+    );
+    const r = (await res.json()).result;
+    return { text: r.content[0].text, isError: r.isError === true };
+  };
+  return { env, call, la, lb };
+}
+
+test("tools/list advertises the plan tools with required args", async () => {
+  const { env } = await setup();
+  env.oauthProps = { githubId: 101, githubLogin: "ada" };
+  const res = await handleRequest(
+    new Request("https://gw.test/mcp", {
+      method: "POST",
+      body: JSON.stringify({ jsonrpc: "2.0", id: 1, method: "tools/list" }),
+    }),
+    env,
+  );
+  const tools = (await res.json()).result.tools;
+  const req = Object.fromEntries(
+    tools.map((t) => [t.name, t.inputSchema.required]),
+  );
+  assert.deepEqual(req.create_plan, ["project", "title", "body"]);
+  assert.deepEqual(req.read_plan, ["project"]);
+  assert.deepEqual(req.edit_plan, ["project", "plan"]);
+});
+
+test("create → list → edit → read versions, over MCP", async () => {
+  const { call, la } = await setup();
+  const created = await call(A, "create_plan", {
+    project: "MemoryLayer",
+    title: "Plan object",
+    body: "- [ ] schema",
+    repo: "acme/app",
+  });
+  assert.equal(created.isError, false, created.text);
+  assert.match(
+    created.text,
+    /Created plan #1 "Plan object" \(id p[0-9a-f]{7}, draft, v1\)\./,
+  );
+  assert.equal(
+    [...la.files.keys()].filter((p) => p.startsWith("plans/memorylayer/"))
+      .length,
+    1,
+  );
+
+  const list = await call(A, "read_plan", { project: "MemoryLayer" });
+  assert.match(list.text, /- #1 \[draft\] Plan object — v1/);
+
+  const edited = await call(A, "edit_plan", {
+    project: "MemoryLayer",
+    plan: "#1",
+    body: "- [x] schema",
+  });
+  assert.match(edited.text, /is now v2/);
+
+  const latest = await call(A, "read_plan", {
+    project: "MemoryLayer",
+    plan: "1",
+  });
+  assert.match(latest.text, /^# Plan #1 — Plan object/);
+  assert.match(latest.text, /state: draft · v2 of 2 · acme\/app · by Ada/);
+  assert.match(latest.text, /- \[x\] schema$/);
+  const v1 = await call(A, "read_plan", {
+    project: "MemoryLayer",
+    plan: "#1",
+    version: 1,
+  });
+  assert.match(v1.text, /v1 of 2 \(older version\)/);
+  assert.match(v1.text, /- \[ \] schema$/);
+});
+
+test("plan errors come back as tool errors, not crashes", async () => {
+  const { call } = await setup();
+  assert.match(
+    (await call(A, "read_plan", { plan: "#1" })).text,
+    /missing required argument: project/,
+  );
+  const missing = await call(A, "read_plan", { project: "p", plan: "#4" });
+  assert.equal(missing.isError, true);
+  assert.match(missing.text, /not found/);
+  const bad = await call(A, "create_plan", {
+    project: "p",
+    title: "",
+    body: "b",
+  });
+  assert.equal(bad.isError, true);
+  assert.match(bad.text, /title/);
+  assert.match(
+    (await call(A, "edit_plan", { project: "p" })).text,
+    /missing required argument: plan/,
+  );
+});
+
+test("a plan in one space is invisible to another space", async () => {
+  const { call, lb } = await setup();
+  await call(A, "create_plan", {
+    project: "shared",
+    title: "A's plan",
+    body: "secret",
+  });
+  const read = await call(B, "read_plan", { project: "shared", plan: "#1" });
+  assert.equal(read.isError, true);
+  assert.match(
+    (await call(B, "read_plan", { project: "shared" })).text,
+    /No plans/,
+  );
+  const edit = await call(B, "edit_plan", {
+    project: "shared",
+    plan: "#1",
+    body: "pwned",
+  });
+  assert.equal(edit.isError, true);
+  assert.equal(lb.files.size, 0);
+  // B's own numbering starts at #1 in B's space.
+  assert.match(
+    (await call(B, "create_plan", { project: "shared", title: "B", body: "b" }))
+      .text,
+    /#1/,
+  );
+});
+
+test("admin {plans:true} rebuilds from the ledger and is operator-only", async () => {
+  const { env, call } = await setup();
+  await call(A, "create_plan", { project: "p", title: "T", body: "b" });
+  await call(A, "edit_plan", { project: "p", plan: "#1", body: "b2" });
+  const before = env.DB.raw
+    .prepare("SELECT * FROM plan_body ORDER BY version")
+    .all();
+  env.DB.raw.exec("DELETE FROM plan; DELETE FROM plan_body;");
+  const admin = (props) => {
+    env.oauthProps = props;
+    return handleRequest(
+      new Request("https://gw.test/mcp/admin/reindex", {
+        method: "POST",
+        body: JSON.stringify({ plans: true, repo: "acme/team-a-memory" }),
+      }),
+      env,
+    );
+  };
+  assert.equal(
+    (await admin({ githubId: 101, githubLogin: "ada" })).status,
+    403,
+  );
+  const res = await admin({ githubId: 4242, githubLogin: "operator" });
+  assert.equal(res.status, 200);
+  assert.deepEqual((await res.json()).plans, {
+    "team-a": { rebuilt: 1, total: 1, nextOffset: null },
+  });
+  assert.deepEqual(
+    env.DB.raw.prepare("SELECT * FROM plan_body ORDER BY version").all(),
+    before,
+  );
+});

@@ -1,0 +1,403 @@
+/**
+ * Plan service (docs/PLAN.md Phase 1): the one layer MCP tools — and later
+ * the desktop app — call. Every mutation is validate → commit one event file
+ * to the git ledger → project it into D1. The ledger is the source of truth;
+ * D1 is rebuilt from it (rebuildPlan/rebuildPlans) whenever the two could
+ * disagree.
+ */
+import type { Env } from "./env.js";
+import type { SpaceMember } from "./tenancy.js";
+import type { SpaceRepo } from "./ingest.js";
+import type { D1Like, IndexDb } from "./index-db.js";
+import type { Embedder } from "./retrieval.js";
+import { installationToken } from "./github-auth.js";
+import {
+  listLedgerDir,
+  listLedgerTree,
+  putLedgerFile,
+  readLedgerFile,
+} from "./github-store.js";
+import {
+  eventPath,
+  foldEvents,
+  planDir,
+  PlanError,
+  serializeEvent,
+  step,
+  type DecisionRole,
+  type PlanBody,
+  type PlanEvent,
+  type PlanMeta,
+  type PlanStep,
+} from "./plan-core.js";
+import {
+  applyStep,
+  bumpCounter,
+  clearPlan,
+  getBody,
+  getPlan,
+  listLinks,
+  listPlans,
+  listRuns,
+  nextSeq,
+  type PlanRun,
+} from "./plan-db.js";
+import { slug } from "../../src/slug.js";
+
+export const MAX_TITLE_CHARS = 200;
+/** Ledger files are one Contents PUT; D1 rows cap at 1MB. 60k chars is a
+ *  very long plan and far inside both. */
+export const MAX_PLAN_BODY_CHARS = 60_000;
+export const MAX_LINKED_FACTS = 50;
+
+export interface PlanCtx {
+  env: Env;
+  member: SpaceMember;
+  db: D1Like;
+  idx: IndexDb | null;
+  embed: Embedder | null;
+  fetchImpl: typeof fetch;
+}
+
+export interface PlanLinkView {
+  factId: string;
+  role: DecisionRole;
+  /** null = the fact no longer exists (content ids dangle, never lie). */
+  body: string | null;
+  supersededBy: string | null;
+}
+
+export interface PlanView {
+  meta: PlanMeta;
+  body: PlanBody;
+  links: PlanLinkView[];
+  runs: PlanRun[];
+}
+
+/** A leading letter: getPlan reads an all-digit ref as #seq, and ~2% of
+ *  bare 8-hex ids are all digits. */
+function newPlanId(): string {
+  return `p${crypto.randomUUID().replace(/-/g, "").slice(0, 7)}`;
+}
+
+function cleanTitle(raw: unknown): string {
+  const t = typeof raw === "string" ? raw.trim() : "";
+  if (!t || t.length > MAX_TITLE_CHARS)
+    throw new PlanError(`title must be 1-${MAX_TITLE_CHARS} characters`);
+  return t;
+}
+
+function cleanBody(raw: unknown): string {
+  const b = typeof raw === "string" ? raw.trim() : "";
+  if (!b || b.length > MAX_PLAN_BODY_CHARS)
+    throw new PlanError(`body must be 1-${MAX_PLAN_BODY_CHARS} characters`);
+  return b;
+}
+
+export function cleanIds(raw: unknown, what: string): string[] {
+  if (raw === undefined || raw === null) return [];
+  if (!Array.isArray(raw)) throw new PlanError(`${what} must be a list of ids`);
+  const ids = [
+    ...new Set(
+      raw
+        .filter((x): x is string => typeof x === "string")
+        .map((x) => x.trim())
+        .filter(Boolean),
+    ),
+  ];
+  if (ids.length > MAX_LINKED_FACTS)
+    throw new PlanError(`at most ${MAX_LINKED_FACTS} ${what}`);
+  return ids;
+}
+
+async function mustGet(
+  c: PlanCtx,
+  project: string,
+  ref: string,
+): Promise<PlanMeta> {
+  const m = await getPlan(c.db, c.member.space, project, ref);
+  if (!m) throw new PlanError(`plan ${ref} not found in project "${project}"`);
+  return m;
+}
+
+/**
+ * The single write path. step() rejects before anything is written; the
+ * ledger commit comes before D1, so D1 never holds what the ledger lacks.
+ * Losing the rev race means the ledger now holds both events — replay
+ * decides, and the caller is told to re-read.
+ */
+async function mutate(
+  c: PlanCtx,
+  project: string,
+  prev: PlanMeta | null,
+  ev: PlanEvent,
+): Promise<PlanStep> {
+  const s = step(prev, ev);
+  const what = ev.op === "transition" ? `→ ${ev.to}` : ev.op;
+  await putLedgerFile(
+    c.env,
+    c.member,
+    eventPath(ev, project),
+    serializeEvent(ev),
+    `plan(${slug(project)}): #${s.meta.seq} ${what} — ${s.meta.title}`.slice(
+      0,
+      120,
+    ),
+    c.fetchImpl,
+  );
+  if (!(await applyStep(c.db, c.member.space, prev?.rev ?? null, s))) {
+    await rebuildPlan(c, project, s.meta.id);
+    throw new PlanError(
+      `plan #${s.meta.seq} changed concurrently — re-read it and retry`,
+    );
+  }
+  return s;
+}
+
+function eventBase(c: PlanCtx, plan: string, rev: number) {
+  return { plan, rev, author: c.member.author, ts: new Date().toISOString() };
+}
+
+export async function readPlan(
+  c: PlanCtx,
+  project: string,
+  ref: string,
+  version?: number,
+): Promise<PlanView> {
+  const meta = await mustGet(c, project, ref);
+  const body = await getBody(c.db, c.member.space, meta.id, version);
+  if (!body)
+    throw new PlanError(
+      `plan #${meta.seq} has no version ${version} (latest is v${meta.version})`,
+    );
+  const links = await Promise.all(
+    (await listLinks(c.db, c.member.space, meta.id)).map(async (l) => {
+      const d = c.idx ? await c.idx.getDoc(c.member.space, l.factId) : null;
+      return {
+        ...l,
+        body: d?.body ?? null,
+        supersededBy: d?.supersededBy ?? null,
+      };
+    }),
+  );
+  return {
+    meta,
+    body,
+    links,
+    runs: await listRuns(c.db, c.member.space, meta.id),
+  };
+}
+
+export function listProjectPlans(
+  c: PlanCtx,
+  project: string,
+): Promise<PlanMeta[]> {
+  return listPlans(c.db, c.member.space, project);
+}
+
+export async function createPlan(
+  c: PlanCtx,
+  project: string,
+  a: {
+    title: unknown;
+    body: unknown;
+    repo?: unknown;
+    branch?: unknown;
+    inherits?: unknown;
+  },
+): Promise<PlanView & { unknownInherits: string[] }> {
+  const title = cleanTitle(a.title);
+  const body = cleanBody(a.body);
+  const known: string[] = [];
+  const unknown: string[] = [];
+  for (const id of cleanIds(a.inherits, "inherits")) {
+    const d = c.idx ? await c.idx.getDoc(c.member.space, id) : null;
+    (d ? known : unknown).push(id);
+  }
+  const opt = (v: unknown) =>
+    typeof v === "string" && v.trim() ? v.trim().slice(0, 200) : undefined;
+  const repo = opt(a.repo);
+  const branch = opt(a.branch);
+  const id = newPlanId();
+  await mutate(c, project, null, {
+    ...eventBase(c, id, 1),
+    op: "create",
+    project: slug(project),
+    seq: await nextSeq(c.db, c.member.space, project),
+    title,
+    body,
+    ...(repo ? { repo } : {}),
+    ...(branch ? { branch } : {}),
+    ...(known.length ? { inherits: known } : {}),
+  } as PlanEvent);
+  return {
+    ...(await readPlan(c, project, id)),
+    unknownInherits: unknown,
+  };
+}
+
+export async function editPlan(
+  c: PlanCtx,
+  project: string,
+  ref: string,
+  a: { title?: unknown; body?: unknown },
+): Promise<PlanView> {
+  if (a.title === undefined && a.body === undefined)
+    throw new PlanError("an edit needs a new title or body");
+  const title = a.title === undefined ? undefined : cleanTitle(a.title);
+  const body = a.body === undefined ? undefined : cleanBody(a.body);
+  const prev = await mustGet(c, project, ref);
+  await mutate(c, project, prev, {
+    ...eventBase(c, prev.id, prev.rev + 1),
+    op: "edit",
+    ...(title !== undefined ? { title } : {}),
+    ...(body !== undefined ? { body } : {}),
+  });
+  return readPlan(c, project, prev.id);
+}
+
+/** Replace one plan's D1 rows with the replay of its ledger events. */
+async function projectFiles(
+  db: D1Like,
+  space: string,
+  planId: string,
+  files: { path: string; raw: string }[],
+): Promise<PlanMeta | null> {
+  const { meta, steps, skipped } = foldEvents(files);
+  if (skipped.length > 0)
+    console.log(
+      JSON.stringify({ evt: "plan_replay_skipped", space, planId, skipped }),
+    );
+  await clearPlan(db, space, planId);
+  let prevRev: number | null = null;
+  for (const s of steps) {
+    await applyStep(db, space, prevRev, s);
+    prevRev = s.meta.rev;
+  }
+  if (meta) await bumpCounter(db, space, meta.project, meta.seq);
+  return meta;
+}
+
+export async function rebuildPlan(
+  c: PlanCtx,
+  project: string,
+  planId: string,
+): Promise<PlanMeta | null> {
+  const token = await installationToken(
+    c.env,
+    c.member.installationId,
+    c.fetchImpl,
+  );
+  const paths = await listLedgerDir(
+    c.env,
+    c.member,
+    planDir(project, planId),
+    c.fetchImpl,
+    token,
+  );
+  const files = await Promise.all(
+    paths.map(async (path) => ({
+      path,
+      raw:
+        (await readLedgerFile(c.env, c.member, path, c.fetchImpl, token)) ?? "",
+    })),
+  );
+  return projectFiles(c.db, c.member.space, planId, files);
+}
+
+/**
+ * Rebuild every plan in a space from the ledger, `limit` plans per call.
+ * ponytail: one GitHub read per event file; page with offset/limit when a
+ * space's plan history outgrows one request's subrequest budget.
+ */
+export async function rebuildPlans(
+  env: Env,
+  db: D1Like,
+  _idx: IndexDb | null,
+  _embed: Embedder | null,
+  sr: SpaceRepo,
+  fetchImpl: typeof fetch,
+  opts: { offset?: number; limit?: number } = {},
+): Promise<{ rebuilt: number; total: number; nextOffset: number | null }> {
+  const token = await installationToken(env, sr.installationId, fetchImpl);
+  const byPlan = new Map<string, string[]>();
+  for (const p of await listLedgerTree(env, sr, "plans/", fetchImpl, token)) {
+    const m = p.match(/^(plans\/[^/]+\/[^/]+)\/[^/]+\.md$/);
+    if (!m) continue;
+    byPlan.set(m[1], [...(byPlan.get(m[1]) ?? []), p]);
+  }
+  const dirs = [...byPlan.keys()].sort();
+  const offset = opts.offset ?? 0;
+  const page =
+    opts.limit != null
+      ? dirs.slice(offset, offset + opts.limit)
+      : dirs.slice(offset);
+  for (const dir of page) {
+    const files = await Promise.all(
+      byPlan.get(dir)!.map(async (path) => ({
+        path,
+        raw: (await readLedgerFile(env, sr, path, fetchImpl, token)) ?? "",
+      })),
+    );
+    await projectFiles(db, sr.space, dir.split("/")[2], files);
+  }
+  const end = offset + page.length;
+  return {
+    rebuilt: page.length,
+    total: dirs.length,
+    nextOffset: end < dirs.length ? end : null,
+  };
+}
+
+const day = (iso: string) => iso.slice(0, 10);
+
+export function renderPlanList(project: string, plans: PlanMeta[]): string {
+  if (plans.length === 0)
+    return `No plans in project "${project}" yet — create one with create_plan.`;
+  return (
+    `# Plans in project "${project}" (newest first)\n\n` +
+    plans
+      .map(
+        (p) =>
+          `- #${p.seq} [${p.state}] ${p.title} — v${p.version}, updated ${day(p.updated)} _(id: ${p.id})_`,
+      )
+      .join("\n")
+  );
+}
+
+export function renderPlan(v: PlanView): string {
+  const m = v.meta;
+  const where = m.repo ? ` · ${m.repo}${m.branch ? `@${m.branch}` : ""}` : "";
+  const lines = [
+    `# Plan #${m.seq} — ${m.title}`,
+    "",
+    `state: ${m.state} · v${v.body.version} of ${m.version}` +
+      (v.body.version < m.version ? " (older version)" : "") +
+      `${where} · by ${m.author} · updated ${day(m.updated)} · id ${m.id}`,
+  ];
+  if (m.supersededBy) lines.push(`superseded by plan ${m.supersededBy}`);
+  if (v.links.length > 0) {
+    lines.push("", `## Decisions (${v.links.length})`, "");
+    for (const l of v.links) {
+      const note =
+        l.body === null
+          ? " ⚠ fact no longer exists"
+          : l.supersededBy
+            ? ` ⚠ superseded by ${l.supersededBy}`
+            : "";
+      const text = l.body === null ? "" : ` ${l.body.slice(0, 200)}`;
+      lines.push(`- [${l.role}]${text} _(id: ${l.factId})_${note}`);
+    }
+  }
+  if (v.runs.length > 0) {
+    lines.push("", "## Runs", "");
+    for (const r of v.runs)
+      lines.push(
+        `- run ${r.run} · ${r.agent} · ${r.started}` +
+          (r.ended ? ` → ${r.ended} · ${r.outcome}` : " · open") +
+          (r.commitSha ? ` · ${r.commitSha}` : ""),
+      );
+  }
+  lines.push("", "---", "", v.body.markdown);
+  return lines.join("\n");
+}

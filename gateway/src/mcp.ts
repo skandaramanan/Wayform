@@ -24,6 +24,15 @@ import {
   MAX_CLIENT_FACT_CHARS,
 } from "./extract.js";
 import { inviteGithubUser, revokeGithubUser } from "./spaces.js";
+import {
+  createPlan,
+  editPlan,
+  listProjectPlans,
+  readPlan,
+  renderPlan,
+  renderPlanList,
+  type PlanCtx,
+} from "./plans.js";
 import { listSessions, revokeSession } from "./sessions.js";
 import {
   detectWriteConflicts,
@@ -254,6 +263,96 @@ const TOOLS = [
     },
   },
   {
+    name: "create_plan",
+    title: "Create a team engineering plan",
+    description:
+      "Use this to record an engineering plan (markdown: goal, approach, " +
+      "checklist) as a living, versioned plan the whole team and every agent " +
+      "can read — instead of a local plan file. Pass `inherits` with the fact " +
+      "ids of recorded decisions the plan builds on. Returns the plan's " +
+      "number (#N). New plans start as draft.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: {
+          type: "string",
+          description: "The shared project name, e.g. 'business-one'.",
+        },
+        title: { type: "string", description: "Short plan title." },
+        body: {
+          type: "string",
+          description: "The plan in markdown.",
+        },
+        repo: {
+          type: "string",
+          description: "Code repo the plan targets, e.g. 'acme/app'.",
+        },
+        branch: { type: "string", description: "Target branch." },
+        inherits: {
+          type: "array",
+          items: { type: "string" },
+          description:
+            "Fact ids (from search results) of decisions this plan builds on.",
+        },
+      },
+      required: ["project", "title", "body"],
+    },
+  },
+  {
+    name: "read_plan",
+    title: "Read a team plan, or list plans",
+    description:
+      "Use this to read plan #N (its state, linked decisions, runs and body) " +
+      "or, with no `plan`, to list the project's plans. Pass `version` to read " +
+      "an older version — every edit is kept.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: {
+          type: "string",
+          description: "The shared project name.",
+        },
+        plan: {
+          type: "string",
+          description: "Plan number ('#12' or '12') or plan id. Omit to list.",
+        },
+        version: {
+          type: "integer",
+          exclusiveMinimum: 0,
+          description: "A specific version; default the latest.",
+        },
+      },
+      required: ["project"],
+    },
+  },
+  {
+    name: "edit_plan",
+    title: "Edit a team plan (new version)",
+    description:
+      "Use this to change a draft, active or building plan's body or title. " +
+      "Every body edit is a new version; old versions stay readable via " +
+      "read_plan(version=). Shipped and superseded plans are frozen.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: {
+          type: "string",
+          description: "The shared project name.",
+        },
+        plan: {
+          type: "string",
+          description: "Plan number ('#12' or '12') or plan id.",
+        },
+        body: {
+          type: "string",
+          description: "The full new markdown body.",
+        },
+        title: { type: "string", description: "A new title." },
+      },
+      required: ["project", "plan"],
+    },
+  },
+  {
     name: "invite_member",
     title: "Invite a GitHub user to this space",
     description:
@@ -406,7 +505,14 @@ async function toolsCall(
     );
     return res;
   };
-  if ((toolName === "read_context" || toolName === "write_context") && !project)
+  const needsProject = [
+    "read_context",
+    "write_context",
+    "create_plan",
+    "read_plan",
+    "edit_plan",
+  ];
+  if (needsProject.includes(toolName ?? "") && !project)
     return finish(
       rpcResult(msg.id, toolText("missing required argument: project", true)),
     );
@@ -780,6 +886,90 @@ async function toolsCall(
                 (skipped.length
                   ? ` Skipped ${skipped.join(", ")} (not found, or part of that entry).`
                   : ""),
+            ),
+          ),
+        );
+      }
+      case "create_plan":
+      case "read_plan":
+      case "edit_plan": {
+        if (!env.DB)
+          return finish(
+            rpcResult(
+              msg.id,
+              toolText("plans are not enabled on this gateway", true),
+            ),
+          );
+        const deps = indexDeps(env);
+        const pc: PlanCtx = {
+          env,
+          member,
+          db: env.DB,
+          idx: deps?.db ?? null,
+          embed: deps?.embed ?? null,
+          fetchImpl,
+        };
+        const ref = typeof args.plan === "string" ? args.plan.trim() : "";
+        if (toolName === "create_plan") {
+          const v = await createPlan(pc, project, {
+            title: args.title,
+            body: args.body,
+            repo: args.repo,
+            branch: args.branch,
+            inherits: args.inherits,
+          });
+          return finish(
+            rpcResult(
+              msg.id,
+              toolText(
+                `Created plan #${v.meta.seq} "${v.meta.title}" (id ${v.meta.id}, draft, v1)` +
+                  (v.links.length
+                    ? ` inheriting ${v.links.length} decision(s).`
+                    : ".") +
+                  (v.unknownInherits.length
+                    ? ` Not linked (no such fact): ${v.unknownInherits.join(", ")}.`
+                    : ""),
+              ),
+            ),
+          );
+        }
+        if (toolName === "read_plan") {
+          if (!ref)
+            return finish(
+              rpcResult(
+                msg.id,
+                toolText(
+                  renderPlanList(project, await listProjectPlans(pc, project)),
+                ),
+              ),
+            );
+          const version =
+            typeof args.version === "number" && args.version > 0
+              ? Math.floor(args.version)
+              : undefined;
+          return finish(
+            rpcResult(
+              msg.id,
+              toolText(renderPlan(await readPlan(pc, project, ref, version))),
+            ),
+          );
+        }
+        if (!ref)
+          return finish(
+            rpcResult(
+              msg.id,
+              toolText("missing required argument: plan", true),
+            ),
+          );
+        const v = await editPlan(pc, project, ref, {
+          title: args.title,
+          body: args.body,
+        });
+        return finish(
+          rpcResult(
+            msg.id,
+            toolText(
+              `Plan #${v.meta.seq} "${v.meta.title}" is now v${v.meta.version}.`,
             ),
           ),
         );

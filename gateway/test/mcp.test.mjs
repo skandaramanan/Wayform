@@ -92,10 +92,13 @@ test("initialize and tools/list expose the stdio-identical contract", async () =
   );
   const names = (await list.json()).result.tools.map((t) => t.name).sort();
   assert.deepEqual(names, [
+    "create_plan",
+    "edit_plan",
     "invite_member",
     "list_sessions",
     "memory_feedback",
     "read_context",
+    "read_plan",
     "revoke_member",
     "revoke_session",
     "search_memory",

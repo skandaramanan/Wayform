@@ -203,3 +203,61 @@ export function makeNonOperatorEnv(githubFetch, extra = {}) {
     ...extra,
   });
 }
+
+/**
+ * An in-memory GitHub repo behind the routes the ledger code uses: installation
+ * tokens, Contents PUT (422 when the path exists and no sha is sent, as
+ * GitHub does), Contents GET (raw file or a JSON dir listing), and recursive
+ * Trees. Pass `ledger.routes` to ghFetch; inspect `ledger.files`.
+ */
+export function fakeLedger({ repo } = {}) {
+  const files = new Map();
+  const at = (kind) => (repo ? `/repos/${repo}/${kind}/` : `/${kind}/`);
+  const contentsPath = (url) =>
+    decodeURIComponent(
+      new URL(url).pathname.replace(/^\/repos\/[^/]+\/[^/]+\/contents\//, ""),
+    );
+  const routes = [
+    [
+      "/access_tokens",
+      () => Response.json({ token: "ghs_ledger" }, { status: 201 }),
+    ],
+    [
+      at("git/trees"),
+      () =>
+        Response.json({
+          tree: [...files.keys()].map((path) => ({ path, type: "blob" })),
+        }),
+    ],
+    [
+      at("contents"),
+      async (url, init) => {
+        const path = contentsPath(url);
+        if (init.method === "PUT") {
+          const body = JSON.parse(init.body);
+          if (files.has(path) && !body.sha)
+            return Response.json(
+              { message: "sha wasn't supplied" },
+              { status: 422 },
+            );
+          files.set(path, Buffer.from(body.content, "base64").toString("utf8"));
+          return Response.json({ content: { path } }, { status: 201 });
+        }
+        if (files.has(path)) return new Response(files.get(path));
+        const kids = [...files.keys()].filter((p) => p.startsWith(`${path}/`));
+        if (kids.length === 0)
+          return Response.json({ message: "Not Found" }, { status: 404 });
+        const direct = new Set(
+          kids.map((p) => `${path}/${p.slice(path.length + 1).split("/")[0]}`),
+        );
+        return Response.json(
+          [...direct].map((p) => ({
+            path: p,
+            type: files.has(p) ? "file" : "dir",
+          })),
+        );
+      },
+    ],
+  ];
+  return { files, routes };
+}

@@ -454,3 +454,100 @@ test("readEntries returns empty on 404/409 tree (empty repo or missing branch)",
     { entries: [], total: 0 },
   );
 });
+
+import {
+  putLedgerFile,
+  readLedgerFile,
+  listLedgerDir,
+  listLedgerTree,
+} from "../dist/gateway/src/github-store.js";
+import { fakeLedger } from "./helpers.mjs";
+
+test("ledger helpers: put, read, list a dir and a tree prefix", async () => {
+  const ledger = fakeLedger();
+  const env = makeEnv(ghFetch([], ledger.routes));
+  const sha = await putLedgerFile(
+    env,
+    MEMBER,
+    "plans/p/a1/00001-x.md",
+    "one\n",
+    "msg",
+    env.githubFetch,
+  );
+  assert.match(sha, /^[0-9a-f]{40}$/);
+  await putLedgerFile(
+    env,
+    MEMBER,
+    "plans/p/a1/00002-y.md",
+    "two\n",
+    "msg",
+    env.githubFetch,
+  );
+  await putLedgerFile(
+    env,
+    MEMBER,
+    "context/p/ada/e.md",
+    "e\n",
+    "msg",
+    env.githubFetch,
+  );
+  assert.equal(
+    await readLedgerFile(env, MEMBER, "plans/p/a1/00002-y.md", env.githubFetch),
+    "two\n",
+  );
+  assert.equal(
+    await readLedgerFile(env, MEMBER, "plans/p/nope.md", env.githubFetch),
+    null,
+  );
+  assert.deepEqual(
+    (await listLedgerDir(env, MEMBER, "plans/p/a1", env.githubFetch)).sort(),
+    ["plans/p/a1/00001-x.md", "plans/p/a1/00002-y.md"],
+  );
+  assert.deepEqual(
+    await listLedgerDir(env, MEMBER, "plans/none", env.githubFetch),
+    [],
+  );
+  assert.deepEqual(
+    (await listLedgerTree(env, MEMBER, "plans/", env.githubFetch)).sort(),
+    ["plans/p/a1/00001-x.md", "plans/p/a1/00002-y.md"],
+  );
+});
+
+test("putLedgerFile retries a 5xx and never overwrites an existing path", async () => {
+  const ledger = fakeLedger();
+  let fails = 1;
+  const routes = [
+    [
+      "/contents/",
+      async (url, init) =>
+        init.method === "PUT" && fails-- > 0
+          ? new Response("down", { status: 503 })
+          : ledger.routes[2][1](url, init),
+    ],
+    ...ledger.routes,
+  ];
+  const env = makeEnv(ghFetch([], routes));
+  await putLedgerFile(
+    env,
+    MEMBER,
+    "plans/p/a/1.md",
+    "x",
+    "m",
+    env.githubFetch,
+    [0],
+  );
+  assert.equal(ledger.files.get("plans/p/a/1.md"), "x");
+  await assert.rejects(
+    putLedgerFile(
+      env,
+      MEMBER,
+      "plans/p/a/1.md",
+      "y",
+      "m",
+      env.githubFetch,
+      [0],
+    ),
+    /422/,
+  );
+  assert.equal(ledger.files.get("plans/p/a/1.md"), "x");
+});
