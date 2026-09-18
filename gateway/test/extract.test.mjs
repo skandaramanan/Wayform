@@ -264,3 +264,12 @@ test("floorEntities NEVER returns an empty list", () => {
     assert.ok(tags.every((t) => t.length >= 3 && t.length <= 40));
   }
 });
+
+test("chunkPayload breaks an overlong paragraph at whitespace, never mid-word", () => {
+  const words = Array.from({ length: 600 }, (_, i) => `MEMORYLAYER_TOKEN${i}`);
+  const para = words.join(" ");
+  const out = chunkPayload(para, 1200);
+  assert.ok(out.length > 1);
+  assert.ok(out.every((c) => c.length <= 1200));
+  assert.deepEqual(out.join(" ").split(" "), words, "every word intact");
+});

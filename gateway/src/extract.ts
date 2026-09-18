@@ -326,12 +326,21 @@ export function chunkPayload(payload: string, max = CHUNK_CHARS): string[] {
     }
   }
   if (buf) out.push(buf);
-  // A single paragraph longer than max still has to be broken somewhere.
-  return out.flatMap((c) =>
-    c.length <= max * 2
-      ? [c]
-      : (c.match(new RegExp(`[\\s\\S]{1,${max}}`, "g")) ?? [c]),
-  );
+  // A single paragraph longer than max still has to be broken somewhere —
+  // at whitespace: a mid-word cut handed the model "ER_TOKEN" for
+  // "MEMORYLAYER_TOKEN", and it extracted the fragment as a fact.
+  return out.flatMap((c) => {
+    if (c.length <= max * 2) return [c];
+    const parts: string[] = [];
+    while (c.length > max) {
+      let cut = c.lastIndexOf(" ", max);
+      if (cut < max / 2) cut = max;
+      parts.push(c.slice(0, cut));
+      c = c.slice(cut).trimStart();
+    }
+    if (c) parts.push(c);
+    return parts;
+  });
 }
 
 /**
