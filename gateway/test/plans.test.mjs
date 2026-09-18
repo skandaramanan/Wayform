@@ -5,6 +5,7 @@ import {
   readPlan,
   listProjectPlans,
   editPlan,
+  transitionPlan,
   rebuildPlans,
   MAX_PLAN_BODY_CHARS,
   MAX_LINKED_FACTS,
@@ -40,6 +41,7 @@ function planCtx(extraRoutes = []) {
     db: sqliteD1(),
     idx: new MemoryIndexDb(),
     embed: fakeEmbed,
+    gen: null,
     fetchImpl: env.githubFetch,
   };
   return { c, ledger };
@@ -274,4 +276,214 @@ test("a concurrent edit: the loser rebuilds from the ledger and is told to retry
     (await readPlan(c, "proj", "#1")).body.markdown,
     replay.steps.at(-1).body.markdown,
   );
+});
+
+function oldFact(id, body) {
+  return {
+    id,
+    space: "team-a",
+    project: "proj",
+    kind: "decision",
+    tier: "normal",
+    body,
+    sourceFile: `context/proj/ada/${id}.md`,
+    sourceAuthor: "Ada",
+    sourceTs: "2026-09-01T00:00:00Z",
+    embedding: [],
+    supersededBy: null,
+    createdAt: "2026-09-01T00:00:00Z",
+    sourceId: id.split("#")[0],
+    entities: [],
+  };
+}
+
+async function toBuilding(c, ref = "#1") {
+  await transitionPlan(c, "proj", ref, { to: "active" });
+  return transitionPlan(c, "proj", ref, {
+    to: "building",
+    agent: "claude-code",
+  });
+}
+
+test("ship: decisions become a writer-split entry, linked as produced, with no extraction", async () => {
+  const { c, ledger } = planCtx();
+  const calls = [];
+  c.gen = async (prompt, opts) => {
+    calls.push(opts?.purpose);
+    throw new Error("no model in this test");
+  };
+  await c.idx.upsertDocs([oldFact("old1#aa", "Store plans in Notion")]);
+  await createPlan(c, "proj", {
+    title: "Plans in the ledger",
+    body: "- [ ] move plans",
+  });
+  const b = await toBuilding(c);
+  assert.equal(b.runs[0].agent, "claude-code");
+  assert.equal(b.runs[0].ended, null);
+
+  const v = await transitionPlan(c, "proj", "#1", {
+    to: "shipped",
+    commitSha: "abc123",
+    decisions: [
+      {
+        kind: "decision",
+        body: "Plans live in the git ledger because it is the source of truth",
+      },
+      {
+        kind: "decision",
+        body: "Plan bodies leave search when shipped because checklists go stale",
+      },
+    ],
+    supersedes: ["old1#aa"],
+  });
+  assert.equal(v.meta.state, "shipped");
+  assert.equal(v.warning, undefined);
+  assert.match(v.entry.file, /^context\/proj\/ada\//);
+  assert.match(ledger.files.get(v.entry.file), /facts: \[/);
+  const produced = v.links.filter((l) => l.role === "produced");
+  assert.equal(produced.length, 2);
+  assert.deepEqual(
+    produced.map((l) => l.factId).sort(),
+    (await c.idx.idsBySource("team-a", v.entry.id)).sort(),
+  );
+  assert.ok(produced.every((l) => l.body && !l.supersededBy));
+  assert.ok((await c.idx.getDoc("team-a", "old1#aa")).supersededBy);
+  assert.equal(v.runs[0].outcome, "shipped");
+  assert.equal(v.runs[0].commitSha, "abc123");
+  assert.equal(calls.filter((p) => p === "extract").length, 0);
+});
+
+test("ship can link existing facts; shipping with none warns but succeeds", async () => {
+  const { c } = planCtx();
+  await c.idx.upsertDocs([
+    oldFact("e5#bb", "Use D1 for plans because it is free"),
+  ]);
+  await createPlan(c, "proj", { title: "A", body: "a" });
+  await toBuilding(c);
+  const a = await transitionPlan(c, "proj", "#1", {
+    to: "shipped",
+    producedFactIds: ["e5#bb", "nope#1"],
+  });
+  assert.deepEqual(
+    a.links.map((l) => [l.factId, l.role]),
+    [["e5#bb", "produced"]],
+  );
+  assert.match(a.warning, /not linked.*nope#1/i);
+
+  await createPlan(c, "proj", { title: "B", body: "b" });
+  await toBuilding(c, "#2");
+  const b = await transitionPlan(c, "proj", "#2", { to: "shipped" });
+  assert.equal(b.meta.state, "shipped");
+  assert.match(b.warning, /no decisions recorded/);
+});
+
+test("illegal transitions write nothing — not even the decisions entry", async () => {
+  const { c, ledger } = planCtx();
+  await createPlan(c, "proj", { title: "T", body: "b" });
+  const before = ledger.files.size;
+  await assert.rejects(
+    transitionPlan(c, "proj", "#1", {
+      to: "shipped",
+      decisions: [{ body: "x because y" }],
+    }),
+    /illegal transition draft → shipped/,
+  );
+  await assert.rejects(
+    transitionPlan(c, "proj", "#1", { to: "bogus" }),
+    /to must be one of/,
+  );
+  await assert.rejects(
+    transitionPlan(c, "proj", "#1", {
+      to: "active",
+      decisions: [{ body: "x" }],
+    }),
+    /only when shipping/,
+  );
+  assert.equal(ledger.files.size, before);
+  assert.equal((await readPlan(c, "proj", "#1")).meta.state, "draft");
+});
+
+test("supersede: #2 replaces #1; audit row logged; #1's produced facts stay live", async () => {
+  const { c } = planCtx();
+  await createPlan(c, "proj", { title: "Old plan", body: "old" });
+  await toBuilding(c);
+  const shipped = await transitionPlan(c, "proj", "#1", {
+    to: "shipped",
+    decisions: [
+      {
+        kind: "decision",
+        body: "Keep the gateway on the free tier because cost",
+      },
+    ],
+  });
+  const n2 = await createPlan(c, "proj", { title: "New plan", body: "new" });
+
+  await assert.rejects(
+    transitionPlan(c, "proj", "#1", { to: "superseded" }),
+    /superseded_by/,
+  );
+  await assert.rejects(
+    transitionPlan(c, "proj", "#1", { to: "superseded", supersededBy: "#9" }),
+    /not found/,
+  );
+  await assert.rejects(
+    transitionPlan(c, "proj", "#1", { to: "superseded", supersededBy: "#1" }),
+    /itself/,
+  );
+
+  const v = await transitionPlan(c, "proj", "#1", {
+    to: "superseded",
+    supersededBy: "#2",
+  });
+  assert.equal(v.meta.state, "superseded");
+  assert.equal(v.meta.supersededBy, n2.meta.id);
+  const log = c.idx.supersessionLogged.at(-1);
+  assert.equal(log.oldFactId, `plan:${shipped.meta.id}`);
+  assert.equal(log.newFactId, `plan:${n2.meta.id}`);
+  assert.equal(log.reason, "plan-supersedes");
+  const produced = shipped.links.find((l) => l.role === "produced").factId;
+  assert.equal((await c.idx.getDoc("team-a", produced)).supersededBy, null);
+
+  await createPlan(c, "proj", { title: "Newer", body: "n" });
+  await transitionPlan(c, "proj", "#2", {
+    to: "superseded",
+    supersededBy: "#3",
+  });
+  await assert.rejects(
+    transitionPlan(c, "proj", "#3", { to: "superseded", supersededBy: "#2" }),
+    /is itself superseded/,
+  );
+});
+
+test("rebuild after the full lifecycle reproduces D1 exactly", async () => {
+  const { c } = planCtx();
+  await createPlan(c, "proj", { title: "A", body: "a" });
+  await toBuilding(c);
+  await transitionPlan(c, "proj", "#1", {
+    to: "shipped",
+    commitSha: "c0ffee",
+    decisions: [
+      {
+        kind: "decision",
+        body: "Replay is deterministic because paths sort by rev",
+      },
+    ],
+  });
+  await createPlan(c, "proj", { title: "B", body: "b" });
+  await transitionPlan(c, "proj", "#2", { to: "active" });
+  await transitionPlan(c, "proj", "#2", { to: "building" });
+  await createPlan(c, "proj", { title: "C", body: "c" });
+  await transitionPlan(c, "proj", "#2", {
+    to: "superseded",
+    supersededBy: "#3",
+  });
+  const before = snapshot(c.db);
+  wipe(c.db);
+  await rebuildPlans(c.env, c.db, c.idx, c.embed, MEMBER, c.fetchImpl);
+  assert.deepEqual(snapshot(c.db), before);
+  const runs = before.plan_run;
+  assert.deepEqual(runs.map((r) => r.outcome).sort(), [
+    "shipped",
+    "superseded",
+  ]);
 });

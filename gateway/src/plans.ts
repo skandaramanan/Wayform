@@ -11,11 +11,15 @@ import type { SpaceRepo } from "./ingest.js";
 import type { D1Like, IndexDb } from "./index-db.js";
 import type { Embedder } from "./retrieval.js";
 import { installationToken } from "./github-auth.js";
+import { clientFacts, type GenText } from "./extract.js";
+import { ingestEntries } from "./ingest.js";
+import type { ParsedEntry } from "../../src/frontmatter.js";
 import {
   listLedgerDir,
   listLedgerTree,
   putLedgerFile,
   readLedgerFile,
+  writeEntry,
 } from "./github-store.js";
 import {
   eventPath,
@@ -56,6 +60,8 @@ export interface PlanCtx {
   db: D1Like;
   idx: IndexDb | null;
   embed: Embedder | null;
+  /** Only the ship path's supersession judging uses it; null skips judging. */
+  gen?: GenText | null;
   fetchImpl: typeof fetch;
 }
 
@@ -254,6 +260,177 @@ export async function editPlan(
     ...(body !== undefined ? { body } : {}),
   });
   return readPlan(c, project, prev.id);
+}
+
+const TARGETS = ["active", "building", "shipped", "superseded"] as const;
+type Target = (typeof TARGETS)[number];
+
+function short(raw: unknown, max: number): string | undefined {
+  return typeof raw === "string" && raw.trim()
+    ? raw.trim().slice(0, max)
+    : undefined;
+}
+
+/**
+ * Move a plan along its lifecycle. Shipping SPLITS the plan: the decisions it
+ * produced are written as a normal writer-split ledger entry (zero LLM
+ * extraction), ingested inline so their fact ids exist, and linked as
+ * `produced`; the checklist leaves search (see syncPlanDoc). Superseding
+ * points the plan at its successor and logs the edge in supersession_log; the
+ * old plan's produced facts are NOT touched — a replaced plan does not make
+ * its decisions stale; `supersedes` on the successor's ship does that.
+ */
+export async function transitionPlan(
+  c: PlanCtx,
+  project: string,
+  ref: string,
+  a: {
+    to: unknown;
+    agent?: unknown;
+    commitSha?: unknown;
+    decisions?: unknown;
+    producedFactIds?: unknown;
+    supersedes?: unknown;
+    supersededBy?: unknown;
+  },
+): Promise<
+  PlanView & { entry?: ParsedEntry & { digest: string }; warning?: string }
+> {
+  const to = a.to as Target;
+  if (!TARGETS.includes(to))
+    throw new PlanError(`to must be one of: ${TARGETS.join(", ")}`);
+  const shipping = to === "shipped";
+  if (
+    !shipping &&
+    (a.decisions !== undefined ||
+      a.producedFactIds !== undefined ||
+      a.supersedes !== undefined)
+  )
+    throw new PlanError(
+      "decisions, produced_fact_ids and supersedes apply only when shipping",
+    );
+  const prev = await mustGet(c, project, ref);
+  const space = c.member.space;
+
+  if (to === "superseded") {
+    const byRef = short(a.supersededBy, 40);
+    if (!byRef)
+      throw new PlanError(
+        "superseding needs superseded_by: the replacing plan",
+      );
+    const by = await mustGet(c, project, byRef);
+    if (by.id === prev.id)
+      throw new PlanError("a plan cannot supersede itself");
+    if (by.state === "superseded")
+      throw new PlanError(
+        `plan #${by.seq} is itself superseded — point at its successor`,
+      );
+    await mutate(c, project, prev, {
+      ...eventBase(c, prev.id, prev.rev + 1),
+      op: "supersede",
+      by: by.id,
+    });
+    if (c.idx) {
+      await c.idx
+        .logSupersession({
+          space,
+          project: prev.project,
+          newFactId: `plan:${by.id}`,
+          oldFactId: `plan:${prev.id}`,
+          verdict: "replaces",
+          autoLinked: true,
+          reason: "plan-supersedes",
+          ts: new Date().toISOString(),
+        })
+        .catch(() => {});
+    }
+    return readPlan(c, project, prev.id);
+  }
+
+  const ev: PlanEvent = {
+    ...eventBase(c, prev.id, prev.rev + 1),
+    op: "transition",
+    to,
+    ...(to === "building" ? { agent: short(a.agent, 100) ?? "unknown" } : {}),
+    ...(shipping && short(a.commitSha, 64)
+      ? { commitSha: short(a.commitSha, 64) }
+      : {}),
+  };
+  // Dry run: an illegal transition fails before the decisions entry is
+  // written, so a rejected ship leaves nothing behind anywhere.
+  step(prev, ev);
+  if (!shipping) {
+    await mutate(c, project, prev, ev);
+    return readPlan(c, project, prev.id);
+  }
+
+  const facts =
+    a.decisions === undefined || a.decisions === null
+      ? null
+      : clientFacts(a.decisions, { type: "decision" });
+  if (a.decisions != null && !facts)
+    throw new PlanError(
+      "decisions must be a list of { body, kind?, entities? } facts",
+    );
+  const supersedes = cleanIds(a.supersedes, "supersedes");
+  const known: string[] = [];
+  const unknown: string[] = [];
+  for (const id of cleanIds(a.producedFactIds, "produced_fact_ids")) {
+    const d = c.idx ? await c.idx.getDoc(space, id) : null;
+    (d ? known : unknown).push(id);
+  }
+
+  let entry: (ParsedEntry & { digest: string }) | undefined;
+  const produced = [...known];
+  if (facts) {
+    entry = await writeEntry(
+      c.env,
+      c.member,
+      project,
+      {
+        type: "decision",
+        payload:
+          `Decisions produced by plan #${prev.seq}: ${prev.title}\n\n` +
+          facts.map((f) => `- ${f.body}`).join("\n"),
+        facts,
+      },
+      c.fetchImpl,
+    );
+    if (c.idx) {
+      await ingestEntries(
+        c.idx,
+        c.embed,
+        c.gen ?? null,
+        space,
+        project,
+        [entry],
+        { authorSupersedes: supersedes },
+      );
+      produced.unshift(
+        ...(await c.idx.docsBySource(space, entry.id)).map((d) => d.id),
+      );
+    }
+  }
+  await mutate(c, project, prev, {
+    ...ev,
+    ...(produced.length ? { produced } : {}),
+    ...(entry ? { entry: entry.id } : {}),
+  });
+  const warnings = [
+    ...(produced.length === 0
+      ? [
+          "Shipped with no decisions recorded — pass `decisions` so what this plan settled reaches the team's memory.",
+        ]
+      : []),
+    ...(unknown.length
+      ? [`Not linked (no such fact): ${unknown.join(", ")}.`]
+      : []),
+  ];
+  return {
+    ...(await readPlan(c, project, prev.id)),
+    ...(entry ? { entry } : {}),
+    ...(warnings.length ? { warning: warnings.join(" ") } : {}),
+  };
 }
 
 /** Replace one plan's D1 rows with the replay of its ledger events. */
