@@ -258,6 +258,8 @@ export function decodeEmbeddingF32(b: ArrayBuffer | null): Float32Array {
  *  EMBED_SCAN_CAP lose semantic candidacy (BM25/entity paths still see them).
  *  Move to Vectorize (free tier) when a space approaches this cap. */
 export const EMBED_SCAN_CAP = 2000;
+/** Rows per listDocs query; bounds the transient D1 result size. */
+const LIST_DOCS_PAGE = 200;
 /** Safety valve on the token-candidate prefilter: bounds hydration and BM25
  *  tokenization; ORDER BY recency so truncation keeps the newest matches.
  *  Was 200 to fit the Free plan's 10ms CPU cap, which silently dropped older
@@ -302,14 +304,24 @@ export function d1IndexDb(db: D1Like): IndexDb {
     space: string,
     project?: string,
   ): Promise<IndexedDoc[]> => {
+    // Paged by id: one unpaged SELECT * over ~1700 docs carried every
+    // embedding blob through D1's JSON result at once and pushed the cron
+    // past the 128MB Worker limit (exceededMemory, 2026-09-18).
     const sql =
       `SELECT ${cols} FROM docs WHERE space = ? AND superseded_by IS NULL` +
-      (project !== undefined ? " AND project = ?" : "");
-    const stmt =
-      project !== undefined
-        ? db.prepare(sql).bind(space, project)
-        : db.prepare(sql).bind(space);
-    const { results } = await stmt.all();
+      (project !== undefined ? " AND project = ?" : "") +
+      ` AND id > ? ORDER BY id LIMIT ${LIST_DOCS_PAGE}`;
+    const results: Record<string, unknown>[] = [];
+    for (let after = ""; ; ) {
+      const binds = project !== undefined ? [space, project] : [space];
+      const { results: page } = await db
+        .prepare(sql)
+        .bind(...binds, after)
+        .all();
+      results.push(...page);
+      if (page.length < LIST_DOCS_PAGE) break;
+      after = page[page.length - 1].id as string;
+    }
     const { results: tagRows } = await db
       .prepare("SELECT fact_id, entity FROM fact_entities WHERE space = ?")
       .bind(space)
