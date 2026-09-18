@@ -51,6 +51,42 @@ const VALID_KINDS = new Set<string>(FACT_KINDS);
 export const MAX_CLIENT_FACTS = 12;
 export const MAX_CLIENT_FACT_CHARS = 1000;
 
+function escapeRe(s: string): string {
+  return s.replace(
+    /[.*+?^${}()|[\]\\]/g,
+    "\\export const MAX_CLIENT_FACT_CHARS = 1000;",
+  );
+}
+
+/**
+ * Specifics the model may not invent: numbers, dates, versions and
+ * identifier-shaped tokens (code spans, snake_case). Each must appear in the
+ * source as a whole token. A 2026-09-18 spot check found invented
+ * "2022-12-15", "Node.js 14.17.0", "24 hours" and a "query field" no source
+ * mentions — the facts that read as most authoritative. Free and
+ * deterministic; prose paraphrase is deliberately not checked.
+ */
+export function isGrounded(fact: string, source: string): boolean {
+  const src = source.toLowerCase();
+  const tokens = new Set<string>();
+  for (const m of fact.matchAll(/`([^`]{2,60})`/g)) tokens.add(m[1]);
+  for (const m of fact.matchAll(/[A-Za-z0-9_.#:-]*\d[A-Za-z0-9_.#:-]*/g)) {
+    tokens.add(m[0].replace(/^[.:#-]+|[.:,-]+$/g, ""));
+  }
+  for (const m of fact.matchAll(
+    /\b[A-Za-z][A-Za-z0-9]*(?:_[A-Za-z0-9]+)+\b/g,
+  )) {
+    tokens.add(m[0]);
+  }
+  for (const raw of tokens) {
+    const t = raw.toLowerCase();
+    if (!t) continue;
+    const whole = new RegExp(`(^|[^a-z0-9])${escapeRe(t)}([^a-z0-9]|$)`);
+    if (!whole.test(src)) return false;
+  }
+  return true;
+}
+
 export function buildExtractionPrompt(entry: ParsedEntry): string {
   return [
     "You extract atomic planning facts from a single shared-memory entry.",
@@ -392,7 +428,22 @@ async function extractOne(
   }
   try {
     const coerced = coerce(parseModelJson(out), entry);
-    if (coerced) return { facts: coerced, floored: false };
+    if (coerced) {
+      const grounded = coerced.filter((f) => isGrounded(f.body, entry.payload));
+      if (grounded.length < coerced.length) {
+        console.warn(
+          JSON.stringify({
+            evt: "extract_ungrounded",
+            file: entry.file,
+            dropped: coerced.length - grounded.length,
+          }),
+        );
+      }
+      if (grounded.length > 0) return { facts: grounded, floored: false };
+      // The model answered but invented every specific. At temperature 0 a
+      // retry repeats it, so keep the entry as one fact and stop retrying.
+      return { facts: floor(entry), floored: false };
+    }
     console.warn(
       `[extract] no valid facts parsed for ${entry.file}; raw head: ${String(
         out,
