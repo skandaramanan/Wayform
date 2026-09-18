@@ -340,6 +340,11 @@ export async function ingestEntriesDetailed(
     await db.replaceBySource(space, sourceId, docs, {
       repointTo: docs[0]?.id,
     });
+    // Recorded as soon as the facts are written: judging below is paid,
+    // best-effort, and can outlive a waitUntil. When the status came after it,
+    // a Worker cut off mid-judge left fully indexed entries `pending` forever
+    // (2026-09-18) — health went red and the cron would re-extract them.
+    await putState(db, state(floored ? "floored" : "ok"));
     if (live) {
       live = live
         .filter((d) => d.sourceId !== sourceId)
@@ -364,7 +369,6 @@ export async function ingestEntriesDetailed(
         // fail-open: an unjudged fact is still indexed and searchable
       }
     }
-    await putState(db, state(floored ? "floored" : "ok"));
     out.count += docs.length;
     if (floored) out.floored += 1;
   }

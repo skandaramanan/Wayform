@@ -587,3 +587,33 @@ test("write_context with facts indexes them without extraction and persists them
     "facts are persisted for every re-index",
   );
 });
+
+test("an entry is recorded ok once its facts are written, even if judging never finishes", async () => {
+  // Production 2026-09-18: two webhook entries were fully indexed but stuck
+  // `pending` for an hour — the Worker was cut off mid-judge, and the status
+  // was only written after judging. Health went red, and the cron would have
+  // re-extracted them.
+  const db = new MemoryIndexDb();
+  const [vec] = await fakeEmbed(["Never deploy the gateway on Fridays"]);
+  await db.upsertDocs([
+    doc("old#1", path("old"), "Deploy the gateway on Fridays", {
+      embedding: vec,
+    }),
+  ]);
+  const hang = new Promise(() => {});
+  let judging = 0;
+  const gen = async (_prompt, opts) => {
+    if (opts?.purpose !== "judge")
+      return oneFact("Never deploy the gateway on Fridays");
+    judging += 1;
+    return hang;
+  };
+  void ingestEntriesDetailed(db, fakeEmbed, gen, "s1", "memorylayer", [
+    entry("e9", "Never deploy the gateway on Fridays."),
+  ]);
+  await new Promise((r) => setTimeout(r, 50));
+  const st = (await db.getIngestStates("s1", [path("e9")])).get(path("e9"));
+  assert.ok(judging > 0, "the test must reach the judge");
+  assert.equal(st?.status, "ok");
+  assert.equal((await db.idsBySource("s1", "e9")).length, 1);
+});
