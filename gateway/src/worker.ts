@@ -1,5 +1,6 @@
 import { createGatewayOAuthProvider } from "./oauth.js";
 import { reconcileAll } from "./reindex.js";
+import { CRON_LAST_RUN_KEY } from "./health.js";
 import type { Env } from "./env.js";
 import { enforceRateLimit } from "./rate-limit.js";
 
@@ -20,7 +21,14 @@ export default {
   },
   /** Cron reconciler: catches dropped webhooks by sha drift (§2.1). */
   scheduled(_event: unknown, env: Env, ctx: Ctx): void {
-    ctx.waitUntil(reconcileAll(env));
+    // Stamped only when the whole pass returns: a tick killed mid-way (as
+    // every one was by exceededMemory on 2026-09-18) leaves it stale, which
+    // /health?deep=1 reports.
+    ctx.waitUntil(
+      reconcileAll(env).then(() =>
+        env.ROUTING.put(CRON_LAST_RUN_KEY, new Date().toISOString()),
+      ),
+    );
     ctx.waitUntil(oauth.purgeExpiredData(env));
   },
 };

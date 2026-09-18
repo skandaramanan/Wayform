@@ -1,0 +1,19 @@
+# Daily production invariants (gateway/src/health.ts). A failed scheduled run
+# emails the repo owner — that is the alert.
+name: prod-health
+
+on:
+  schedule:
+    - cron: "17 21 * * *" # daily, ~07:17 Sydney
+  workflow_dispatch:
+
+jobs:
+  deep-health:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: |
+          curl -sS --retry 2 --retry-all-errors -o body.json -w '%{http_code}' \
+            https://memorylayer-gateway.memory-layer.workers.dev/health?deep=1 > code
+          cat body.json; echo
+          test "$(cat code)" = 200
