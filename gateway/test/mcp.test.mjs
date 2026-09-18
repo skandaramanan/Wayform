@@ -99,6 +99,7 @@ test("initialize and tools/list expose the stdio-identical contract", async () =
     "revoke_member",
     "revoke_session",
     "search_memory",
+    "supersede_facts",
     "write_context",
   ]);
 });

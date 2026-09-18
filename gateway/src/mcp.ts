@@ -229,6 +229,31 @@ const TOOLS = [
     },
   },
   {
+    name: "supersede_facts",
+    title: "Confirm which existing facts an entry replaced",
+    description:
+      "Use this right after write_context when its result lists existing " +
+      "facts your entry may replace or contradict: pass ONLY the ones your " +
+      "entry really makes obsolete (changed, reversed, completed, answered). " +
+      "They leave briefings and search. Do not pass facts that are merely " +
+      "related or restated.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        fact_ids: {
+          type: "array",
+          items: { type: "string" },
+          description: "Fact ids from the write_context result (or search).",
+        },
+        replaced_by_entry: {
+          type: "string",
+          description: 'The entry id write_context reported (e.g. "0c72c6e5").',
+        },
+      },
+      required: ["fact_ids", "replaced_by_entry"],
+    },
+  },
+  {
     name: "invite_member",
     title: "Invite a GitHub user to this space",
     description:
@@ -681,6 +706,83 @@ async function toolsCall(
             ),
           );
         }
+      }
+      case "supersede_facts": {
+        const factIds = Array.isArray(args.fact_ids)
+          ? args.fact_ids
+              .filter((x): x is string => typeof x === "string")
+              .map((x) => x.trim())
+              .filter(Boolean)
+              .slice(0, 20)
+          : [];
+        const byEntry =
+          typeof args.replaced_by_entry === "string"
+            ? args.replaced_by_entry.trim()
+            : "";
+        if (factIds.length === 0 || !byEntry)
+          return finish(
+            rpcResult(
+              msg.id,
+              toolText(
+                "missing required arguments: fact_ids and replaced_by_entry",
+                true,
+              ),
+            ),
+          );
+        const deps = indexDeps(env);
+        if (!deps)
+          return finish(
+            rpcResult(
+              msg.id,
+              toolText("supersession is not enabled on this gateway", true),
+            ),
+          );
+        // The new entry is indexed a few seconds after write_context returns.
+        // If it is not there yet, point at the entry itself: the cron's
+        // dangling-pointer repair re-points it to the entry's fact.
+        const live = (await deps.db.docsBySource(member.space, byEntry)).filter(
+          (d) => !d.supersededBy,
+        );
+        const target = live[0]?.id ?? `${byEntry}#entry`;
+        const done: string[] = [];
+        const skipped: string[] = [];
+        const projects = new Set<string>();
+        for (const id of factIds) {
+          const old = await deps.db.getDoc(member.space, id);
+          if (!old || old.sourceId === byEntry) {
+            skipped.push(id);
+            continue;
+          }
+          await deps.db.markSuperseded(member.space, id, target);
+          await deps.db.logSupersession({
+            space: member.space,
+            project: old.project,
+            newFactId: target,
+            oldFactId: id,
+            verdict: "replaces",
+            autoLinked: true,
+            reason: "author-supersedes",
+            ts: new Date().toISOString(),
+          });
+          done.push(id);
+          projects.add(old.project);
+        }
+        for (const p of projects) {
+          await env.ROUTING.delete(hookCacheKey(member.space, p)).catch(
+            () => {},
+          );
+        }
+        return finish(
+          rpcResult(
+            msg.id,
+            toolText(
+              `Marked ${done.length} fact(s) as replaced by entry ${byEntry}.` +
+                (skipped.length
+                  ? ` Skipped ${skipped.join(", ")} (not found, or part of that entry).`
+                  : ""),
+            ),
+          ),
+        );
       }
       case "list_sessions": {
         const out = await listSessions(env, member, req);
