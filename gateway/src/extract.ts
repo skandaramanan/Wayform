@@ -52,10 +52,7 @@ export const MAX_CLIENT_FACTS = 12;
 export const MAX_CLIENT_FACT_CHARS = 1000;
 
 function escapeRe(s: string): string {
-  return s.replace(
-    /[.*+?^${}()|[\]\\]/g,
-    "\\export const MAX_CLIENT_FACT_CHARS = 1000;",
-  );
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
 }
 
 /**

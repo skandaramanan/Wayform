@@ -35,6 +35,22 @@ test("isGrounded rejects invented dates, versions, numbers and identifiers", () 
   assert.equal(isGrounded("RL_API is 240/min", src), false);
 });
 
+test("isGrounded accepts grounded dotted versions, decimals and model ids", () => {
+  // Regression: escapeRe was mangled so every token with a regex special
+  // character (".", "+", "$") failed — real facts like "wayform@0.1.8" and
+  // "llama-3.3-70b-instruct-fp8-fast" were dropped as if invented.
+  const src =
+    "EXTRACT_MODEL stays llama-3.3-70b-instruct-fp8-fast. Published wayform@0.1.8; trigger rate 63.9% (23/36). Cost is $0.011/1k.";
+  assert.equal(
+    isGrounded("EXTRACT_MODEL stays llama-3.3-70b-instruct-fp8-fast", src),
+    true,
+  );
+  assert.equal(isGrounded("wayform 0.1.8 was published", src), true);
+  assert.equal(isGrounded("should-trigger rate 63.9% (23/36)", src), true);
+  assert.equal(isGrounded("costs $0.011 per 1k", src), true);
+  assert.equal(isGrounded("wayform 0.1.9 was published", src), false);
+});
+
 test("model facts with invented specifics are dropped, grounded ones kept", async () => {
   const source = long("We shipped PR #45 on 2026-08-31.");
   const gen = async () =>
