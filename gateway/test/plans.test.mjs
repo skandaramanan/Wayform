@@ -482,8 +482,8 @@ test("rebuild after the full lifecycle reproduces D1 exactly", async () => {
   await rebuildPlans(c.env, c.db, c.idx, c.embed, MEMBER, c.fetchImpl);
   assert.deepEqual(snapshot(c.db), before);
   const runs = before.plan_run;
-  assert.deepEqual(
-    runs.map((r) => r.outcome).sort(),
-    ["shipped", "superseded"],
-  );
+  assert.deepEqual(runs.map((r) => r.outcome).sort(), [
+    "shipped",
+    "superseded",
+  ]);
 });
