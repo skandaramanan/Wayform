@@ -199,6 +199,79 @@ async function logJudgment(
   }
 }
 
+/** Longest slice of the NEW entry the evidence judge reads. */
+export const ENTRY_JUDGE_CHARS = 2400;
+
+/**
+ * Link automatically on the evidence judge's verdict. Off until
+ * gateway/eval/supersession-eval.mjs measures >= 95% precision on the
+ * hand-labeled production pairs: the fragment judge it replaces was right on
+ * 13 of the 50 links it made (26%), and a false link hides a true fact.
+ */
+export const EVIDENCE_AUTO_SUPERSEDE = false;
+
+/**
+ * Whole-entry judge that must PROVE a replacement. It reads the entire new
+ * entry (not a fragment) and must quote the sentence that makes the old fact
+ * obsolete; parseReplacement rejects any quote not found verbatim in the
+ * entry, the same grounding idea as extraction's isGrounded.
+ */
+export function buildReplacementPrompt(
+  newEntry: { text: string; date: string },
+  old: { body: string; date: string },
+): string {
+  return [
+    "You decide whether a NEW memory entry makes an OLD fact obsolete.",
+    "OLD is obsolete ONLY if NEW explicitly changes it, reverses it, completes",
+    "it (e.g. approved -> implemented, PR opened -> merged, planned -> shipped)",
+    "or answers it. Restating OLD, agreeing with it, adding detail, or merely",
+    "being about the same topic does NOT make it obsolete.",
+    'Answer ONLY JSON: {"obsolete": true|false, "evidence": "<sentence copied',
+    'word for word from NEW that shows it, or empty>"}',
+    "If you cannot copy such a sentence from NEW, answer false.",
+    "",
+    `OLD fact (${old.date.slice(0, 10)}): ${old.body}`,
+    `NEW entry (${newEntry.date.slice(0, 10)}):`,
+    newEntry.text.slice(0, ENTRY_JUDGE_CHARS),
+  ].join("\n");
+}
+
+const norm = (s: string) => s.toLowerCase().replace(/\s+/g, " ").trim();
+
+export function parseReplacement(
+  output: string,
+  newEntryText: string,
+): { replaces: boolean; evidence: string } {
+  const none = { replaces: false, evidence: "" };
+  try {
+    const start = output.indexOf("{");
+    const end = output.lastIndexOf("}");
+    if (start < 0 || end <= start) return none;
+    const v = JSON.parse(output.slice(start, end + 1)) as {
+      obsolete?: unknown;
+      evidence?: unknown;
+    };
+    const evidence = typeof v.evidence === "string" ? v.evidence : "";
+    const quote = norm(evidence.replace(/^["'`]+|["'`.]+$/g, ""));
+    if (v.obsolete !== true || quote.length < 15) return none;
+    if (!norm(newEntryText).includes(quote)) return none;
+    return { replaces: true, evidence };
+  } catch {
+    return none;
+  }
+}
+
+export async function judgeReplacement(
+  gen: GenText,
+  newEntry: { text: string; date: string },
+  old: { body: string; date: string },
+): Promise<{ replaces: boolean; evidence: string }> {
+  const out = await gen(buildReplacementPrompt(newEntry, old), {
+    purpose: "judge",
+  });
+  return parseReplacement(out, newEntry.text);
+}
+
 export async function applySupersession(
   db: IndexDb,
   gen: GenText | null,
@@ -213,6 +286,10 @@ export async function applySupersession(
     skipOldIds?: Set<string>;
     /** The project's live facts, when the caller already holds them. */
     live?: IndexedDoc[];
+    /** The whole new entry, for the evidence judge. */
+    entry?: { text: string; date: string };
+    /** Test seam; production behavior comes from EVIDENCE_AUTO_SUPERSEDE. */
+    evidenceJudge?: boolean;
   } = {},
 ): Promise<void> {
   if (newFacts.length === 0) return;
@@ -263,6 +340,45 @@ export async function applySupersession(
     judged.add(p.old.id);
     chosen.push(p);
     if (chosen.length >= ASYNC_JUDGE_LIMIT) break;
+  }
+
+  const useEvidence =
+    (opts.evidenceJudge ?? EVIDENCE_AUTO_SUPERSEDE) && opts.entry !== undefined;
+  if (useEvidence) {
+    const entry = opts.entry!;
+    const proofs = await Promise.all(
+      chosen.map((p) =>
+        judgeReplacement(gen, entry, {
+          body: p.old.body,
+          date: p.old.sourceTs,
+        }).catch(() => null),
+      ),
+    );
+    for (let i = 0; i < chosen.length; i++) {
+      const proof = proofs[i];
+      if (!proof) continue;
+      const { newFact, old } = chosen[i];
+      // Never let an older entry retire a newer fact.
+      const linked =
+        proof.replaces && !old.supersededBy && entry.date >= old.sourceTs;
+      await logJudgment(db, {
+        space,
+        project,
+        newFactId: newFact.id,
+        oldFactId: old.id,
+        verdict: linked ? "replaces" : "relates",
+        autoLinked: linked,
+        reason: linked
+          ? `evidence: ${proof.evidence.slice(0, 300)}`
+          : "no evidence",
+        ts: ts(),
+      });
+      if (linked) {
+        await db.markSuperseded(space, old.id, newFact.id);
+        old.supersededBy = newFact.id;
+      }
+    }
+    return;
   }
 
   // Independent calls, so they run in parallel; a call that throws (e.g. an
@@ -427,7 +543,11 @@ export async function detectWriteConflicts(
       ts,
     });
     if (result.verdict === "relates") related.push(old.id);
-    if (result.verdict === "contradicts" || result.verdict === "uncertain") {
+    if (
+      result.verdict === "replaces" ||
+      result.verdict === "contradicts" ||
+      result.verdict === "uncertain"
+    ) {
       hits.push({
         factId: old.id,
         body: old.body,
@@ -473,7 +593,13 @@ export function formatDuplicateResult(
 }
 
 export function formatWriteResult(
-  entry: { type: string; author: string; timestamp: string; file: string },
+  entry: {
+    type: string;
+    author: string;
+    timestamp: string;
+    file: string;
+    id?: string;
+  },
   project: string,
   conflicts: ConflictHit[],
   authorSupersedes: string[],
@@ -484,11 +610,19 @@ export function formatWriteResult(
   }
   if (conflicts.length > 0) {
     text +=
-      "\n\n⚠ Possible conflicts with existing memory (not auto-resolved):";
+      "\n\n⚠ Existing facts this entry may replace or contradict (not auto-resolved):";
     for (const c of conflicts) {
       const snippet =
         c.body.length > 120 ? `${c.body.slice(0, 117)}...` : c.body;
       text += `\n- [${c.factId}] "${snippet}" — ${c.verdict}: ${c.reason}`;
+    }
+    // The writing agent has the context the judge lacks, so IT confirms.
+    // Unconfirmed, nothing is hidden (judge verdicts are only suggestions).
+    if (entry.id) {
+      text +=
+        `\n\nIf this entry makes any of these obsolete, call supersede_facts ` +
+        `with fact_ids = only the ones it really replaces and ` +
+        `replaced_by_entry = "${entry.id}". Skip it if none are replaced.`;
     }
   }
   return text;

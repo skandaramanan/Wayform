@@ -355,6 +355,7 @@ export async function ingestEntriesDetailed(
         live ??= await db.listDocs(space, slug(project));
         await applySupersession(db, gen, space, slug(project), docs, {
           authorSupersedes: opts.authorSupersedes,
+          entry: { text: entry.payload, date: entry.timestamp },
           judgeIds: new Set(fresh.map((d) => d.id)),
           skipOldIds: new Set(opts.skipJudgeOld ?? []),
           live,

@@ -1,0 +1,402 @@
+[
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-02T06-28-31-788Z-c83d7b82.md",
+    "newDate": "2026-07-02T06:28:31.788Z",
+    "oldDate": "2026-07-02T06:23:06.737Z",
+    "newFact": "scope creep is the documented #1 failure mode",
+    "oldFact": "the recorded guardrail: scope creep is the primary failure mode",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-02T08-03-38-900Z-ee19e828.md",
+    "newDate": "2026-07-02T08:03:38.900Z",
+    "oldDate": "2026-07-02T06:53:54.153Z",
+    "newFact": "full read+write hook parity across Claude Code + Codex + Cursor is achievable with neutrality still spent ONLY in src/hook-clients.ts + per-vendor config files (Codex = one enum value + ~3 envelope cases + one .codex/hooks.json)",
+    "oldFact": "Claude Code + Cursor get all three paths",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-02T10-21-47-186Z-2fa2c14b.md",
+    "newDate": "2026-07-02T10:21:47.186Z",
+    "oldDate": "2026-07-02T08:08:42.861Z",
+    "newFact": "Vendor hook configs are committed and symmetric across .cursor/hooks.json, .codex/hooks.json, and .claude/settings.json",
+    "oldFact": "Codex + Cursor hook parity design is approved",
+    "replaces": true
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-02T10-21-47-186Z-2fa2c14b.md",
+    "newDate": "2026-07-02T10:21:47.186Z",
+    "oldDate": "2026-07-02T08:08:42.861Z",
+    "newFact": "docs/superpowers/ specs+plans are kept because they are cited as canonical long-form specs",
+    "oldFact": "Spec committed at docs/superpowers/specs/2026-07-02-codex-cursor-hook-parity-design.md on branch codex-cursor-hook-parity",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-02T12-07-36-939Z-c5a64d91.md",
+    "newDate": "2026-07-02T12:07:36.939Z",
+    "oldDate": "2026-07-02T01:59:51.347Z",
+    "newFact": "deliver MemoryLayer to test collaborators via PRIVATE GitHub repo install (`npx github:skandaramanan/MemoryLayer init`)",
+    "oldFact": "MemoryLayer is a vendor-neutral, multiplayer planning memory",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-02T12-16-42-702Z-77298053.md",
+    "newDate": "2026-07-02T12:16:42.702Z",
+    "oldDate": "2026-07-02T10:21:47.186Z",
+    "newFact": "gitignore the env and settings.local.json",
+    "oldFact": "Personal grants go in .claude/settings.local.json, which is gitignored",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-02T12-16-42-702Z-77298053.md",
+    "newDate": "2026-07-02T12:16:42.702Z",
+    "oldDate": "2026-07-02T08:03:38.900Z",
+    "newFact": "Client scope = the three hook-capable clients only (Claude Code, Cursor, Codex); Desktop excluded",
+    "oldFact": "full read+write hook parity across Claude Code + Codex + Cursor is achievable with neutrality still spent ONLY in src/hook-clients.ts + per-vendor config files (Codex = one enum value + ~3 envelope cases + one .codex/hooks.json)",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-02T12-16-42-702Z-77298053.md",
+    "newDate": "2026-07-02T12:16:42.702Z",
+    "oldDate": "2026-07-02T12:07:36.939Z",
+    "newFact": "Invocation = global install then `memorylayer init`; hooks call the FAST LOCAL `memorylayer` command, NOT `npx github:` per-turn",
+    "oldFact": "deliver MemoryLayer to test collaborators via PRIVATE GitHub repo install (`npx github:skandaramanan/MemoryLayer init`)",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-02T12-24-06-940Z-94237875.md",
+    "newDate": "2026-07-02T12:24:06.940Z",
+    "oldDate": "2026-07-02T12:16:42.702Z",
+    "newFact": "Codex registers MCP servers globally in ~/.codex/config.toml",
+    "oldFact": "Codex MCP registration location",
+    "replaces": true
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-03T00-17-46-418Z-86957ae0.md",
+    "newDate": "2026-07-03T00:17:46.418Z",
+    "oldDate": "2026-07-02T12:16:42.702Z",
+    "newFact": "`memorylayer init` installer IMPLEMENTED and green",
+    "oldFact": "memorylayer init installer design is approved and committed",
+    "replaces": true
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-03T00-17-46-418Z-86957ae0.md",
+    "newDate": "2026-07-03T00:17:46.418Z",
+    "oldDate": "2026-07-02T12:16:42.702Z",
+    "newFact": "`memorylayer init` installer IMPLEMENTED and green",
+    "oldFact": "Invocation = global install then `memorylayer init`; hooks call the FAST LOCAL `memorylayer` command, NOT `npx github:` per-turn",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-03T00-17-46-418Z-86957ae0.md",
+    "newDate": "2026-07-03T00:17:46.418Z",
+    "oldDate": "2026-07-02T10:21:47.186Z",
+    "newFact": "refactor codebase to improve maintainability",
+    "oldFact": "improve clarity and maintainability",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-03T00-48-52-399Z-5fd16a91.md",
+    "newDate": "2026-07-03T00:48:52.399Z",
+    "oldDate": "2026-07-17T15:07:15.499Z",
+    "newFact": "DEFERRED (scope-creep discipline): no `memorylayer metrics` report command (analyze raw jsonl with jq weekly); no sessionId capture (would give a true reads-per-session denominator but MCP reads have no session concept + Cursor stdin shape unverified); no new runtime deps. NEXT: writing-plans → TDD implementation plan (metrics.test.mjs fail-open contract + integration flush test; all 71 existing tests stay green).",
+    "oldFact": "Research informing the invocation-rate benchmark shows real-world MCP tool-calling success rates are lower than synthetic benchmarks suggest",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-04T08-52-04-283Z-f1b02a91.md",
+    "newDate": "2026-07-04T08:52:04.283Z",
+    "oldDate": "2026-07-04T08:30:05.746Z",
+    "newFact": "Clone-isolation fix implemented on branch clone-isolation",
+    "oldFact": "Local clone-isolation bug fix APPROVED",
+    "replaces": true
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-06T07-45-08-553Z-b83c4259.md",
+    "newDate": "2026-07-06T07:45:08.553Z",
+    "oldDate": "2026-07-06T01:42:38.209Z",
+    "newFact": "https://github.com/skandaramanan/MemoryLayer/pull/6",
+    "oldFact": "GitHub App installation 144657125 is used on skandaramanan/MemoryLayer-Memory",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-06T07-51-16-302Z-0645efd9.md",
+    "newDate": "2026-07-06T07:51:16.302Z",
+    "oldDate": "2026-07-06T07:45:08.553Z",
+    "newFact": "supersedes 'merge remains Skanda's manual call'",
+    "oldFact": "Merge remains Skanda's manual call per repo pattern",
+    "replaces": true
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-06T07-51-16-302Z-0645efd9.md",
+    "newDate": "2026-07-06T07:51:16.302Z",
+    "oldDate": "2026-07-06T07:45:08.553Z",
+    "newFact": "PR #6 (hosted-gateway → main) is MERGED",
+    "oldFact": "hosted-gateway branch is now PUSHED and PR'd",
+    "replaces": true
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-06T07-51-16-302Z-0645efd9.md",
+    "newDate": "2026-07-06T07:51:16.302Z",
+    "oldDate": "2026-07-06T01:47:06.837Z",
+    "newFact": "PR #6 (hosted-gateway → main) is MERGED",
+    "oldFact": "The hosted gateway reduces local-CLI install friction for pilot users",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-08T06-04-13-075Z-51461f79.md",
+    "newDate": "2026-07-08T06:04:13.075Z",
+    "oldDate": "2026-07-08T06:00:49.311Z",
+    "newFact": "The fix for the reindex-pagination bug was committed and deployed by Skanda.",
+    "oldFact": "fix awaits Skanda's review before commit",
+    "replaces": true
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-08T07-26-59-021Z-de9ba700.md",
+    "newDate": "2026-07-08T07:26:59.021Z",
+    "oldDate": "2026-07-07T09:07:15.081Z",
+    "newFact": "Extraction model = Workers AI free-tier open model",
+    "oldFact": "Relevance-engine model stack stays $0: Workers AI free-tier open models (Llama 3.3 / Gemma class) do fact extraction AND supersession judging",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-08T11-13-36-617Z-75abc6f1.md",
+    "newDate": "2026-07-08T11:13:36.617Z",
+    "oldDate": "2026-07-08T07:10:14.700Z",
+    "newFact": "Verification of Phase B1 was successful, with 95/95 gateway tests passing and 118/118 root tests passing",
+    "oldFact": "Verification tests have passed: root 118/118, gateway 69/69, root lint+typecheck+format all pass, gateway tsc build passes",
+    "replaces": true
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-08T23-24-15-306Z-70b3753e.md",
+    "newDate": "2026-07-08T23:24:15.306Z",
+    "oldDate": "2026-07-08T11:13:36.617Z",
+    "newFact": "Phase B1 is merged and deployed",
+    "oldFact": "Phase B1 was built inline via executing-plans from docs/superpowers/plans/2026-07-08-phase-b1-facts-briefing.md",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-08T23-32-16-583Z-15c112f0.md",
+    "newDate": "2026-07-08T23:32:16.583Z",
+    "oldDate": "2026-07-08T07:26:59.021Z",
+    "newFact": "Lessons learned: pin Workers AI model ids to current catalog entries, fail-open must log, and prefer larger instruct models for JSON extraction",
+    "oldFact": "Extraction model = Workers AI free-tier open model",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-09T01-21-08-262Z-4543365c.md",
+    "newDate": "2026-07-09T01:21:08.262Z",
+    "oldDate": "2026-07-04T08:52:04.283Z",
+    "newFact": "the `memorylayer` CLI binary will be distributed via PUBLIC npm publish",
+    "oldFact": "The fix for the shared-path bug lives in the global `memorylayer` binary, not per-repo config.",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-09T01-21-33-863Z-b03755ed.md",
+    "newDate": "2026-07-09T01:21:33.863Z",
+    "oldDate": "2026-07-09T01:21:08.262Z",
+    "newFact": "the CLI/npm package is still named \"memorylayer\"",
+    "oldFact": "the `memorylayer` CLI binary will be distributed via PUBLIC npm publish",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-09T01-22-58-061Z-60aa3f19.md",
+    "newDate": "2026-07-09T01:22:58.061Z",
+    "oldDate": "2026-07-09T01:21:33.863Z",
+    "newFact": "rename everything to wayform eventually",
+    "oldFact": "the name change is because the product is no longer just about memory; it is about forming paths/ways to knowledge, hence the name \"Wayform\"",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-09T11-33-53-813Z-15946fda.md",
+    "newDate": "2026-07-09T11:33:53.813Z",
+    "oldDate": "2026-07-09T09:26:08.246Z",
+    "newFact": "repo reset and onboarded via `wayform init --remote`",
+    "oldFact": "unify ALL user-facing copy on 'Wayform'",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-13T02-15-17-862Z-19151d8d.md",
+    "newDate": "2026-07-13T02:15:17.862Z",
+    "oldDate": "2026-07-10T02:16:36.567Z",
+    "newFact": "CONFIRMED reindex data-loss bug (2026-07-13) due to silently persisting only a fraction of a space's entries when using POST /admin/reindex with limit=40",
+    "oldFact": "Paginated reindex succeeds with limit=5",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-13T03-52-39-035Z-aa7c09a6.md",
+    "newDate": "2026-07-13T03:52:39.035Z",
+    "oldDate": "2026-07-11T06:03:57.589Z",
+    "newFact": "PR #23 was squash-merged to main on 2026-07-13 as 4fa6201",
+    "oldFact": "Merged PR #21 and PR #23",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-17T10-34-18-642Z-b81d168f.md",
+    "newDate": "2026-07-17T10:34:18.642Z",
+    "oldDate": "2026-07-17T03:13:34.138Z",
+    "newFact": "CORRECTED invocation review conclusion (2026-07-17): do not optimize raw MCP call count; optimize opportunity-level context use, curated write precision, cross-member handoff, and zero visible follow-ups",
+    "oldFact": "What overlaps: MCP memory for Claude/ChatGPT/Cursor, Cloudflare Workers+D1+Vectorize, MIT, self-host free tier, semantic recall, contradiction/smart-merge, polished \"AI shouldn't start from zero\" messaging.",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-17T10-36-12-720Z-860d21ea.md",
+    "newDate": "2026-07-17T10:36:12.720Z",
+    "oldDate": "2026-07-17T10:23:17.789Z",
+    "newFact": "one-click App install replaces per-repo yml copies + token secrets",
+    "oldFact": "v2 shape: teams install the existing App on their product repos, webhook handler grows a pull_request/merged branch",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-19T20-04-15-202Z-65d3b1f1.md",
+    "newDate": "2026-07-19T20:04:15.202Z",
+    "oldDate": "2026-07-17T10:36:12.720Z",
+    "newFact": "PR merged: feat(gateway): App-based merged-PR recorder via pull_request webhook",
+    "oldFact": "PR #27, branch feat/app-merged-pr-recorder",
+    "replaces": true
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-19T20-04-15-202Z-65d3b1f1.md",
+    "newDate": "2026-07-19T20:04:15.202Z",
+    "oldDate": "2026-07-17T10:36:12.720Z",
+    "newFact": "teams install the existing MemoryLayer GitHub App on their product repos instead of copying record-merged-pr.yml and pasting token secrets",
+    "oldFact": "one-click App install replaces per-repo yml copies + token secrets",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-19T20-04-15-202Z-65d3b1f1.md",
+    "newDate": "2026-07-19T20:04:15.202Z",
+    "oldDate": "2026-07-17T10:23:17.789Z",
+    "newFact": "PR merged: feat(gateway): App-based merged-PR recorder via pull_request webhook",
+    "oldFact": "an App-based merged-PR recorder would be ~1 day of work because the gateway already has every hard part",
+    "replaces": true
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-19T20-59-37-292Z-0d2cc707.md",
+    "newDate": "2026-07-19T20:59:37.292Z",
+    "oldDate": "2026-07-19T20:49:16.729Z",
+    "newFact": "EXTRACT_MAX_TOKENS=1024",
+    "oldFact": "REAL BUG FOUND AND FIXED: production passed only {prompt}, and Workers AI defaults max_tokens to 256",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-20T00-58-28-366Z-b7e0bdb8.md",
+    "newDate": "2026-07-20T00:58:28.366Z",
+    "oldDate": "2026-07-20T00:42:00.604Z",
+    "newFact": "invite-code /join feature is LIVE",
+    "oldFact": "Invite-code /join design APPROVED with 14-day expiry and 25 uses",
+    "replaces": true
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-21T04-25-19-246Z-6be4b668.md",
+    "newDate": "2026-07-21T04:25:19.246Z",
+    "oldDate": "2026-07-21T04:09:55.886Z",
+    "newFact": "Production KV key neuron-budget:2026-07-21 reads 200, indicating the new guard is executing",
+    "oldFact": "Updated docs with neuron budget details",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-21T04-54-12-832Z-4585de87.md",
+    "newDate": "2026-07-21T04:54:12.832Z",
+    "oldDate": "2026-07-21T04:25:19.246Z",
+    "newFact": "branch protection required checks updated to [secret-scan, gateway, test (18), test (20), test (22), test-macos] with enforce_admins still true",
+    "oldFact": "GitHub branch protection does not require green checks on main",
+    "replaces": true
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-21T04-54-12-832Z-4585de87.md",
+    "newDate": "2026-07-21T04:54:12.832Z",
+    "oldDate": "2026-07-19T20:04:15.202Z",
+    "newFact": "MemoryLayer's old matrix burned ~70 weighted minutes per merged PR (PR+main × 3 macOS jobs at 10×)",
+    "oldFact": "teams install the existing MemoryLayer GitHub App on their product repos instead of copying record-merged-pr.yml and pasting token secrets",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skandaramanan/2026-08-30T10-29-35-662Z-945e72fc.md",
+    "newDate": "2026-08-30T10:29:35.662Z",
+    "oldDate": "2026-07-21T04:41:40.194Z",
+    "newFact": "`prepublishOnly: npm run build` regenerates it at publish time, so the npm tarball still ships dist/cli.js (bin.wayform points at it)",
+    "oldFact": "prepublishOnly regenerates dist/ at publish time",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skandaramanan/2026-08-30T10-29-35-662Z-945e72fc.md",
+    "newDate": "2026-08-30T10:29:35.662Z",
+    "oldDate": "2026-07-21T04:21:26.844Z",
+    "newFact": "`prepublishOnly: npm run build` regenerates it at publish time, so the npm tarball still ships dist/cli.js (bin.wayform points at it)",
+    "oldFact": "CLI ships by npm publish",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skandaramanan/2026-08-30T11-21-28-824Z-453d40ff.md",
+    "newDate": "2026-08-30T11:21:28.824Z",
+    "oldDate": "2026-07-17T10:32:55.065Z",
+    "newFact": "Claude Code only, matching the existing prompt-hook precedent",
+    "oldFact": "Its SessionEnd capture is not a pattern to copy as written: it stores transcript chunks indiscriminately and expects messages on hook stdin even though current Claude Code passes transcript_path metadata",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/github/2026-07-21T06-01-14-695Z-d0c76111.md",
+    "newDate": "2026-07-21T06:01:14.695Z",
+    "oldDate": "2026-07-19T20:18:37.875Z",
+    "newFact": "PR merged: chore: bump wayform to 0.1.8 (skandaramanan/MemoryLayer#36)",
+    "oldFact": "Merging this PR is itself the end-to-end test of the App path — it should produce one bot-authored entry in the store",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skandaramanan/2026-08-31T01-47-51-348Z-918fd092.md",
+    "newDate": "2026-08-31T01:47:51.348Z",
+    "oldDate": "2026-08-31T01:45:36.168Z",
+    "newFact": "PR #45 was rebase-merged to main",
+    "oldFact": "The branch was rebased onto main and force-pushed with lease",
+    "replaces": true
+  },
+  {
+    "newFile": "context/memorylayer/skandaramanan/2026-09-12T23-48-21-673Z-72c7c756.md",
+    "newDate": "2026-09-12T23:48:21.673Z",
+    "oldDate": "2026-08-31T01:03:46.134Z",
+    "newFact": "ADMIN_SECRET deleted and /mcp/admin/* gated on GitHub operator identity",
+    "oldFact": "PR #42 merged 01:02:36Z produced a GitHub-authored ledger entry at 01:02:38Z",
+    "replaces": false
+  },
+  {
+    "newFile": "context/skandaramanan-memorylayer-memory/skandaramanan/2026-09-12T22-16-04-876Z-598f08a1.md",
+    "newDate": "2026-09-12T22:16:04.876Z",
+    "oldDate": "2026-09-12T01:33:18.840Z",
+    "newFact": "MEMORYLAYER_* -> WAYFORM_* with a PERMANENT fallback, not a cutover",
+    "oldFact": "MemoryLayer/wayform will be a \"Living Confluence\" app",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-10T10-48-22-115Z-d7b71294.md",
+    "newDate": "2026-07-10T10:48:22.115Z",
+    "oldDate": "2026-07-09T10:05:21.785Z",
+    "newFact": "wayform init --remote writes Codex MCP config as a project-scoped .codex/config.toml",
+    "oldFact": "`wayform init --remote` registers the HOSTED MCP server as `wayform`",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-10T10-48-22-115Z-d7b71294.md",
+    "newDate": "2026-07-10T10:48:22.115Z",
+    "oldDate": "2026-07-16T04:10:16.859Z",
+    "newFact": "wayform init --remote writes Codex MCP config as a project-scoped .codex/config.toml",
+    "oldFact": "wayform init now auto-trusts Codex hooks by appending trusted_hash entries to $CODEX_HOME/config.toml",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-16T02-36-47-617Z-6deb017d.md",
+    "newDate": "2026-07-16T02:36:47.617Z",
+    "oldDate": "2026-07-15T06:48:12.686Z",
+    "newFact": "Wayform 0.1.1 lacks the git-repo hard-fail, claude-CLI alias fallback, and correct Codex config emit",
+    "oldFact": "`wayform init --remote` should hard-fail when run outside a git repo",
+    "replaces": false
+  },
+  {
+    "newFile": "context/memorylayer/skanda/2026-07-16T02-36-47-617Z-6deb017d.md",
+    "newDate": "2026-07-16T02:36:47.617Z",
+    "oldDate": "2026-07-15T06:48:12.686Z",
+    "newFact": "Wayform 0.1.1 lacks the git-repo hard-fail, claude-CLI alias fallback, and correct Codex config emit",
+    "oldFact": "`wayform init --remote` run outside a git repo proceeds anyway and scatters files into the current directory",
+    "replaces": false
+  }
+]

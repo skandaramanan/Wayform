@@ -247,7 +247,7 @@ test("formatWriteResult appends conflict section", () => {
     [{ factId: "o1", body: "old", reason: "clash", verdict: "contradicts" }],
     ["old#0"],
   );
-  assert.match(text, /Possible conflicts/);
+  assert.match(text, /may replace or contradict/);
   assert.match(text, /Supersedes: old#0/);
 });
 

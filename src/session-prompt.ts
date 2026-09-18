@@ -68,6 +68,9 @@ export function invocationPlaybook(
           `- To UPDATE or CORRECT a recorded decision: \`write_context\` the new ` +
             `version with \`supersedes: [<old fact id from search results>]\` — ` +
             `never write an unlinked near-duplicate.`,
+          `- If \`write_context\` lists existing facts your entry may replace, ` +
+            `call \`supersede_facts\` with ONLY the ones it really makes ` +
+            `obsolete. That is how outdated decisions leave the briefing.`,
           `- Pass \`facts\` with every \`write_context\`: the payload split into ` +
             `atomic facts, each self-contained with its "because". It is ` +
             `searchable at once and costs no server-side extraction.`,
