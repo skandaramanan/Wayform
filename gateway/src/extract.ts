@@ -104,6 +104,11 @@ export function buildExtractionPrompt(entry: ParsedEntry): string {
     `Entry type: ${entry.type}`,
     "Entry body:",
     entry.payload,
+    // Ending on the entry text let the model CONTINUE it: at temperature 0
+    // some chunks looped in prose and floored (2/10 on 2026-09-18's retries;
+    // 0/10 with this cue, and fewer output tokens).
+    "",
+    "JSON array of facts:",
   ].join("\n");
 }
 
