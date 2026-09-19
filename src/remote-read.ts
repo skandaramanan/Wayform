@@ -152,7 +152,11 @@ export async function remoteApiPlans(
     const body = (await res.json()) as Partial<PlanMirror>;
     if (typeof body.enabled !== "boolean" || !Array.isArray(body.plans))
       return null;
-    return { enabled: body.enabled, plans: body.plans };
+    const plans = body.plans.filter(
+      (p): p is { file: string; markdown: string } =>
+        typeof p?.file === "string" && typeof p?.markdown === "string",
+    );
+    return { enabled: body.enabled, plans };
   } catch {
     return null;
   }

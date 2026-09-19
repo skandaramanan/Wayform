@@ -177,3 +177,21 @@ test("remoteApiPlans parses the mirror payload and nulls on failure", async () =
   );
   assert.equal(await remoteApiPlans({}, "p"), null);
 });
+
+test("remoteApiPlans keeps only well-formed items, dropping malformed ones", async () => {
+  const out = await remoteApiPlans(CFG, "p", async () =>
+    Response.json({
+      enabled: true,
+      plans: [
+        { file: "1-a.md", markdown: "# A" },
+        { file: "2-b.md", markdown: 42 },
+        { file: 7, markdown: "# C" },
+        "not an object",
+      ],
+    }),
+  );
+  assert.deepEqual(out, {
+    enabled: true,
+    plans: [{ file: "1-a.md", markdown: "# A" }],
+  });
+});

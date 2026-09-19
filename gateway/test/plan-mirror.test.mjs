@@ -150,6 +150,39 @@ test("turning it off again returns enabled:false", async () => {
   assert.deepEqual(body, { enabled: false, plans: [] });
 });
 
+test("mirrorPlans costs about one D1 query per plan, not one per readPlan", async () => {
+  const { env, call } = await setup();
+  for (let i = 0; i < 5; i++) {
+    await call(A, "create_plan", {
+      project: "P",
+      title: `Plan ${i}`,
+      body: "- [ ] x",
+    });
+  }
+  await call(A, "set_plan_mirror", { project: "P", enabled: true });
+  let queries = 0;
+  const rawPrepare = env.DB.prepare.bind(env.DB);
+  env.DB.prepare = (sql) => {
+    queries++;
+    return rawPrepare(sql);
+  };
+  const body = await (await getPlans(env, A, "project=P")).json();
+  assert.equal(body.plans.length, 5);
+  // listProjectPlans (1) + getBody per plan (5) — readPlan's ~3+ queries/plan
+  // would blow past 50 queries/invocation around 10 plans on Workers Free.
+  assert.ok(queries <= 8, `expected ~1 query/plan, got ${queries} for 5 plans`);
+});
+
+test("set_plan_mirror rejects a non-boolean enabled instead of treating it as false", async () => {
+  const { call } = await setup();
+  const r = await call(A, "set_plan_mirror", {
+    project: "P",
+    enabled: "true",
+  });
+  assert.equal(r.isError, true);
+  assert.match(r.text, /enabled must be true or false/);
+});
+
 test("401 without a member, 400 without a project", async () => {
   const { env } = await setup();
   env.oauthProps = undefined;

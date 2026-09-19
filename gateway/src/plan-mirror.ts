@@ -7,7 +7,8 @@ import type { Env, HandlerCtx } from "./env.js";
 import { resolveMember, type SpaceMember } from "./tenancy.js";
 import type { Caller } from "./memory.js";
 import { INDEXED_STATES } from "./plan-core.js";
-import { listProjectPlans, planCtx, readPlan, renderPlan } from "./plans.js";
+import { listProjectPlans, planCtx, renderPlan } from "./plans.js";
+import { getBody } from "./plan-db.js";
 import { slug } from "../../src/slug.js";
 
 const key = (space: string, project: string) =>
@@ -38,12 +39,18 @@ export async function mirrorPlans(c: Caller, project: string) {
   const live = (await listProjectPlans(pc, project)).filter((m) =>
     INDEXED_STATES.has(m.state),
   );
-  const plans = await Promise.all(
-    live.map(async (m) => ({
+  // One D1 query per plan (its latest body only — no links, no runs): a
+  // full readPlan per plan is ~4-5 queries each and blows past Workers
+  // Free's 50 queries/invocation around 10 plans.
+  const plans: { file: string; markdown: string }[] = [];
+  for (const m of live) {
+    const body = await getBody(pc.db, c.member.space, m.id);
+    if (!body) continue; // no body row: skip rather than render garbage
+    plans.push({
       file: `${m.seq}-${slug(m.title)}.md`,
-      markdown: renderPlan(await readPlan(pc, project, m.id)),
-    })),
-  );
+      markdown: renderPlan({ meta: m, body, links: [], runs: [] }),
+    });
+  }
   return { enabled, plans };
 }
 

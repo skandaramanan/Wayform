@@ -53,3 +53,51 @@ test("a hostile filename cannot escape the plans dir", () => {
   assert.ok(!fs.existsSync(path.join(r, "evil.md")));
   assert.ok(!fs.existsSync(path.join(r, ".wayform", "evil.md")));
 });
+
+test("a symlinked plans dir is not followed — target is left alone", () => {
+  const r = tmp();
+  const victim = tmp();
+  fs.writeFileSync(path.join(victim, "secret.md"), "victim data");
+  fs.mkdirSync(path.join(r, ".wayform"), { recursive: true });
+  fs.symlinkSync(victim, dir(r));
+  writePlanMirror(r, {
+    enabled: true,
+    plans: [{ file: "1-a.md", markdown: "# A" }],
+  });
+  assert.equal(
+    fs.readFileSync(path.join(victim, "secret.md"), "utf8"),
+    "victim data",
+  );
+  assert.ok(!fs.existsSync(path.join(victim, "1-a.md")));
+});
+
+test("a symlinked .wayform dir is not followed — no gitignore leaks into target", () => {
+  const r = tmp();
+  const victim = tmp();
+  fs.writeFileSync(path.join(victim, "secret.md"), "victim data");
+  fs.symlinkSync(victim, path.join(r, ".wayform"));
+  writePlanMirror(r, {
+    enabled: true,
+    plans: [{ file: "1-a.md", markdown: "# A" }],
+  });
+  assert.equal(
+    fs.readFileSync(path.join(victim, "secret.md"), "utf8"),
+    "victim data",
+  );
+  assert.ok(!fs.existsSync(path.join(victim, ".gitignore")));
+  assert.ok(!fs.existsSync(path.join(victim, "plans")));
+});
+
+test("a stray non-matching file in plans/ survives a sync", () => {
+  const r = tmp();
+  writePlanMirror(r, {
+    enabled: true,
+    plans: [{ file: "1-a.md", markdown: "# A" }],
+  });
+  fs.writeFileSync(path.join(dir(r), "notes.txt"), "keep me");
+  writePlanMirror(r, {
+    enabled: true,
+    plans: [{ file: "1-a.md", markdown: "# A v2" }],
+  });
+  assert.ok(fs.existsSync(path.join(dir(r), "notes.txt")));
+});

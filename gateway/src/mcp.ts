@@ -153,8 +153,11 @@ const HANDLERS: Record<string, Tool> = {
     );
   },
 
-  set_plan_mirror: (c, a) =>
-    setPlanMirror(c.env, c.member, project(a), a.enabled === true),
+  set_plan_mirror: (c, a) => {
+    if (typeof a.enabled !== "boolean")
+      throw new Error("enabled must be true or false");
+    return setPlanMirror(c.env, c.member, project(a), a.enabled);
+  },
 
   invite_member: (c, a) =>
     inviteMember(c.env, c.member, str(a.github_username)),
