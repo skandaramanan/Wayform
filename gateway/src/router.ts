@@ -15,6 +15,7 @@ import {
   handleAdminSupersessionAudit,
 } from "./admin-supersession.js";
 import { handleApiRead } from "./api-read.js";
+import { handleApiPlans } from "./plan-mirror.js";
 import { deepHealth } from "./health.js";
 import {
   handleAdminGoldenCandidate,
@@ -126,6 +127,10 @@ async function route(
 
   if (url.pathname === "/mcp/api/read" && req.method === "GET") {
     return handleApiRead(req, env, ctx);
+  }
+
+  if (url.pathname === "/mcp/api/plans" && req.method === "GET") {
+    return handleApiPlans(req, env, ctx);
   }
 
   if (url.pathname === "/mcp") {

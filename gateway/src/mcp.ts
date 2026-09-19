@@ -23,6 +23,7 @@ import {
   renderPlanList,
   transitionPlan,
 } from "./plans.js";
+import { setPlanMirror } from "./plan-mirror.js";
 import { inviteMember, revokeMember } from "./spaces.js";
 import { listSessions, revokeSession } from "./sessions.js";
 
@@ -151,6 +152,9 @@ const HANDLERS: Record<string, Tool> = {
       }),
     );
   },
+
+  set_plan_mirror: (c, a) =>
+    setPlanMirror(c.env, c.member, project(a), a.enabled === true),
 
   invite_member: (c, a) =>
     inviteMember(c.env, c.member, str(a.github_username)),
