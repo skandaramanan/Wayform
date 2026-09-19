@@ -130,6 +130,34 @@ export interface GuardCheck {
   reason: string;
 }
 
+export interface PlanMirror {
+  enabled: boolean;
+  plans: { file: string; markdown: string }[];
+}
+
+/** GET /mcp/api/plans — null = gateway unusable; callers leave the folder alone. */
+export async function remoteApiPlans(
+  cfg: GatewayCfg,
+  project: string,
+  fetchImpl: GatewayFetch = oauthFetch,
+): Promise<PlanMirror | null> {
+  if (!configured(cfg)) return null;
+  try {
+    const url = new URL(`${cfg.gatewayUrl}/mcp/api/plans`);
+    url.searchParams.set("project", project);
+    const res = await fetchImpl(cfg.gatewayUrl, url.toString(), {
+      signal: AbortSignal.timeout(REMOTE_TIMEOUT_MS),
+    });
+    if (!res.ok) return null;
+    const body = (await res.json()) as Partial<PlanMirror>;
+    if (typeof body.enabled !== "boolean" || !Array.isArray(body.plans))
+      return null;
+    return { enabled: body.enabled, plans: body.plans };
+  } catch {
+    return null;
+  }
+}
+
 /** POST /mcp/hook/guard — null means "gateway unusable"; callers allow. */
 export async function remoteGuardCheck(
   cfg: GatewayCfg,
