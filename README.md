@@ -192,6 +192,22 @@ curl -H "$WAYFORM_AUTH" \
 
 ---
 
+## Plan mirror
+
+A space admin can mirror a project's in-flight plans (draft, active, building)
+into every teammate's code repo as readable markdown:
+
+> "turn on the plan mirror for project MemoryLayer" → `set_plan_mirror(project, enabled: true)`
+
+At each session start the hook writes `.wayform/plans/<N>-<title>.md` and
+removes plans that shipped or were superseded. The folder git-ignores itself
+(`.wayform/.gitignore` is `*`), so it never shows up in commits, diffs, or
+`git status`. Plans only, never memories. The files are a read-only view: change
+a plan with `edit_plan`. Turning the mirror off removes the folder at the next
+session start.
+
+---
+
 ## The two tools
 
 Everything reads and writes through one MCP contract (identical in local stdio

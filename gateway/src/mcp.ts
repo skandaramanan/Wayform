@@ -23,6 +23,7 @@ import {
   renderPlanList,
   transitionPlan,
 } from "./plans.js";
+import { setPlanMirror } from "./plan-mirror.js";
 import { inviteMember, revokeMember } from "./spaces.js";
 import { listSessions, revokeSession } from "./sessions.js";
 
@@ -150,6 +151,12 @@ const HANDLERS: Record<string, Tool> = {
         supersededBy: a.superseded_by,
       }),
     );
+  },
+
+  set_plan_mirror: (c, a) => {
+    if (typeof a.enabled !== "boolean")
+      throw new Error("enabled must be true or false");
+    return setPlanMirror(c.env, c.member, project(a), a.enabled);
   },
 
   invite_member: (c, a) =>

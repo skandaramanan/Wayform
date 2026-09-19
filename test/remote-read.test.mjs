@@ -4,6 +4,7 @@ import {
   remoteApiRead,
   remoteHookRead,
   remoteGuardCheck,
+  remoteApiPlans,
   GUARD_TIMEOUT_MS,
 } from "../dist/remote-read.js";
 
@@ -147,4 +148,50 @@ test("remoteGuardCheck treats an unknown decision as allow", async () => {
 
 test("guard timeout stays under the 10s PreToolUse hook wrapper", () => {
   assert.ok(GUARD_TIMEOUT_MS < 10_000);
+});
+
+test("remoteApiPlans parses the mirror payload and nulls on failure", async () => {
+  const ok = async (_g, url) => {
+    assert.equal(new URL(url).pathname, "/mcp/api/plans");
+    assert.equal(new URL(url).searchParams.get("project"), "p");
+    return Response.json({
+      enabled: true,
+      plans: [{ file: "1-a.md", markdown: "# A" }],
+    });
+  };
+  assert.deepEqual(await remoteApiPlans(CFG, "p", ok), {
+    enabled: true,
+    plans: [{ file: "1-a.md", markdown: "# A" }],
+  });
+  assert.equal(
+    await remoteApiPlans(
+      CFG,
+      "p",
+      async () => new Response("x", { status: 500 }),
+    ),
+    null,
+  );
+  assert.equal(
+    await remoteApiPlans(CFG, "p", async () => Response.json({ nope: 1 })),
+    null,
+  );
+  assert.equal(await remoteApiPlans({}, "p"), null);
+});
+
+test("remoteApiPlans keeps only well-formed items, dropping malformed ones", async () => {
+  const out = await remoteApiPlans(CFG, "p", async () =>
+    Response.json({
+      enabled: true,
+      plans: [
+        { file: "1-a.md", markdown: "# A" },
+        { file: "2-b.md", markdown: 42 },
+        { file: 7, markdown: "# C" },
+        "not an object",
+      ],
+    }),
+  );
+  assert.deepEqual(out, {
+    enabled: true,
+    plans: [{ file: "1-a.md", markdown: "# A" }],
+  });
 });

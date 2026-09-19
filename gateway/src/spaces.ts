@@ -453,6 +453,7 @@ export async function deactivateInstallation(
     `hookread:${space.space}:`,
     `oauth:setup-space:${space.space}:`,
     `reindex-cursor:${space.space}`,
+    `plan-mirror:${space.space}:`,
   ]);
   await env.ROUTING.delete(`ghtok:${installationId}`);
   await env.ROUTING.delete(`installation:inventory:${installationId}`);

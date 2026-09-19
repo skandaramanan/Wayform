@@ -315,6 +315,7 @@ async function lifecycleEnv() {
   await env.ROUTING.put("hookread:team-a:product", "cached");
   await env.ROUTING.put("oauth:setup-space:team-a:pending", "cached");
   await env.ROUTING.put("reindex-cursor:team-a", "cached");
+  await env.ROUTING.put("plan-mirror:team-a:product", "1");
   await env.ROUTING.put("ghtok:7", "installation-access");
   await env.ROUTING.put(
     "product-repos:registry",
@@ -371,6 +372,7 @@ test("installation deletion removes every derived access record", async () => {
     "hookread:team-a:product",
     "oauth:setup-space:team-a:pending",
     "reindex-cursor:team-a",
+    "plan-mirror:team-a:product",
     "ghtok:7",
   ]) {
     assert.equal(await env.ROUTING.get(key), null, key);

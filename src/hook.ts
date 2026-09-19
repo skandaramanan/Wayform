@@ -20,6 +20,7 @@
 import { loadConfig, defaultProject, envVar } from "./config.js";
 import { ContextStore } from "./store.js";
 import { remoteHookRead } from "./remote-read.js";
+import { syncPlanMirror } from "./plan-mirror.js";
 import { projectContext } from "./context-format.js";
 import { composeSessionStartText } from "./session-prompt.js";
 import { recordMetric } from "./metrics.js";
@@ -37,8 +38,10 @@ export async function runHook(): Promise<void> {
   // so both the success and fail-open paths always know which envelope to emit.
   const client: HookClient = resolveClient(envVar("HOOK_CLIENT"));
 
-  const emitEmpty = (): never => {
-    process.stdout.write(renderEmpty(client));
+  let mirrored: Promise<void> = Promise.resolve();
+  const finish = async (out: string): Promise<never> => {
+    await mirrored;
+    process.stdout.write(out);
     process.exit(0);
   };
 
@@ -61,21 +64,28 @@ export async function runHook(): Promise<void> {
 
     const cfg = loadConfig();
 
+    // Started (not awaited) so the mirror write runs concurrently with the
+    // remote read below; every exit path awaits `mirrored` via `finish`.
+    mirrored = syncPlanMirror(
+      cfg,
+      project,
+      process.env.CLAUDE_PROJECT_DIR || process.cwd(),
+    );
+
     // Remote-first (§2.2): the gateway's index serves the read; the local
     // clone is the offline fallback. remoteHookRead returns ready-to-inject
     // text ("" = empty store) or null meaning "gateway unusable — fall back".
     const remote = await remoteHookRead(cfg, project, cfg.readBudgetTokens);
     if (remote !== null) {
       await recordMetric(cfg, { source: "hook", event: "read", project });
-      if (remote === "") emitEmpty();
-      process.stdout.write(renderContext(client, remote));
-      process.exit(0);
+      if (remote === "") return finish(renderEmpty(client));
+      return finish(renderContext(client, remote));
     }
 
     // Gateway-only member (no local clone): there is nothing to fall back to.
     // Fail-open to the client's empty no-op rather than constructing a store
     // against an empty repo path.
-    if (!cfg.repoUrl) emitEmpty();
+    if (!cfg.repoUrl) return finish(renderEmpty(client));
 
     const store = new ContextStore(cfg);
     await store.ensure();
@@ -88,15 +98,14 @@ export async function runHook(): Promise<void> {
 
     // An empty store has nothing worth injecting — start clean rather than pushing
     // a "(no entries yet)" placeholder into every session.
-    if (total === 0) emitEmpty();
+    if (total === 0) return finish(renderEmpty(client));
 
     const body = projectContext(project, entries, total);
     const text = composeSessionStartText(project, body);
 
-    process.stdout.write(renderContext(client, text));
-    process.exit(0);
+    return finish(renderContext(client, text));
   } catch {
-    emitEmpty();
+    return finish(renderEmpty(client));
   }
 }
 

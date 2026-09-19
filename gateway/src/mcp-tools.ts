@@ -365,6 +365,25 @@ export const TOOLS = [
     },
   },
   {
+    name: "set_plan_mirror",
+    title: "Mirror this project's plans into teammates' repos",
+    description:
+      "Turn on (or off) writing the project's in-flight plans as markdown into " +
+      ".wayform/plans/ in every teammate's code repo at session start. The folder " +
+      "is git-ignored, so it never touches the repo's history. Plans only, never memories. Admin only.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: { type: "string", description: "The shared project name." },
+        enabled: {
+          type: "boolean",
+          description: "true = mirror on, false = off.",
+        },
+      },
+      required: ["project", "enabled"],
+    },
+  },
+  {
     name: "invite_member",
     title: "Invite a GitHub user to this space",
     description:
