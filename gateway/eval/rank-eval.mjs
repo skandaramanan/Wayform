@@ -42,9 +42,25 @@ if (!dir) {
   console.error("usage: node eval/rank-eval.mjs <dir>");
   process.exit(2);
 }
-const read = (f) => JSON.parse(readFileSync(join(dir, f), "utf8"));
+/**
+ * `wrangler d1 execute --json` wraps rows as [{ results, success, meta }],
+ * so the export command in the header above does NOT produce a bare array.
+ * Unwrap it here rather than making every caller remember a jq incantation —
+ * on 2026-09-21 this eval, recorded as the project's next quality check,
+ * crashed on its own documented input.
+ */
+const rows = (v) => (Array.isArray(v) && v[0]?.results ? v[0].results : v);
+const read = (f) => rows(JSON.parse(readFileSync(join(dir, f), "utf8")));
 const docs = read("docs.json");
-const entities = read("entities.json");
+const entitiesRaw = read("entities.json");
+// Accept either the { factId: [entity] } map or raw fact_entities rows.
+const entities = Array.isArray(entitiesRaw)
+  ? entitiesRaw.reduce((m, r) => {
+      const id = r.fact_id ?? r.factId;
+      (m[id] ??= []).push(r.entity);
+      return m;
+    }, {})
+  : entitiesRaw;
 const cases = read("cases.json").filter((c) => c.expect);
 
 const withEnts = docs.map((d) => ({ ...d, entities: entities[d.id] ?? [] }));
