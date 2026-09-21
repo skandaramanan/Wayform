@@ -90,7 +90,11 @@ for (const c of cases) {
     } catch (e) {
       body = `RUN FAILED\n\n${e.stdout ?? ""}\n${e.stderr ?? e.message}`;
     }
-    if (!mcp && /recorded decision|already settled|fact id|plan #\d/i.test(body)) {
+    // The tell is store-only content: a fact id (8 hex + #suffix) or briefing
+    // phrasing. NOT the words "fact id" or "plan #N" — those appear in the
+    // repo's own source comments and schemas, and flagged two clean runs.
+    const LEAKED = /[0-9a-f]{8}#[a-z0-9]{4,}|recorded decision|already-known context|session-start briefing/i;
+    if (!mcp && LEAKED.test(body)) {
       body = `RUN INVALID — the cold arm quoted the store; hooks or the plan mirror leaked in.\n\n${body}`;
       process.exitCode = 1;
     }
