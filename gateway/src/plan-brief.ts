@@ -10,13 +10,14 @@ import {
   retrieve,
   clipBody,
   INJECT_ITEM_CHARS,
+  type Embedder,
   type Retrieved,
 } from "./retrieval.js";
 import { TAU } from "./rank.js";
 import { PLAN_KIND } from "./plans.js";
 import { indexDeps } from "./deps.js";
 import type { Caller } from "./memory.js";
-import type { IndexedDoc } from "./index-db.js";
+import type { IndexedDoc, IndexDb } from "./index-db.js";
 import { slug } from "../../src/slug.js";
 
 /** Past a dozen the agent skims instead of reading, and every extra line
@@ -193,5 +194,70 @@ export async function planBrief(
     factHits.results,
     planHits.results,
     canon,
+  );
+}
+
+/**
+ * Save-time check (plan #12, Task 3): what does memory say about the plan the
+ * agent just wrote, that the agent did not already inherit?
+ *
+ * WHY ON THE PLAN AND NOT THE PROMPT. Measured 2026-09-21 against the live
+ * corpus: the prompt "Add roles so a space can have read-only members" does
+ * NOT return the rule "never put policy checks in a transport"; the drafted
+ * plan body returns it at entry rank 9/10. The prompt never contains
+ * "mcp.ts" — the plan does. One pass before drafting cannot see what only the
+ * draft reveals.
+ *
+ * WHY NO JUDGE. guard.ts pairs retrieval with judgePair() and interrupts on
+ * "contradicts". That is right for one edit and wrong here: judgePair is
+ * calibrated on one-sentence pairs, not 200-line plans; a false positive costs
+ * a whole plan rewrite the agent cannot argue with; and under a spent neuron
+ * budget the judge is skipped and the shape returns "allow", i.e. it reports
+ * clean on the busiest day. This returns what it found and lets the agent
+ * judge. Zero LLM calls beyond the one embedding retrieve() already makes.
+ *
+ * Returns null when it could NOT run — the caller must say so rather than
+ * imply a clean check.
+ */
+export const SAVE_CHECK_BUDGET_TOKENS = 1500;
+export const SAVE_CHECK_MAX = 5;
+
+export async function decisionsTouched(
+  deps: { db: IndexDb; embed: Embedder | null },
+  opts: {
+    space: string;
+    project: string;
+    body: string;
+    inherited: Iterable<string>;
+  },
+): Promise<Retrieved[] | null> {
+  const already = new Set(opts.inherited);
+  try {
+    const { results } = await retrieve(deps, {
+      space: opts.space,
+      project: slug(opts.project),
+      query: opts.body,
+      budgetTokens: SAVE_CHECK_BUDGET_TOKENS,
+      minScore: TAU,
+      maxResults: SAVE_CHECK_MAX + already.size,
+      trigger: "plan_save_check",
+    });
+    return results
+      .filter((r) => r.doc.kind !== PLAN_KIND && !already.has(r.doc.id))
+      .slice(0, SAVE_CHECK_MAX);
+  } catch {
+    return null;
+  }
+}
+
+/** The advisory line appended to a create_plan result. Never blocks. */
+export function renderTouched(found: Retrieved[] | null): string {
+  if (found === null)
+    return " Decision check did not run (the index was unreachable).";
+  if (found.length === 0) return "";
+  return (
+    ` Decisions your plan text touches that it does not inherit — check ` +
+    `whether any of them bind this work:\n` +
+    found.map((r) => factLine(r.doc)).join("\n")
   );
 }

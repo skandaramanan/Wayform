@@ -350,3 +350,55 @@ test("plan_brief requires a prompt", async () => {
   assert.equal(out.isError, true);
   assert.match(out.text, /missing required argument: prompt/);
 });
+
+test("create_plan flags decisions the plan text touches but did not inherit", async () => {
+  const { call } = await setup();
+  await call(A, "write_context", {
+    project: "apollo",
+    payload: "Where policy checks live.",
+    facts: [
+      {
+        kind: "constraint",
+        body: "Never put policy checks in mcp.ts toolsCall; they belong in the service module.",
+      },
+    ],
+  });
+  const out = await call(A, "create_plan", {
+    project: "apollo",
+    title: "Viewer role",
+    body: "Enforce the viewer check in toolsCall in mcp.ts, and hide write tools from the list.",
+  });
+  assert.equal(out.isError, false, out.text);
+  assert.match(out.text, /Created plan #1/);
+  // The plan is SAVED regardless — the check is advisory, never a gate.
+  assert.match(out.text, /touches that it does not inherit/);
+  assert.match(out.text, /policy checks in mcp\.ts toolsCall/);
+});
+
+test("a decision already inherited is not flagged back at the author", async () => {
+  const { call } = await setup();
+  await call(A, "write_context", {
+    project: "apollo",
+    payload: "Where policy checks live.",
+    facts: [
+      {
+        kind: "constraint",
+        body: "Never put policy checks in mcp.ts toolsCall; they belong in the service module.",
+      },
+    ],
+  });
+  const search = await call(A, "search_memory", {
+    project: "apollo",
+    query: "policy checks toolsCall mcp.ts service module",
+  });
+  const id = search.text.match(/id: ([^)]+)\)/)?.[1];
+  assert.ok(id, search.text);
+  const out = await call(A, "create_plan", {
+    project: "apollo",
+    title: "Viewer role",
+    body: "Enforce the viewer check in toolsCall in mcp.ts, and hide write tools from the list.",
+    inherits: [id],
+  });
+  assert.match(out.text, /inheriting 1 decision/);
+  assert.doesNotMatch(out.text, /policy checks in mcp\.ts toolsCall/);
+});
