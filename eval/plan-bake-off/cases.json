@@ -1,0 +1,19 @@
+[
+  {
+    "id": "dispatch",
+    "prompt": "Add dispatch: let a plan hand itself to a coding agent and come back with a commit."
+  },
+  {
+    "id": "desktop-plan-view",
+    "prompt": "Build the first desktop screen: one plan, editable, versioned."
+  },
+  {
+    "id": "outcome-capture",
+    "prompt": "Capture the outcome of a shipped plan and feed it back into retrieval ranking."
+  },
+  {
+    "id": "repo-map",
+    "prompt": "Add a repo map that routes retrieval to the files a task touches."
+  },
+  { "id": "rbac", "prompt": "Add roles so a space can have read-only members." }
+]
