@@ -33,7 +33,9 @@ const WARM = (p) =>
 // cannot answer a permission prompt, and plan_brief is new, so it is not in
 // anyone's permissions.allow yet: the 2026-09-21 first run silently produced
 // five "I couldn't call plan_brief" transcripts that looked like plans.
-const ALLOWED = ["mcp__wayform__plan_brief", "mcp__wayform__read_plan"].join(",");
+const ALLOWED = ["mcp__wayform__plan_brief", "mcp__wayform__read_plan"].join(
+  ",",
+);
 const repo = join(here, "..", "..");
 
 function coldWorktree() {
@@ -72,7 +74,8 @@ const run = (prompt, allowWayform, cwd) =>
     },
   );
 
-const only = process.argv[2] && process.argv[2] !== "all" ? process.argv[2] : null;
+const only =
+  process.argv[2] && process.argv[2] !== "all" ? process.argv[2] : null;
 const onlyArm = process.argv[3] ?? null; // "cold" | "wayform" — re-run one arm
 const cold = onlyArm === "wayform" ? null : coldWorktree();
 for (const c of cases) {
@@ -93,12 +96,16 @@ for (const c of cases) {
     // The tell is store-only content: a fact id (8 hex + #suffix) or briefing
     // phrasing. NOT the words "fact id" or "plan #N" — those appear in the
     // repo's own source comments and schemas, and flagged two clean runs.
-    const LEAKED = /[0-9a-f]{8}#[a-z0-9]{4,}|recorded decision|already-known context|session-start briefing/i;
+    const LEAKED =
+      /[0-9a-f]{8}#[a-z0-9]{4,}|recorded decision|already-known context|session-start briefing/i;
     if (!mcp && LEAKED.test(body)) {
       body = `RUN INVALID — the cold arm quoted the store; hooks or the plan mirror leaked in.\n\n${body}`;
       process.exitCode = 1;
     }
-    if (mcp && /couldn.t (run|call)|blocked because|permission/i.test(body.slice(0, 600))) {
+    if (
+      mcp &&
+      /couldn.t (run|call)|blocked because|permission/i.test(body.slice(0, 600))
+    ) {
       body = `RUN INVALID — plan_brief was not callable; this arm measured nothing.\n\n${body}`;
       process.exitCode = 1;
     }

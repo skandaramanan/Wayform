@@ -22,7 +22,11 @@ test("brief lists decisions with their fact ids and asks for inherits", () => {
     "MemoryLayer",
     "add a rate limiter to the gateway",
     [
-      doc("f1#a", "decision", "we cap writes at 60/min because D1 rows are the cost"),
+      doc(
+        "f1#a",
+        "decision",
+        "we cap writes at 60/min because D1 rows are the cost",
+      ),
       doc("f2#b", "constraint", "stay on the $0 free tier"),
     ],
     [],
@@ -59,9 +63,12 @@ test("open questions are called out separately from decisions", () => {
 });
 
 test("related plans are shown as prior art, not as constraints", () => {
-  const out = renderBrief("MemoryLayer", "dispatch", [], [
-    doc("plan:p1", "plan", "Plan #6 [draft] Phase 4 — dispatch"),
-  ]);
+  const out = renderBrief(
+    "MemoryLayer",
+    "dispatch",
+    [],
+    [doc("plan:p1", "plan", "Plan #6 [draft] Phase 4 — dispatch")],
+  );
   assert.match(out, /Related plans/);
   assert.match(out, /Plan #6/);
 });

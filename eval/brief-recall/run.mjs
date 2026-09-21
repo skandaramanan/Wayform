@@ -53,7 +53,8 @@ async function brief(prompt) {
   const body = await res.json();
   if (body.result?.isError) throw new Error(body.result.content[0].text);
   const text = body.result?.content?.[0]?.text;
-  if (typeof text !== "string") throw new Error(JSON.stringify(body).slice(0, 300));
+  if (typeof text !== "string")
+    throw new Error(JSON.stringify(body).slice(0, 300));
   return text;
 }
 
@@ -107,5 +108,7 @@ const byTier = (t) => {
 console.log(
   `\ncanon ${byTier("canon")} · normal ${byTier("normal")} — a canon dump makes canon cases trivial, so the normal column is the live signal.`,
 );
-console.log(`\n**recall ${hits}/${rows.length}**${errs ? ` (${errs} errored)` : ""}`);
+console.log(
+  `\n**recall ${hits}/${rows.length}**${errs ? ` (${errs} errored)` : ""}`,
+);
 if (errs) process.exitCode = 2;
