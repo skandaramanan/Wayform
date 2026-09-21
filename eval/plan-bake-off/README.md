@@ -20,6 +20,17 @@ plan missed on ≥3. **Result: 3 wins, 2 ties, 4/5 citations → PASSED**
 (scored 2026-09-21 by Claude against the clean cold arm; founder confirmation
 pending).
 
+## A note on the two cleared `RUN INVALID` banners
+
+The first leak detector keyed on the strings "fact id" and "plan #N". Those
+appear in this repo's own source and schemas, so it flagged `outcome-capture`
+and `repo-map` cold runs that were in fact clean: neither contains a store-only
+fact id (`[0-9a-f]{8}#...`), and their "plan #11" traces to a comment in
+`gateway/src/plan-brief.ts`. The banners were cleared on review and the
+detector now keys on fact ids and briefing phrasing. **All five pairs are
+valid.** Anyone re-reading these files should not treat the old banner text as
+a live finding — it misled one reviewer already.
+
 ## Case notes
 
 - **dispatch** — Cold designed a GitHub-issue bot that dispatches to Copilot and
