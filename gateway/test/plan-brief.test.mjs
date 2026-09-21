@@ -35,6 +35,9 @@ test("brief lists decisions with their fact ids and asks for inherits", () => {
   assert.match(out, /## Goal/);
   assert.match(out, /## Approach/);
   assert.match(out, /## Checklist/);
+  // Retrieval is recall-biased: the agent must be told to prune the list,
+  // not to paste it (live 2026-09-21: 3 of 12 ids were near-misses).
+  assert.match(out, /does not actually bind this work/);
 });
 
 test("open questions are called out separately from decisions", () => {
@@ -47,7 +50,8 @@ test("open questions are called out separately from decisions", () => {
   assert.match(out, /Open questions/);
   assert.match(out, /does the hook timeout survive human latency\?/);
   // A question is not a constraint: it must not be offered as an inherit.
-  assert.doesNotMatch(out, /inherits/);
+  // (The prose mentions `inherits`; what must be absent is the id list.)
+  assert.doesNotMatch(out, /inherits=\[/);
 });
 
 test("related plans are shown as prior art, not as constraints", () => {

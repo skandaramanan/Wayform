@@ -77,7 +77,9 @@ export function renderBrief(
     `## Write the plan\n\n` +
       `Use the repo in front of you for structure and the memory above for ` +
       `judgment. Contradicting a decision above is allowed, but say which one ` +
-      `and why. Then save it:\n\n` +
+      `and why. Then save it — and cut any id from \`inherits\` whose fact ` +
+      `does not actually bind this work (retrieval is recall-biased; a plan ` +
+      `that inherits a near-miss records a link nobody meant):\n\n` +
       "```\n" +
       `create_plan(project="${project}", title=…, body=…` +
       (ids.length > 0 ? `, inherits=${JSON.stringify(ids)}` : "") +
