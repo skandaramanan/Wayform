@@ -209,6 +209,34 @@ export const TOOLS = [
     },
   },
   {
+    name: "plan_brief",
+    title: "Brief for a new plan",
+    description:
+      "Use this FIRST, before writing any implementation plan, spec or design " +
+      "for this project — including in plan mode. Give it the task in the " +
+      "user's words; it returns the decisions, constraints and open questions " +
+      "the team has already settled that bind this work, the related in-flight " +
+      "plans, and the fact ids to pass to create_plan(inherits=[...]). It does " +
+      "NOT write the plan: you do, from this brief plus the repo in front of " +
+      "you. Skipping it is how a plan silently contradicts a settled decision.",
+    inputSchema: {
+      type: "object",
+      properties: {
+        project: {
+          type: "string",
+          description: "The shared project name, e.g. 'business-one'.",
+        },
+        prompt: {
+          type: "string",
+          description:
+            "The task to plan, in the user's own words. Longer is better — " +
+            "the whole request retrieves better than a keyword.",
+        },
+      },
+      required: ["project", "prompt"],
+    },
+  },
+  {
     name: "create_plan",
     title: "Create a team engineering plan",
     description:

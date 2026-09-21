@@ -23,6 +23,7 @@ import {
   renderPlanList,
   transitionPlan,
 } from "./plans.js";
+import { planBrief } from "./plan-brief.js";
 import { setPlanMirror } from "./plan-mirror.js";
 import { inviteMember, revokeMember } from "./spaces.js";
 import { listSessions, revokeSession } from "./sessions.js";
@@ -108,6 +109,9 @@ const HANDLERS: Record<string, Tool> = {
   memory_feedback: (c, a) => rateFact(c, str(a.fact_id), a.verdict),
   supersede_facts: (c, a) =>
     supersedeFacts(c, strs(a.fact_ids), str(a.replaced_by_entry)),
+
+  plan_brief: (c, a) =>
+    planBrief(c, { project: project(a), prompt: need(a, "prompt") }),
 
   create_plan: async (c, a) => {
     const p = project(a);

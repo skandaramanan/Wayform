@@ -97,6 +97,7 @@ test("initialize and tools/list expose the stdio-identical contract", async () =
     "invite_member",
     "list_sessions",
     "memory_feedback",
+    "plan_brief",
     "read_context",
     "read_plan",
     "revoke_member",

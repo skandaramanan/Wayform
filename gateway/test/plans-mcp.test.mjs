@@ -289,3 +289,64 @@ test("transition_plan supersedes with superseded_by and requires `to`", async ()
     true,
   );
 });
+
+test("plan_brief returns the team's decisions and the skeleton", async () => {
+  const { call } = await setup();
+  const fact =
+    "We rate limit writes at 60/min because D1 row writes are the cost driver.";
+  await call(A, "write_context", {
+    project: "apollo",
+    payload: "Rate limiting, settled.",
+    facts: [{ kind: "decision", body: fact }],
+  });
+  const out = await call(A, "plan_brief", {
+    project: "apollo",
+    prompt: "add a rate limiter to the gateway",
+  });
+  assert.equal(out.isError, false, out.text);
+  assert.match(out.text, /# Plan brief: apollo/);
+  assert.match(out.text, /rate limit writes at 60\/min/);
+  assert.match(out.text, /create_plan/);
+  assert.match(out.text, /## Goal/);
+});
+
+test("plan_brief surfaces an in-flight plan as prior art", async () => {
+  const { call } = await setup();
+  await call(A, "create_plan", {
+    project: "apollo",
+    title: "Rate limiting the write path",
+    body: "- [ ] token bucket in KV",
+  });
+  const out = await call(A, "plan_brief", {
+    project: "apollo",
+    prompt: "rate limiting the write path",
+  });
+  assert.match(out.text, /Related plans/);
+  assert.match(out.text, /Rate limiting the write path/);
+});
+
+test("plan_brief is scoped to the caller's space", async () => {
+  const { call } = await setup();
+  await call(A, "write_context", {
+    project: "apollo",
+    payload: "Rate limiting, settled.",
+    facts: [
+      {
+        kind: "decision",
+        body: "We rate limit writes at 60/min because D1 row writes are the cost driver.",
+      },
+    ],
+  });
+  const out = await call(B, "plan_brief", {
+    project: "apollo",
+    prompt: "add a rate limiter to the gateway",
+  });
+  assert.doesNotMatch(out.text, /60\/min/);
+});
+
+test("plan_brief requires a prompt", async () => {
+  const { call } = await setup();
+  const out = await call(A, "plan_brief", { project: "apollo" });
+  assert.equal(out.isError, true);
+  assert.match(out.text, /missing required argument: prompt/);
+});
