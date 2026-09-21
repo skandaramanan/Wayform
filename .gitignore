@@ -28,3 +28,4 @@ dist/
 *.tgz
 .wrangler/
 gateway/.wrangler/
+eval/plan-bake-off/out/
