@@ -38,6 +38,10 @@ test("brief lists decisions with their fact ids and asks for inherits", () => {
   // Retrieval is recall-biased: the agent must be told to prune the list,
   // not to paste it (live 2026-09-21: 3 of 12 ids were near-misses).
   assert.match(out, /does not actually bind this work/);
+  // Each fact line carries its own id: the agent must never have to map ids to
+  // facts by position, which two bake-off plans admitted doing.
+  assert.match(out, /cap writes at 60\/min[^\n]*id: f1#a/);
+  assert.match(out, /\$0 free tier[^\n]*id: f2#b/);
 });
 
 test("open questions are called out separately from decisions", () => {

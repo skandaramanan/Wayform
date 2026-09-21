@@ -6,7 +6,12 @@
  * gateway on the free tier, ships no key in any binary, uploads no source,
  * and behaves identically in Claude Code, Cursor and Codex.
  */
-import { retrieve, injectLine, type Retrieved } from "./retrieval.js";
+import {
+  retrieve,
+  clipBody,
+  INJECT_ITEM_CHARS,
+  type Retrieved,
+} from "./retrieval.js";
 import { TAU } from "./rank.js";
 import { PLAN_KIND } from "./plans.js";
 import { indexDeps } from "./deps.js";
@@ -35,6 +40,19 @@ One sentence: what this builds.
 - [ ] Step, each with the file it touches and the test that proves it
 `;
 
+/**
+ * Every fact line carries its own id. The shared injected-list renderer
+ * reveals an id ONLY in its truncation branch, and atomic facts are ~60 chars,
+ * so the brief used to show unlabelled bullets beside an opaque inherits=[…]
+ * array. The 2026-09-21 bake-off caught the consequence in writing: two of
+ * four plans mapped ids to facts BY POSITION and said so ("I matched them by
+ * position in the list"), which silently records decision links nobody meant.
+ * Same line shape as renderSearchResults.
+ */
+const factLine = (d: Retrieved["doc"]): string =>
+  `- ${clipBody(d.body, d.id, INJECT_ITEM_CHARS, false)} ` +
+  `_(${d.sourceAuthor}, ${d.sourceTs.slice(0, 10)} · id: ${d.id})_`;
+
 export function renderBrief(
   project: string,
   prompt: string,
@@ -57,19 +75,19 @@ export function renderBrief(
   if (binding.length > 0) {
     parts.push(
       `## Decisions that constrain this work\n\n` +
-        binding.map((f) => injectLine(f.doc)).join("\n"),
+        binding.map((f) => factLine(f.doc)).join("\n"),
     );
   }
   if (questions.length > 0) {
     parts.push(
       `## Open questions this work touches\n\n` +
-        questions.map((f) => injectLine(f.doc)).join("\n"),
+        questions.map((f) => factLine(f.doc)).join("\n"),
     );
   }
   if (plans.length > 0) {
     parts.push(
       `## Related plans (prior art — read before inventing a new shape)\n\n` +
-        plans.map((p) => injectLine(p.doc)).join("\n"),
+        plans.map((p) => factLine(p.doc)).join("\n"),
     );
   }
 
