@@ -9,7 +9,7 @@ import type { Env, HandlerCtx } from "./env.js";
 import type { SpaceMember } from "./tenancy.js";
 import type { SpaceRepo } from "./ingest.js";
 import type { D1Like, IndexDb } from "./index-db.js";
-import type { Embedder, Retrieved } from "./retrieval.js";
+import type { Embedder } from "./retrieval.js";
 import { installationToken } from "./github-auth.js";
 import { clientFacts, type GenText } from "./extract.js";
 import { ingestEntries } from "./ingest.js";
@@ -51,7 +51,6 @@ import {
   type PlanRun,
 } from "./plan-db.js";
 import { slug } from "../../src/slug.js";
-import { decisionsTouched, renderTouched } from "./plan-brief.js";
 
 export const MAX_TITLE_CHARS = 200;
 /** Ledger files are one Contents PUT; D1 rows cap at 1MB. 60k chars is a
@@ -290,9 +289,7 @@ export async function createPlan(
     branch?: unknown;
     inherits?: unknown;
   },
-): Promise<
-  PlanView & { unknownInherits: string[]; touched: Retrieved[] | null }
-> {
+): Promise<PlanView & { unknownInherits: string[] }> {
   const title = cleanTitle(a.title);
   const body = cleanBody(a.body);
   const known: string[] = [];
@@ -317,22 +314,10 @@ export async function createPlan(
     ...(branch ? { branch } : {}),
     ...(known.length ? { inherits: known } : {}),
   } as PlanEvent);
-  const view = await readPlan(c, project, id);
-  // The check runs on the SAVED plan, never before it: a plan is never lost to
-  // an advisory, and the index being down must not fail a write.
-  const touched =
-    c.idx && typeof body === "string"
-      ? await decisionsTouched(
-          { db: c.idx, embed: c.embed },
-          {
-            space: c.member.space,
-            project,
-            body,
-            inherited: view.links.map((l) => l.factId),
-          },
-        )
-      : null;
-  return { ...view, unknownInherits: unknown, touched };
+  return {
+    ...(await readPlan(c, project, id)),
+    unknownInherits: unknown,
+  };
 }
 
 export async function editPlan(
@@ -680,15 +665,14 @@ export function renderPlan(v: PlanView): string {
 }
 
 export function formatCreated(
-  v: PlanView & { unknownInherits: string[]; touched?: Retrieved[] | null },
+  v: PlanView & { unknownInherits: string[] },
 ): string {
   return (
     `Created plan #${v.meta.seq} "${v.meta.title}" (id ${v.meta.id}, draft, v1)` +
     (v.links.length ? ` inheriting ${v.links.length} decision(s).` : ".") +
     (v.unknownInherits.length
       ? ` Not linked (no such fact): ${v.unknownInherits.join(", ")}.`
-      : "") +
-    (v.touched === undefined ? "" : renderTouched(v.touched))
+      : "")
   );
 }
 
