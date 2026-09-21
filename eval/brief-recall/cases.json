@@ -1,0 +1,79 @@
+[
+  {
+    "id": "rbac",
+    "prompt": "Add roles so a space can have read-only members.",
+    "mustSurface": "6d411906#1mqe19j",
+    "why": "The check belongs in the service module, not in the MCP transport. The 2026-09-21 bake-off lost this case: both arms put it in toolsCall.",
+    "tier": "canon"
+  },
+  {
+    "id": "index-cleanup",
+    "prompt": "Clean up orphaned rows in the search index so deleted entries stop showing in results.",
+    "mustSurface": "773100b6#1nbf92t",
+    "why": "A natural prune pass deletes plan docs, which are owned by syncPlanDoc and must never be pruned at offset 0.",
+    "tier": "canon"
+  },
+  {
+    "id": "vector-cache",
+    "prompt": "Store precomputed vectors for each fact so we stop recomputing them on every read.",
+    "mustSurface": "b9881971#5r17eb",
+    "why": "D1 hands BLOB columns back as a plain Array of byte values; decoding straight to Float32Array silently corrupts every vector.",
+    "tier": "canon"
+  },
+  {
+    "id": "nightly-report",
+    "prompt": "Add a nightly job that emails a summary only when something looks wrong.",
+    "mustSurface": "a90c854d#1ypq970",
+    "why": "Silence-means-success: a capture path that emits nothing on failure is indistinguishable from one that is working.",
+    "tier": "canon"
+  },
+  {
+    "id": "raise-ai-limit",
+    "prompt": "We keep running out of AI capacity mid-day. Make the daily limit configurable.",
+    "mustSurface": "92403d90#o7f6a6",
+    "why": "The daily limit is clamped in code at NEURON_BUDGET_HARD_MAX; a configurable limit that ignores the clamp does nothing.",
+    "tier": "canon"
+  },
+  {
+    "id": "speed-up-local",
+    "prompt": "Make the local stdio server start up faster.",
+    "mustSurface": "a00d360b#1wjasgx",
+    "why": "Agents must not plan, measure or optimize against local stdio; the product plane is remote MCP only. The correct answer is to decline the task.",
+    "tier": "canon"
+  },
+  {
+    "id": "release-checklist",
+    "prompt": "Write a release checklist for shipping a gateway-only bugfix.",
+    "mustSurface": "a6c10d34#0soh9l",
+    "why": "Gateway changes do not require an npm version bump; a checklist that demands one is wrong.",
+    "tier": "canon"
+  },
+  {
+    "id": "cite-by-position",
+    "prompt": "Let a user reference a result by its number in the list, like 'supersede result 3'.",
+    "mustSurface": "c9817af7#6qju3f",
+    "why": "Fact ids are content-derived, not positional; a positional reference is unstable across queries.",
+    "tier": "canon"
+  },
+  {
+    "id": "desktop-rest",
+    "prompt": "Give the desktop app a JSON endpoint so it can load and save one plan.",
+    "mustSurface": "b213f40d#1emaqqt",
+    "tier": "normal",
+    "why": "Phase 1 deliberately shipped no REST endpoint until Phase 3; the desktop app reuses the service layer. A normal-tier fact, so the canon dump cannot carry it."
+  },
+  {
+    "id": "transport-siblings",
+    "prompt": "Where should a new permission check live in the gateway?",
+    "mustSurface": "6d411906#1henbep",
+    "tier": "normal",
+    "why": "The normal-tier sibling of the canon transport rule, naming the actual service modules. Query-matched retrieval must find this one on its own."
+  },
+  {
+    "id": "ship-decisions",
+    "prompt": "When a plan merges, how do its decisions get into the team's memory?",
+    "mustSurface": "b213f40d#1ctvij7",
+    "tier": "normal",
+    "why": "Shipped plans write produced decisions as a normal writer-split entry with zero LLM extraction. Normal tier \u2014 tests the query-matched path."
+  }
+]

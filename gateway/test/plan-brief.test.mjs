@@ -71,3 +71,50 @@ test("an empty store still returns a usable skeleton", () => {
   assert.match(out, /## Goal/);
   assert.doesNotMatch(out, /Decisions that constrain/);
 });
+
+// The canon section is a DUMP, not a ranked selection: a standing rule that
+// shares no token with the prompt is never a retrieval candidate, so ranking
+// can never reach it. This is the assertion that fails if canon is ever
+// quietly turned back into a query-ranked top-N.
+const canonDoc = (id, body) => ({
+  id,
+  kind: "constraint",
+  tier: "canon",
+  body,
+  entities: [],
+  sourceTs: "2026-09-18T00:00:00.000Z",
+  sourceAuthor: "Ada",
+});
+
+test("a standing rule with zero overlap with the prompt still appears, with its id", () => {
+  const out = renderBrief(
+    "MemoryLayer",
+    "add roles so a space can have read-only members",
+    [],
+    [],
+    [canonDoc("c1#a", "Never put policy checks in a transport")],
+  );
+  assert.match(out, /## Standing rules/);
+  assert.match(out, /Never put policy checks in a transport[^\n]*id: c1#a/);
+  // Shown, but not pre-filled into inherits — 47 pasted ids is not curation.
+  assert.doesNotMatch(out, /inherits=\[[^\]]*c1#a/);
+});
+
+test("a canon fact that also ranked is not printed twice", () => {
+  const out = renderBrief(
+    "MemoryLayer",
+    "transport",
+    [doc("c1#a", "constraint", "Never put policy checks in a transport")],
+    [],
+    [canonDoc("c1#a", "Never put policy checks in a transport")],
+  );
+  assert.equal(out.match(/c1#a/g).length, 1);
+});
+
+test("canon past the cap collapses into a count", () => {
+  const many = Array.from({ length: 70 }, (_, i) =>
+    canonDoc(`c${i}#x`, `Standing rule number ${i}`),
+  );
+  const out = renderBrief("MemoryLayer", "anything", [], [], many);
+  assert.match(out, /10 more standing rules/);
+});
