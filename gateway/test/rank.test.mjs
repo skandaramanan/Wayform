@@ -237,3 +237,44 @@ test("cosineTopK ranks Float32Array embeddings identically to number[]", () => {
     );
   }
 });
+
+// The pawl: canon was minted by any write and retired only by a successor
+// rule, because one "wrong" vote still left it at 1.5 x 0.8 = 1.2 — above
+// every kind prior. A flagged canon fact is no longer a standing rule.
+import {
+  adjustScores as adjust,
+  CANON_BOOST as BOOST,
+} from "../dist/gateway/src/rank.js";
+
+test("a canon fact with net-negative feedback loses its canon boost", () => {
+  const docs = new Map([
+    [
+      "c",
+      { kind: "decision", sourceTs: "2026-09-01T00:00:00Z", tier: "canon" },
+    ],
+    [
+      "n",
+      { kind: "decision", sourceTs: "2026-09-01T00:00:00Z", tier: "normal" },
+    ],
+  ]);
+  const fused = new Map([
+    ["c", 1],
+    ["n", 1],
+  ]);
+  const now = new Date("2026-09-22T00:00:00Z");
+  const clean = Object.fromEntries(
+    adjust(fused, docs, now).map((s) => [s.id, s.score]),
+  );
+  assert.equal(
+    clean.c / clean.n,
+    BOOST,
+    "an unflagged canon fact keeps the boost",
+  );
+  const flagged = Object.fromEntries(
+    adjust(fused, docs, now, new Map([["c", 1]])).map((s) => [s.id, s.score]),
+  );
+  assert.ok(
+    flagged.c < flagged.n,
+    "flagged canon now ranks BELOW an equal normal fact",
+  );
+});

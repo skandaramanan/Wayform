@@ -656,3 +656,49 @@ test("retrieve stays bounded on a corpus far larger than every cap", async () =>
     `hydration must stay bounded, got ${hydrated.length} of ${N}`,
   );
 });
+
+// Canon rendered first against one shared budget with no cap: at ~200 canon
+// facts, conflicts, recent decisions and open questions rendered as NOTHING.
+import { BRIEFING_CANON_SHARE } from "../dist/gateway/src/retrieval.js";
+
+test("canon cannot starve the rest of the briefing", () => {
+  const now = new Date("2026-09-22T00:00:00Z");
+  const d = (id, kind, tier, body) => ({
+    id,
+    kind,
+    tier,
+    body,
+    entities: [],
+    sourceAuthor: "Ada",
+    sourceTs: "2026-09-21T00:00:00Z",
+  });
+  const canon = Array.from({ length: 300 }, (_, i) =>
+    d(
+      `c${i}`,
+      "constraint",
+      "canon",
+      `Standing rule number ${i} about some part of the system`,
+    ),
+  );
+  const decision = d(
+    "d1",
+    "decision",
+    "normal",
+    "We picked D1 over KV for the index",
+  );
+  const out = renderBriefing("p", [...canon, decision], 4000, now);
+  assert.match(out, /We picked D1 over KV/, "a recent decision still renders");
+  assert.match(
+    out,
+    /more — search_memory/,
+    "dropped canon is counted, not silent",
+  );
+  const canonPart = out.slice(
+    out.indexOf("## Standing rules"),
+    out.indexOf("## ", out.indexOf("## Standing rules") + 3),
+  );
+  assert.ok(
+    canonPart.length / 4 <= 4000 * BRIEFING_CANON_SHARE + 60,
+    "canon stays inside its share",
+  );
+});

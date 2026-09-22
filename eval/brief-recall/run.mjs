@@ -77,11 +77,14 @@ for (const c of cases) {
   let err = null;
   try {
     const text = await brief(c.prompt);
-    hit = text.includes(c.mustSurface);
+    // "a|b" — any of several facts carrying the same content counts, the
+    // convention gateway/eval/cases.json already uses for duplicates.
+    const found = c.mustSurface.split("|").find((id) => text.includes(id));
+    hit = found !== undefined;
     if (hit) {
       // Which section carried it — a canon dump and a query match are
       // different mechanisms and the distinction is the whole experiment.
-      const idx = text.indexOf(c.mustSurface);
+      const idx = text.indexOf(found);
       const heads = [...text.slice(0, idx).matchAll(/^## (.+)$/gm)];
       section = heads.length ? heads[heads.length - 1][1] : "(no heading)";
     }

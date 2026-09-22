@@ -54,6 +54,13 @@ export interface RetrieveOpts {
   minScore?: number;
   /** Cap on returned facts regardless of remaining budget. */
   maxResults?: number;
+  /**
+   * A query embedding the caller already has. A caller that runs several
+   * retrieve() passes over the SAME query (plan_brief: facts, then plans)
+   * embeds once and passes it here, instead of paying one Workers AI call
+   * per pass for an identical vector. Omitted → embedded here as before.
+   */
+  queryVec?: number[];
 }
 
 export interface Retrieved {
@@ -83,7 +90,9 @@ export async function retrieve(
   if (scan.total === 0) return { results: [], total: 0 };
 
   let cosine: Scored[] = [];
-  if (deps.embed) {
+  if (opts.queryVec && opts.queryVec.length > 0) {
+    cosine = cosineTopK(scan.embeddings, opts.queryVec);
+  } else if (deps.embed) {
     try {
       const [queryVec] = await deps.embed([opts.query]);
       cosine = cosineTopK(scan.embeddings, queryVec ?? []);
@@ -302,6 +311,15 @@ export function injectLine(
   );
 }
 
+/**
+ * Canon renders FIRST against one shared budget, and nothing capped it. On
+ * 2026-09-21, 47 canon facts already took ~1,500-1,900 of the 4,000-token
+ * briefing; at ~200 the conflicts, recent decisions and open questions below
+ * would render as NOTHING, silently — indistinguishable from a quiet week.
+ * So canon gets a share, and the overflow is counted out loud.
+ */
+export const BRIEFING_CANON_SHARE = 0.5;
+
 const BRIEFING_RECENT_DECISION_DAYS = 7;
 /** A quiet week must not empty the decisions section — the product direction
  *  lives there. Below this many in the window, show the latest N instead. */
@@ -397,21 +415,33 @@ export function renderBriefing(
       : "";
 
   let used = 0;
-  const section = (title: string, lines: string[]): string[] => {
+  const section = (
+    title: string,
+    lines: string[],
+    cap = budgetTokens,
+  ): string[] => {
     const kept: string[] = [];
+    const start = used;
     for (const line of lines) {
       const cost = estimateTokens(line) + ENTRY_OVERHEAD_TOKENS;
-      if (used + cost > budgetTokens) break;
+      if (used + cost > budgetTokens || used - start + cost > cap) break;
       kept.push(line);
       used += cost;
     }
+    const dropped = lines.length - kept.length;
+    if (dropped > 0 && kept.length > 0)
+      kept.push(`- _…${dropped} more — search_memory for them_`);
     return kept.length > 0 ? [`## ${title}\n\n${kept.join("\n")}`] : [];
   };
 
   const parts = [
     `# Memory briefing: ${project}`,
     ...(manifestLine ? [manifestLine] : []),
-    ...section("Standing rules (canon)", canon.map(injectLine)),
+    ...section(
+      "Standing rules (canon)",
+      canon.map(injectLine),
+      Math.floor(budgetTokens * BRIEFING_CANON_SHARE),
+    ),
     ...section(
       "Unresolved conflicts",
       conflicts.map(

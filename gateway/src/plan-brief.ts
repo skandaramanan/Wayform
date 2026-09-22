@@ -150,11 +150,24 @@ export async function planBrief(
   const deps = indexDeps(c.env);
   if (!deps) throw new Error("plan_brief is not enabled on this gateway");
 
+  // Embed ONCE: both retrieve() passes below use the same query, and each
+  // used to embed it separately — two Workers AI calls for one vector on
+  // every brief. Fail-open exactly as retrieve() does: no vector, BM25 and
+  // entity candidates still run.
+  let queryVec: number[] | undefined;
+  if (deps.embed) {
+    try {
+      queryVec = (await deps.embed([prompt]))[0];
+    } catch {
+      queryVec = undefined;
+    }
+  }
   const common = {
     space: c.member.space,
     project: slug(a.project),
     query: prompt,
     minScore: TAU,
+    queryVec,
   };
   // Two passes, not one: plans are long and would crowd out every fact in a
   // shared budget, and the two lists are rendered under different headings.
