@@ -65,15 +65,15 @@
   {
     "id": "transport-siblings",
     "prompt": "Where should a new permission check live in the gateway?",
-    "mustSurface": "6d411906#1henbep",
+    "mustSurface": "6d411906#1henbep|6d411906#1mqe19j",
     "tier": "normal",
-    "why": "The normal-tier sibling of the canon transport rule, naming the actual service modules. Query-matched retrieval must find this one on its own."
+    "why": "Where a permission check lives. Either fact carries the rule: the normal-tier one names the service modules, its canon sibling states the rule. Accepting either follows gateway/eval/cases.json's `a|b` convention for facts with the same content. The normal-tier id alone is NOT reachable: BM25 rank 223, no entity overlap, RRF ~0.0044 against TAU 0.0222 (measured 2026-09-22)."
   },
   {
     "id": "ship-decisions",
     "prompt": "When a plan merges, how do its decisions get into the team's memory?",
     "mustSurface": "b213f40d#1ctvij7",
     "tier": "normal",
-    "why": "Shipped plans write produced decisions as a normal writer-split entry with zero LLM extraction. Normal tier \u2014 tests the query-matched path."
+    "why": "Shipped plans write produced decisions as a normal writer-split entry with zero LLM extraction. Normal tier \u2014 tests the query-matched path. KNOWN MISS (2026-09-22): BM25 rank 51, one slot past the top-50 cut, and even as a candidate its RRF (~0.0215) sits under TAU (0.0222) while the brief's 12 slots are full of higher scorers. A vocabulary gap ('merges'/'team memory' vs 'shipped'/'context entry') the current retrieval stack cannot bridge without flooding the brief."
   }
 ]

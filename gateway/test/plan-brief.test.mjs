@@ -125,3 +125,37 @@ test("canon past the cap collapses into a count", () => {
   const out = renderBrief("MemoryLayer", "anything", [], [], many);
   assert.match(out, /10 more standing rules/);
 });
+
+// plan_brief runs two retrieve() passes over the SAME prompt. Each used to
+// embed it separately — two Workers AI calls for one vector on every brief.
+import { planBrief } from "../dist/gateway/src/plan-brief.js";
+import { MemoryIndexDb } from "../dist/gateway/src/index-db-memory.js";
+import { fakeEmbed } from "./helpers.mjs";
+
+test("plan_brief embeds the prompt exactly once", async () => {
+  const seen = [];
+  const counting = async (texts) => {
+    seen.push(...texts);
+    return fakeEmbed(texts);
+  };
+  const env = { indexDb: new MemoryIndexDb(), embedder: counting };
+  await planBrief(
+    { env, member: { space: "s", author: "Ada" } },
+    { project: "p", prompt: "add a rate limiter" },
+  );
+  assert.deepEqual(seen, ["add a rate limiter"]);
+});
+
+test("plan_brief still answers when the embedder throws", async () => {
+  const env = {
+    indexDb: new MemoryIndexDb(),
+    embedder: async () => {
+      throw new Error("workers ai down");
+    },
+  };
+  const out = await planBrief(
+    { env, member: { space: "s", author: "Ada" } },
+    { project: "p", prompt: "anything" },
+  );
+  assert.match(out, /# Plan brief: p/);
+});

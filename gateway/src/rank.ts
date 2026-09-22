@@ -224,7 +224,13 @@ export function adjustScores(
     const doc = docsById.get(id);
     if (!doc) continue;
     let s = score * (KIND_PRIOR[doc.kind] ?? 1.0);
-    if (doc.tier === "canon") s *= CANON_BOOST;
+    const net = penalties?.get(id) ?? 0;
+    // A canon fact the team flagged wrong/stale is no longer a standing rule.
+    // Without this, one "wrong" vote left it at 1.5 x 0.8 = 1.2 — still above
+    // every kind prior — so canon was a ratchet with no pawl: minted by any
+    // write (including shipping a plan), retired only by a successor rule.
+    // The briefing and the plan brief already drop flagged facts outright.
+    if (doc.tier === "canon" && net <= 0) s *= CANON_BOOST;
     if (doc.kind === "status" || doc.kind === "question") {
       const ageMs = now.getTime() - Date.parse(doc.sourceTs);
       const ageDays = Number.isFinite(ageMs)
@@ -232,7 +238,6 @@ export function adjustScores(
         : 0;
       s *= Math.pow(0.5, ageDays / STATUS_HALF_LIFE_DAYS);
     }
-    const net = penalties?.get(id) ?? 0;
     if (net > 0) s *= Math.pow(FEEDBACK_PENALTY, net);
     out.push({ id, score: s });
   }
