@@ -10,9 +10,12 @@ import {
   MAX_APPLIES_WHEN_CHARS,
 } from "./extract.js";
 
+// readOnlyHint lets clients run a tool where writes are barred: Claude Code
+// refused plan_brief in plan mode (2026-09-23) until it carried the hint.
 export const TOOLS = [
   {
     name: "read_context",
+    annotations: { readOnlyHint: true },
     title: "Read shared planning context",
     description:
       "Use this when you need shared planning memory for a project: either a " +
@@ -137,6 +140,7 @@ export const TOOLS = [
   },
   {
     name: "search_memory",
+    annotations: { readOnlyHint: true },
     title: "Search the shared memory",
     description:
       "Use this BEFORE contradicting, reversing, or re-deciding anything that " +
@@ -217,6 +221,7 @@ export const TOOLS = [
   },
   {
     name: "plan_brief",
+    annotations: { readOnlyHint: true },
     title: "Brief for a new plan",
     description:
       "Use this FIRST, before writing any implementation plan, spec or design " +
@@ -281,6 +286,7 @@ export const TOOLS = [
   },
   {
     name: "read_plan",
+    annotations: { readOnlyHint: true },
     title: "Read a team plan, or list plans",
     description:
       "Use this to read plan #N (its state, linked decisions, runs and body) " +
@@ -458,6 +464,7 @@ export const TOOLS = [
   },
   {
     name: "list_sessions",
+    annotations: { readOnlyHint: true },
     title: "List the apps connected to your Wayform account",
     description:
       "Use this when the user asks which apps, clients, or devices are connected to their Wayform account, or wants to review or audit their own access. Shows every active session for YOUR account only, and marks the one you are using now. No arguments.",
