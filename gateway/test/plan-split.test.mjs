@@ -100,9 +100,20 @@ test(`plan #${N + 1} does not retrieve ${N} stale checklists`, async () => {
     [`plan:${next.meta.id}`],
     "only the plan in flight is found",
   );
-  // Decisions outrank a checklist on a shared query (kind priors); on its own
-  // words the in-flight plan renders as a plan.
-  const own = await search(`zebrafrost step ${N + 1}`);
+  // Decisions outrank a checklist on a shared query (kind priors); on words
+  // ONLY the in-flight plan carries, it renders as a plan.
+  //
+  // The query deliberately omits "zebrafrost". With it, all 10 produced
+  // decisions are candidates, they are byte-for-byte parallel ("zebrafrost
+  // decision N because reason N") so they tie exactly on BM25, and ties are
+  // broken by input order — which follows doc ids derived from per-run
+  // timestamps. Measured 2026-09-23 over 200 runs at 16-way concurrency: the
+  // plan's own score is constant (0.29167) while the decisions' scores shuffle
+  // around it, putting the plan anywhere from rank 7 to rank 11 against
+  // renderSearchResults' 10-entry cap — it rendered 11th, and failed, 7 times.
+  // Production ids are content-derived and fixed, so this shuffling is an
+  // artifact of the fixture, not of retrieval.
+  const own = await search(`step ${N + 1}`);
   assert.match(
     renderSearchResults("proj", "q", own, own.length),
     new RegExp(`\\[plan\\] Plan #${N + 1} \\[draft\\] Plan ${N + 1}`),

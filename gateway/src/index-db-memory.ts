@@ -322,7 +322,8 @@ export class MemoryIndexDb implements IndexDb {
       }
       const oldDoc = this.docs.get(`${space} ${e.oldFactId}`);
       const newDoc = this.docs.get(`${space} ${e.newFactId}`);
-      if (oldDoc && newDoc && !oldDoc.supersededBy) {
+      // Both ends must be live — see the same rule in index-db.ts.
+      if (oldDoc && newDoc && !oldDoc.supersededBy && !newDoc.supersededBy) {
         out.set(e.oldFactId, e.newFactId);
       }
     }

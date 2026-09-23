@@ -72,14 +72,22 @@ export function indexDeps(
           // real neurons) cost the budget as much as an extraction and the
           // self-imposed cap tripped long before the real bill did.
           const estimate = neuronsFor(
-            estimateTokens(prompt),
+            estimateTokens(prompt) + estimateTokens(opts.system ?? ""),
             EXPECTED_OUTPUT_TOKENS[purpose],
           );
           if (!(await reserveNeurons(env, estimate))) {
             throw new Error("neuron budget exhausted for today");
           }
           const out = await env.AI!.run(EXTRACT_MODEL, {
-            prompt,
+            // A chat call ANSWERS; a completion call continues the document.
+            ...(opts.system
+              ? {
+                  messages: [
+                    { role: "system", content: opts.system },
+                    { role: "user", content: prompt },
+                  ],
+                }
+              : { prompt }),
             max_tokens:
               purpose === "judge" ? JUDGE_MAX_TOKENS : EXTRACT_MAX_TOKENS,
             // The default (0.6) let the model invent specifics — dates,

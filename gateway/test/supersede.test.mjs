@@ -448,3 +448,103 @@ test("plan docs are never supersession candidates, conflicts or duplicates", asy
   assert.deepEqual(check.conflicts, []);
   assert.equal(judged, 0);
 });
+
+// ---------------------------------------------------------------------------
+// The supersession judge: chat-mode calls, and a parser that survives a model
+// that keeps talking. Measured 2026-09-22 on 18 real production pairs.
+// ---------------------------------------------------------------------------
+import {
+  parseJudgeVerdict as parseVerdict,
+  judgePair as judge,
+  JUDGE_SYSTEM,
+} from "../dist/gateway/src/supersede.js";
+
+test("a verdict followed by more output still parses", async () => {
+  // Real shape of a 2026-09-22 production failure: a good object, then the
+  // model carried on continuing the prompt until the 160-token cap. The old
+  // parser spanned the first "{" to the LAST "}" and got an unparseable span.
+  const raw =
+    '{"verdict":"replaces","reason":"NEW updates OLD."}\n' +
+    'NEW (status): PR #80 merged\nOLD (context): {"not":"json"';
+  assert.equal(parseVerdict(raw).verdict, "replaces");
+  assert.equal(parseVerdict(raw).reason, "NEW updates OLD.");
+});
+
+test("a brace inside a reason string does not end the object", () => {
+  const raw =
+    '{"verdict":"relates","reason":"the literal {\\"a\\":1} appears"}';
+  assert.equal(parseVerdict(raw).verdict, "relates");
+});
+
+test("preamble before the JSON is still fine, and junk alone is parse-failed", () => {
+  assert.equal(
+    parseVerdict('Sure. {"verdict":"uncertain","reason":"x"}').verdict,
+    "uncertain",
+  );
+  const bad = parseVerdict("NEW (status): the model never emitted JSON");
+  assert.equal(bad.verdict, "uncertain");
+  assert.equal(bad.reason, "parse-failed");
+});
+
+test("the judge is called as a chat, with the rules as the system message", async () => {
+  const seen = [];
+  const gen = async (prompt, opts) => {
+    seen.push({ prompt, opts });
+    return '{"verdict":"relates","reason":"different events"}';
+  };
+  const r = await judge(
+    gen,
+    { body: "PR #80 merged", kind: "status" },
+    { id: "a#1", body: "PR #56 merged", kind: "context" },
+  );
+  assert.equal(r.verdict, "relates");
+  assert.equal(seen.length, 1);
+  // The rules go in the system message; the user message is ONLY the pair —
+  // a raw completion of the rules-plus-pair document is what the model used to
+  // continue instead of answering.
+  assert.equal(seen[0].opts.system, JUDGE_SYSTEM);
+  assert.equal(seen[0].opts.purpose, "judge");
+  assert.match(
+    seen[0].prompt,
+    /^NEW \(status\): PR #80 merged\nOLD \(context, id=a#1\): PR #56 merged$/,
+  );
+  assert.doesNotMatch(seen[0].prompt, /Verdict rules/);
+});
+
+test("a retired fact stops suggesting that a live fact is outdated", async () => {
+  // Found 2026-09-23 by dogfooding: a paraphrase written to verify the judge
+  // made the live CANON fact it paraphrased render "⚠ possibly outdated", and
+  // retiring the paraphrase did not clear it — the suggestion query required
+  // only that the suggesting fact EXIST, not that it still be live.
+  const db = new MemoryIndexDb();
+  const emb = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  const canon = liveDoc("canon#0", "gateway ships by npm run deploy", [], emb);
+  const para = liveDoc(
+    "para#0",
+    "shipping the gateway runs npm run deploy",
+    [],
+    emb,
+  );
+  await db.upsertDocs([canon, para]);
+  await db.logSupersession({
+    space: "s1",
+    project: "memorylayer",
+    newFactId: "para#0",
+    oldFactId: "canon#0",
+    verdict: "replaces",
+    autoLinked: false,
+    reason: "judge",
+    ts: new Date().toISOString(),
+  });
+  assert.equal(
+    (await db.supersessionSuggestions("s1")).get("canon#0"),
+    "para#0",
+    "while both are live the suggestion stands",
+  );
+  await db.markSuperseded("s1", "para#0", "canon#0");
+  assert.equal(
+    (await db.supersessionSuggestions("s1")).get("canon#0"),
+    undefined,
+    "once the suggesting fact is retired the warning must go with it",
+  );
+});
