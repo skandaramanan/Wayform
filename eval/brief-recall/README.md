@@ -15,16 +15,28 @@ for seven candidate strategies.
 
 ## Results
 
-| build | canon | normal | total |
-|---|---|---|---|
-| before the canon dump (2026-09-21, v`4307bdd2`) | 2/8 | — | **2/8** |
-| with the canon dump (v`edec20b5`) | 8/8 | 1/3 | **9/11** |
+| build | canon | normal | negative | total |
+|---|---|---|---|---|
+| before the canon dump (2026-09-21, v`4307bdd2`) | 2/8 | — | — | **2/8** |
+| with the canon dump (v`edec20b5`) | 8/8 | 1/3 | — | **9/11** |
+| 3 normal cases (2026-09-22, v`aee1a440`) | 8/8 | 2/3 | — | **10/11** |
+| **18 normal + 3 negative cases (2026-09-23)** | 8/8 | **9/18** | **0/3** | **17/29** |
 
-**Read the `normal` column, not the total.** The brief now dumps every canon
-fact under the cap, so any canon case is trivially a hit — those eight cases
-are a regression guard (they fail if canon is ever turned back into a
-query-ranked top-N, which is the bug the dump exists to fix), not a measure of
-retrieval. The normal-tier cases are the live signal.
+**Read the `normal` and `negative` columns.** The brief dumps every canon fact
+under the cap, so a canon case is trivially a hit — those eight are a
+regression guard against canon ever being turned back into a query-ranked
+top-N, not a measure of retrieval.
+
+Two things the wider set exposed that 3 cases could not:
+
+- **Normal-tier recall is 50%, not 67%.** Half the binding facts a real task
+  depends on never reach the brief.
+- **Every negative control fails.** On prompts where nothing recorded binds
+  ("bump the copyright year in LICENSE"), the brief still returns 10–11
+  query-matched facts. τ is a floor and `BRIEF_MAX_FACTS` fills to it, so the
+  brief pads rather than saying it has nothing. Note a relative-score cut was
+  already falsified as the fix (it keeps 12/12 on a flat list and guts the
+  strong cases), so this needs a different answer.
 
 ## What it cannot tell you
 
