@@ -75,5 +75,146 @@
     "mustSurface": "b213f40d#1ctvij7",
     "tier": "normal",
     "why": "Shipped plans write produced decisions as a normal writer-split entry with zero LLM extraction. Normal tier \u2014 tests the query-matched path. KNOWN MISS (2026-09-22): BM25 rank 51, one slot past the top-50 cut, and even as a candidate its RRF (~0.0215) sits under TAU (0.0222) while the brief's 12 slots are full of higher scorers. A vocabulary gap ('merges'/'team memory' vs 'shipped'/'context entry') the current retrieval stack cannot bridge without flooding the brief."
+  },
+  {
+    "id": "loud-offline-failure",
+    "prompt": "If the Wayform backend is down when I open a new chat, nothing tells me. Make it fail loudly so people know their setup is broken.",
+    "mustSurface": "8481264b#19gcbjt",
+    "tier": "normal",
+    "difficulty": "hard",
+    "why": "The engineer makes the session-start hook error out or exit non-zero, which blocks the session. The hook must fail open."
+  },
+  {
+    "id": "hooks-via-npx",
+    "prompt": "Change the commands we write into each client's hook config to run through npx, so teammates don't have to install the CLI globally.",
+    "mustSurface": "77298053#hdwidd",
+    "tier": "normal",
+    "difficulty": "easy",
+    "why": "The hook fires every turn; resolving npx each turn adds latency and fails offline, and because the hook fails open, writes are then lost silently."
+  },
+  {
+    "id": "recent-read-from-db",
+    "prompt": "Loading the latest context without a search query is slow because it pulls files from GitHub one by one. Serve it from the D1 database we already have instead.",
+    "mustSurface": "a1a2672b#1xsrp7y",
+    "tier": "normal",
+    "difficulty": "medium",
+    "why": "The no-query read promises raw entries in write order, which the index cannot give. (id corrected 2026-09-23: the mined id a1a2672b#1xvb8xz does not exist)"
+  },
+  {
+    "id": "cheaper-extraction-model",
+    "prompt": "We keep burning through the Workers AI allowance. Swap in a smaller model for pulling facts out of notes.",
+    "mustSurface": "5c21b43c#11cstdr|5c21b43c#11fevdg|1a995b40#si51xa",
+    "tier": "normal",
+    "difficulty": "easy",
+    "why": "The 8B model was already evaluated and rejected: cheap-model failures corrupt the index, 70B failures floor safely."
+  },
+  {
+    "id": "auto-tune-cutoff",
+    "prompt": "Write a job that works out the right score cutoff for search results from our logged queries and pushes the new value to production automatically.",
+    "mustSurface": "b1b9e168#k9o6pl",
+    "tier": "normal",
+    "difficulty": "hard",
+    "why": "The tau calibration is deliberately recommend-only; auto-applying it can silently switch retrieval off."
+  },
+  {
+    "id": "per-project-downvotes",
+    "prompt": "A thumbs-down in one project shouldn't count against the same result in another project. Make the downvote penalties per-project.",
+    "mustSurface": "a4668078#1vsb59j",
+    "tier": "normal",
+    "difficulty": "medium",
+    "why": "Penalties are keyed by space on purpose: fact ids are space-unique and retrieve() is sometimes called with no project."
+  },
+  {
+    "id": "mcp-throttle",
+    "prompt": "Add per-user throttling on the MCP endpoint so a runaway agent can't hammer the API.",
+    "mustSurface": "2fa94dbb#15c77ob|2fa94dbb#duhyjf",
+    "tier": "normal",
+    "difficulty": "medium",
+    "why": "A /mcp limit was built and then deleted; only unauthenticated surfaces are limited."
+  },
+  {
+    "id": "guard-hard-block",
+    "prompt": "When the pre-edit check finds a change that contradicts a team decision, stop the edit outright instead of letting it through.",
+    "mustSurface": "453d40ff#11jvdai",
+    "tier": "normal",
+    "difficulty": "hard",
+    "why": "v1 emits ask and never deny; a false positive on deny costs the whole feature."
+  },
+  {
+    "id": "paste-api-key",
+    "prompt": "Some users can't get the browser sign-in to work. Let them paste an API key into their editor config instead.",
+    "mustSurface": "4e0288cc#7bws91|4e0288cc#cv0f46",
+    "tier": "normal",
+    "difficulty": "medium",
+    "why": "The HTTP gate is OAuth-only specifically so pasteable tokens are not a first-class path."
+  },
+  {
+    "id": "rename-identifiers",
+    "prompt": "We renamed the product to Wayform. Update the project and space names in the data and config so nothing still says memorylayer.",
+    "mustSurface": "611bde04#kwd1hk|611bde04#iye9md",
+    "tier": "normal",
+    "difficulty": "easy",
+    "why": "Renaming the space strands the whole index; renaming the project slug orphans live data."
+  },
+  {
+    "id": "rebuild-after-bad-day",
+    "prompt": "A batch of notes didn't get processed yesterday and their facts never showed up. Kick off a full rebuild of the search index to fix it.",
+    "mustSurface": "214dfa04#10dfo77",
+    "tier": "normal",
+    "difficulty": "hard",
+    "why": "Calling the reindex endpoint is the explicitly forbidden recovery for a floored corpus."
+  },
+  {
+    "id": "edit-plan-locally",
+    "prompt": "I want to edit plans in my editor under .wayform/ and have my changes sync back to Wayform.",
+    "mustSurface": "768445e4#18fke2l",
+    "tier": "normal",
+    "difficulty": "easy",
+    "why": "The mirror is a read-only view; two-way sync would need conflict handling against the append-only ledger."
+  },
+  {
+    "id": "shorter-plan-ids",
+    "prompt": "Plan ids look odd with that leading letter. Switch them to plain 8-character hex.",
+    "mustSurface": "773100b6#1fadiye",
+    "tier": "normal",
+    "difficulty": "easy",
+    "why": "About 2% of 8-hex ids are all digits, and read_plan would read those as #numbers."
+  },
+  {
+    "id": "related-choices-on-save",
+    "prompt": "When someone saves a plan, show them past team choices that look related to what they wrote.",
+    "mustSurface": "1412ed03#jv0w46",
+    "tier": "normal",
+    "difficulty": "hard",
+    "why": "The natural build feeds the plan text to retrieve(), which keeps only the first 16 tokens \u2014 the preamble."
+  },
+  {
+    "id": "structured-output-extraction",
+    "prompt": "Pulling facts out of notes sometimes gets malformed output back from the model. Turn on the model's structured-output mode so responses always match our format.",
+    "mustSurface": "b9881971#kjc9i0",
+    "tier": "normal",
+    "difficulty": "medium",
+    "why": "Workers AI json_schema mode was tried and rejected: it returned empty fact arrays for 9 of 10 chunks."
+  },
+  {
+    "id": "neg-license-year",
+    "prompt": "Bump the copyright year in LICENSE to 2026.",
+    "negative": true,
+    "maxDecisions": 2,
+    "why": "Pure housekeeping with nothing recorded about it; a brief that returns a full list here is padding."
+  },
+  {
+    "id": "neg-editorconfig",
+    "prompt": "Add an .editorconfig with 2-space indentation and a final newline.",
+    "negative": true,
+    "maxDecisions": 2,
+    "why": "Prettier and ESLint exist but no decision covers editor whitespace; pulling in lint or CI facts is padding."
+  },
+  {
+    "id": "neg-rename-local",
+    "prompt": "In one helper function, rename the local variable tmp to buffer for readability.",
+    "negative": true,
+    "maxDecisions": 2,
+    "why": "A trivial refactor with no subsystem; any decision surfaced is noise."
   }
 ]
