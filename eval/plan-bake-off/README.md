@@ -7,18 +7,28 @@ configured for this repo, with `plan_brief` deployed to the gateway.
 Read each pair — blind to the filename if you can — and answer one question per
 case.
 
-| Case | Which would you rather start from? | Cited a real decision the cold plan missed? | Contradicted a settled decision? |
-|---|---|---|---|
-| dispatch | **Wayform** | Yes | No |
-| desktop-plan-view | **Wayform** (narrow) | Yes | No |
-| outcome-capture | Tie | Yes | No |
-| repo-map | **Wayform** | Yes | No |
-| rbac | Tie | **No** | Yes — both arms |
+> **The 3-wins/2-ties scorecard below is RETIRED. Do not cite it.**
+>
+> It was scored unblinded by one model answering "which would you rather start
+> from", and word-count delta rank-correlates with its verdict 5/5 (+335/+212/
+> +192 won; −39/−56 tied). A **pre-registered rubric** (selection rule fixed and
+> hashed from the store and the code *before* any plan was opened — see
+> `PROTOCOL.md`) re-scored the same ten plans and found **zero decided cases:
+> all five tie.** Every win in the table traced to a lexical-noise check or to
+> PASS-beating-N/A on work only one arm attempted.
+>
+> What survives is not "Wayform won" but the specific, checkable findings in
+> the case notes — above all that on `repo-map` the briefed arm refused to build
+> work that had been deferred that same day, and that on `rbac` **both** arms
+> violated canon `6d411906#1mqe19j`.
 
-**Gate:** Wayform wins or ties on ≥4 of 5, and cites a real decision the cold
-plan missed on ≥3. **Result: 3 wins, 2 ties, 4/5 citations → PASSED**
-(scored 2026-09-21 by Claude against the clean cold arm; founder confirmation
-pending).
+| Case | (retired) preference verdict | Pre-registered rubric | Cited a decision the cold plan missed |
+|---|---|---|---|
+| dispatch | Wayform | tie (noise-controlled) | Yes |
+| desktop-plan-view | Wayform (narrow) | **tie — disagrees** | Yes |
+| outcome-capture | Tie | tie | Yes |
+| repo-map | Wayform | **tie — disagrees** | Yes |
+| rbac | Tie | tie — both violate canon | No |
 
 ## A note on the two cleared `RUN INVALID` banners
 
