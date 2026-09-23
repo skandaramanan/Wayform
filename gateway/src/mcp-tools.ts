@@ -7,6 +7,7 @@ import {
   FACT_KINDS,
   MAX_CLIENT_FACTS,
   MAX_CLIENT_FACT_CHARS,
+  MAX_APPLIES_WHEN_CHARS,
 } from "./extract.js";
 
 export const TOOLS = [
@@ -119,6 +120,12 @@ export const TOOLS = [
                 items: { type: "string" },
                 description:
                   "Short topic tags, e.g. 'mcp-config', 'neuron-budget'.",
+              },
+              applies_when: {
+                type: "string",
+                maxLength: MAX_APPLIES_WHEN_CHARS,
+                description:
+                  "Tasks this fact should shape, in the words someone would use to ask for them (e.g. 'changing price fields, billing reports'). Lets it surface for tasks that share none of its wording.",
               },
             },
             required: ["body"],
@@ -369,6 +376,10 @@ export const TOOLS = [
               kind: { type: "string", enum: [...FACT_KINDS] },
               body: { type: "string", maxLength: MAX_CLIENT_FACT_CHARS },
               entities: { type: "array", items: { type: "string" } },
+              applies_when: {
+                type: "string",
+                maxLength: MAX_APPLIES_WHEN_CHARS,
+              },
             },
             required: ["body"],
           },

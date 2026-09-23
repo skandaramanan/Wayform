@@ -273,3 +273,19 @@ test("chunkPayload breaks an overlong paragraph at whitespace, never mid-word", 
   assert.ok(out.every((c) => c.length <= 1200));
   assert.deepEqual(out.join(" ").split(" "), words, "every word intact");
 });
+
+test("clientFacts keeps a writer's applies_when, trimmed and capped; drops non-strings", async () => {
+  const { clientFacts, MAX_APPLIES_WHEN_CHARS } =
+    await import("../dist/gateway/src/extract.js");
+  const [a, b, c] = clientFacts(
+    [
+      { body: "x", applies_when: "  adding a dependency " },
+      { body: "y", applies_when: "z".repeat(500) },
+      { body: "w", applies_when: 7 },
+    ],
+    { type: "decision" },
+  );
+  assert.equal(a.applies_when, "adding a dependency");
+  assert.equal(b.applies_when.length, MAX_APPLIES_WHEN_CHARS);
+  assert.equal("applies_when" in c, false);
+});

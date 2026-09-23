@@ -36,6 +36,13 @@ export interface ExtractedFact {
   tier: "canon" | "normal";
   body: string;
   entities: string[];
+  /**
+   * The tasks this fact should shape, in the words someone would use to ask
+   * for them. Indexed with the body (not part of the id): a fact like "hooks
+   * are project-scoped" shares no words with "install the hook globally".
+   * Offline 2026-09-23 this lifted brief recall 9/20 -> 11/20 held-out.
+   */
+  applies_when?: string;
 }
 
 /**
@@ -45,6 +52,8 @@ export interface ExtractedFact {
  */
 // 2026-09-17.1: facts must name their subject (no "it"/"the issue"). The bump
 // re-extracts the corpus via the cron, a few entries per tick within budget.
+// applies_when (2026-09-23) did NOT bump it: existing facts were backfilled
+// in place, which keeps their ids and costs a fraction of re-extraction.
 export const EXTRACTOR_VERSION = "2026-09-17.1";
 
 export const FACT_KINDS = [
@@ -61,6 +70,7 @@ const VALID_KINDS = new Set<string>(FACT_KINDS);
 /** Bounds on writer-supplied facts (write_context `facts`). */
 export const MAX_CLIENT_FACTS = 12;
 export const MAX_CLIENT_FACT_CHARS = 1000;
+export const MAX_APPLIES_WHEN_CHARS = 200;
 
 function escapeRe(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -100,7 +110,7 @@ export function buildExtractionPrompt(entry: ParsedEntry): string {
     "You extract atomic planning facts from a single shared-memory entry.",
     "Rules:",
     "- Output ONLY a JSON array; no prose, no code fence required.",
-    '- Each element: {"kind", "tier", "body", "entities"}.',
+    '- Each element: {"kind", "tier", "body", "entities", "applies_when"}.',
     "- kind ∈ decision|constraint|preference|reference|context|status|question.",
     "- Split the entry into 1–5 self-contained facts. Each must make sense with NO",
     "  other context: name its subject explicitly (the component, feature, PR, file",
@@ -111,6 +121,10 @@ export function buildExtractionPrompt(entry: ParsedEntry): string {
     '- tier = "canon" ONLY for standing rules/conventions/environment invariants',
     '  ("always X", "never Y"); status updates are NEVER canon; else "normal".',
     '- entities: short normalized topic tags (e.g. "cursor", "mcp-config").',
+    "- applies_when: up to 15 words naming the tasks or changes an agent must know",
+    "  this fact for, especially ones that would violate it, in the plain words",
+    '  someone would use to ask for the work (e.g. "changing price fields, billing',
+    "  reports\"), not the fact's own wording.",
     "",
     `Entry type: ${entry.type}`,
     "Entry body:",
@@ -218,7 +232,17 @@ function coerce(raw: unknown, entry: { type: string }): ExtractedFact[] | null {
           ),
         ]
       : [];
-    facts.push({ kind, tier, body, entities });
+    const applies =
+      typeof o.applies_when === "string"
+        ? o.applies_when.trim().slice(0, MAX_APPLIES_WHEN_CHARS)
+        : "";
+    facts.push({
+      kind,
+      tier,
+      body,
+      entities,
+      ...(applies ? { applies_when: applies } : {}),
+    });
   }
   return facts.length > 0 ? facts : null;
 }

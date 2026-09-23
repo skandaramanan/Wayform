@@ -17,6 +17,7 @@ export interface EntryFact {
   body: string;
   tier?: string;
   entities?: string[];
+  applies_when?: string;
 }
 
 /** The minimal payload a caller supplies to record an entry. */
