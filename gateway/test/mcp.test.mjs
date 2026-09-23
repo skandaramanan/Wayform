@@ -887,3 +887,17 @@ test("write_context schema teaches amend-via-supersedes", async () => {
     /updating\/amending a recorded decision/,
   );
 });
+
+test("exactly the read-only tools carry readOnlyHint, so plan mode can call them", async () => {
+  const { TOOLS } = await import("../dist/gateway/src/mcp-tools.js");
+  const ro = TOOLS.filter((t) => t.annotations?.readOnlyHint)
+    .map((t) => t.name)
+    .sort();
+  assert.deepEqual(ro, [
+    "list_sessions",
+    "plan_brief",
+    "read_context",
+    "read_plan",
+    "search_memory",
+  ]);
+});
