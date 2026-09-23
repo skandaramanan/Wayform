@@ -39,6 +39,8 @@ export const JUDGE_MAX_TOKENS = 160;
  *  decides what it costs. */
 export const NEURONS_PER_M_INPUT = 26_668;
 export const NEURONS_PER_M_OUTPUT = 204_805;
+/** EMBED_MODEL list price (input only), same pricing page. */
+export const EMBED_NEURONS_PER_M = 6_058;
 
 /** Typical completion lengths, used only to RESERVE before a call; the model's
  *  reported usage settles the counter after. Extraction measured ~77 neurons
@@ -60,8 +62,22 @@ export function indexDeps(
   const embed =
     env.embedder ??
     (env.AI
-      ? async (texts: string[]) =>
-          (await env.AI!.run(EMBED_MODEL, { text: texts })).data
+      ? async (texts: string[]) => {
+          const out = (await env.AI!.run(EMBED_MODEL, { text: texts })).data;
+          // Charged after the fact and never blocking: a query that cannot
+          // embed only degrades to BM25, so refusing would buy nothing, but an
+          // uncounted reindex let extraction run past the real bill.
+          // ponytail: floor skips sub-neuron batches (a single query is ~0.3),
+          // so per-brief embeds go uncounted — cents a month, and it keeps a
+          // KV round-trip off the prompt hook's hot path.
+          const n = Math.floor(
+            (texts.reduce((t, x) => t + estimateTokens(x), 0) *
+              EMBED_NEURONS_PER_M) /
+              1_000_000,
+          );
+          if (n > 0) await adjustNeurons(env, n);
+          return out;
+        }
       : null);
   const gen: GenText | null =
     env.genText ??

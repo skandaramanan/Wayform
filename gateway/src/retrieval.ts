@@ -202,6 +202,8 @@ export async function retrieve(
       evt: "retrieval_timing",
       trigger: opts.trigger,
       nEmb: scan.embeddings.length,
+      // total > nEmb means EMBED_SCAN_CAP is dropping facts from cosine.
+      total: scan.total,
       nTokenMatch: scan.tokenMatchIds.length,
       nEntityDocs: scan.entitiesByDoc.size,
       nHydrated: docs.length,
