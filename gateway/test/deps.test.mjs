@@ -35,3 +35,29 @@ test("indexDeps prefers the env.genText seam over env.AI", async () => {
 test("indexDeps returns null when no index is configured", () => {
   assert.equal(indexDeps({}), null);
 });
+
+test("embed charges its neurons to the daily counter; a single query is free", async () => {
+  const kv = new Map();
+  const env = {
+    indexDb: new MemoryIndexDb(),
+    ROUTING: {
+      async get(k) {
+        return kv.get(k) ?? null;
+      },
+      async put(k, v) {
+        kv.set(k, v);
+      },
+    },
+    AI: {
+      async run(_model, input) {
+        return { data: input.text.map(() => [1]) };
+      },
+    },
+  };
+  const deps = indexDeps(env);
+  await deps.embed(["short query"]);
+  assert.equal(kv.size, 0, "sub-neuron batch must not touch KV");
+  await deps.embed(Array(500).fill("word ".repeat(100)));
+  const spent = Number([...kv.values()][0]);
+  assert.ok(spent > 0, `reindex-sized batch charged, got ${spent}`);
+});
