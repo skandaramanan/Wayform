@@ -225,3 +225,28 @@ test("a plan doc is never judged as a decision to enforce", async () => {
   assert.equal(out.decision, "allow");
   assert.equal(judged, 0);
 });
+
+test("read-only shell commands skip the judge; anything that can write is still checked", async () => {
+  const { isReadOnlyShell } = await import("../dist/gateway/src/guard.js");
+  for (const c of [
+    "ls Makefile 2>/dev/null && cat Makefile",
+    "git log --oneline -5 | head",
+    "grep -rn foo src/ | wc -l",
+    "find . -name '*.ts' -not -path './node_modules/*'",
+    "sed -n 1,40p src/x.ts",
+    "true",
+  ])
+    assert.equal(isReadOnlyShell(`Bash: ${c}`), true, c);
+  for (const c of [
+    "echo x > file",
+    "rm -rf dist",
+    "git commit -m x",
+    "git push",
+    "sed -i '' s/a/b/ f",
+    "find . -name x -delete",
+    "cat $(mktemp)",
+    "ls && npm install",
+  ])
+    assert.equal(isReadOnlyShell(`Bash: ${c}`), false, c);
+  assert.equal(isReadOnlyShell("Edit src/x.ts: ls"), false);
+});
