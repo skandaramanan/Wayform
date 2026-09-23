@@ -31,10 +31,49 @@ export interface GuardResult {
 
 const ALLOW: GuardResult = { decision: "allow", reason: "", factIds: [] };
 
+const READ_ONLY_CMDS = new Set(
+  "ls cat head tail grep rg find wc echo printf pwd true which file stat du tree sort uniq cut jq diff cd basename dirname realpath readlink sed awk".split(
+    " ",
+  ),
+);
+const READ_ONLY_GIT = new Set(
+  "log show diff status blame ls-files grep rev-parse describe shortlog ls-tree cat-file".split(
+    " ",
+  ),
+);
+
+/**
+ * A shell command that only reads cannot contradict a decision, yet it was
+ * judged like an edit: on 2026-09-23 plan-mode runs had `git log`, `grep` and
+ * `ls` interrupted by unrelated "contradicts" verdicts, and a headless agent
+ * cannot answer "ask", so it was simply blocked. Conservative: any redirect,
+ * command substitution, in-place edit or non-read git subcommand still goes
+ * to the judge.
+ */
+export function isReadOnlyShell(action: string): boolean {
+  const m = /^Bash: ([\s\S]*)$/.exec(action);
+  if (!m) return false;
+  const cmd = m[1].replace(/\d?>\s*\/dev\/null|\d>&\d/g, "");
+  if (/[>`]|\$\(/.test(cmd)) return false;
+  return cmd
+    .split(/&&|\|\||[;|\n]/)
+    .map((seg) => seg.trim().split(/\s+/))
+    .filter((w) => w[0])
+    .every((w) => {
+      if (w[0] === "git") return READ_ONLY_GIT.has(w[1] ?? "");
+      if (!READ_ONLY_CMDS.has(w[0])) return false;
+      if (w[0] === "sed") return !w.some((x) => x.startsWith("-i"));
+      if (w[0] === "find")
+        return !w.some((x) => /^-(delete|exec|execdir|ok)$/.test(x));
+      return true;
+    });
+}
+
 export async function checkAction(
   deps: RetrieveDeps & { gen: GenText | null },
   opts: { space: string; project: string; action: string },
 ): Promise<GuardResult> {
+  if (isReadOnlyShell(opts.action)) return ALLOW;
   try {
     const { results } = await retrieve(deps, {
       space: opts.space,
