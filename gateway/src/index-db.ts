@@ -883,7 +883,12 @@ export function d1IndexDb(db: D1Like): IndexDb {
         .prepare(
           "SELECT l.old_fact_id AS o, l.new_fact_id AS n FROM supersession_log l " +
             "JOIN docs od ON od.space = l.space AND od.id = l.old_fact_id AND od.superseded_by IS NULL " +
+            // nd must ALSO be live: a suggestion from a fact that has since
+            // been superseded kept stamping "possibly outdated" on a live fact
+            // forever (found 2026-09-23 dogfooding — a retired paraphrase left
+            // the warning on a canon fact).
             "JOIN docs nd ON nd.space = l.space AND nd.id = l.new_fact_id " +
+            "AND nd.superseded_by IS NULL " +
             "WHERE l.space = ? AND l.verdict = 'replaces' AND l.auto_linked = 0 " +
             "AND l.reason != 'author-supersedes' ORDER BY l.ts LIMIT 2000",
         )

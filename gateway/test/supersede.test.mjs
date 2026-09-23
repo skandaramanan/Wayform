@@ -510,3 +510,41 @@ test("the judge is called as a chat, with the rules as the system message", asyn
   );
   assert.doesNotMatch(seen[0].prompt, /Verdict rules/);
 });
+
+test("a retired fact stops suggesting that a live fact is outdated", async () => {
+  // Found 2026-09-23 by dogfooding: a paraphrase written to verify the judge
+  // made the live CANON fact it paraphrased render "⚠ possibly outdated", and
+  // retiring the paraphrase did not clear it — the suggestion query required
+  // only that the suggesting fact EXIST, not that it still be live.
+  const db = new MemoryIndexDb();
+  const emb = [1, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0];
+  const canon = liveDoc("canon#0", "gateway ships by npm run deploy", [], emb);
+  const para = liveDoc(
+    "para#0",
+    "shipping the gateway runs npm run deploy",
+    [],
+    emb,
+  );
+  await db.upsertDocs([canon, para]);
+  await db.logSupersession({
+    space: "s1",
+    project: "memorylayer",
+    newFactId: "para#0",
+    oldFactId: "canon#0",
+    verdict: "replaces",
+    autoLinked: false,
+    reason: "judge",
+    ts: new Date().toISOString(),
+  });
+  assert.equal(
+    (await db.supersessionSuggestions("s1")).get("canon#0"),
+    "para#0",
+    "while both are live the suggestion stands",
+  );
+  await db.markSuperseded("s1", "para#0", "canon#0");
+  assert.equal(
+    (await db.supersessionSuggestions("s1")).get("canon#0"),
+    undefined,
+    "once the suggesting fact is retired the warning must go with it",
+  );
+});
