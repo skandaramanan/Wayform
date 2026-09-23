@@ -75,8 +75,26 @@ for (const c of cases) {
   let hit = false;
   let section = "";
   let err = null;
+  let nDecisions = null;
   try {
     const text = await brief(c.prompt);
+    // Negative control: nothing recorded should bind this prompt. Retrieval is
+    // recall-biased, so the measure is how much the brief PADS — how many
+    // query-matched facts it returns when the honest answer is "almost none".
+    // Canon is dumped unconditionally and is not counted here.
+    if (c.negative) {
+      const from = text.indexOf("## Decisions that constrain this work");
+      const body =
+        from < 0 ? "" : text.slice(from, text.indexOf("\n## ", from + 3));
+      nDecisions = (body.match(/^- /gm) ?? []).length;
+      hit = nDecisions <= (c.maxDecisions ?? 2);
+      section = `${nDecisions} query-matched facts`;
+      rows.push({ id: c.id, tier: "negative", hit, section, err });
+      process.stderr.write(
+        `${hit ? "OK  " : "PAD "} ${c.id} (${nDecisions})\n`,
+      );
+      continue;
+    }
     // "a|b" — any of several facts carrying the same content counts, the
     // convention gateway/eval/cases.json already uses for duplicates.
     const found = c.mustSurface.split("|").find((id) => text.includes(id));
@@ -109,7 +127,9 @@ const byTier = (t) => {
   return g.length ? `${g.filter((r) => r.hit).length}/${g.length}` : "—";
 };
 console.log(
-  `\ncanon ${byTier("canon")} · normal ${byTier("normal")} — a canon dump makes canon cases trivial, so the normal column is the live signal.`,
+  `\ncanon ${byTier("canon")} · normal ${byTier("normal")} · negative ${byTier("negative")}` +
+    ` — a canon dump makes canon cases trivial, so the normal column is the live signal;` +
+    ` negative controls pass when the brief does NOT pad.`,
 );
 console.log(
   `\n**recall ${hits}/${rows.length}**${errs ? ` (${errs} errored)` : ""}`,
