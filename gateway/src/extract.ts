@@ -17,6 +17,17 @@ import { slug } from "../../src/slug.js";
  *  reservation from it (a verdict is ~40 tokens, an extraction ~300). */
 export interface GenOpts {
   purpose?: "extract" | "judge";
+  /**
+   * When set, the call is made as a CHAT (system + user) instead of a raw
+   * completion. Measured 2026-09-22 on 18 real judge pairs: the raw-completion
+   * form ran to the 160-token cap on 11 of 12 recorded failures — the model
+   * kept continuing the prompt's own "NEW (...) / OLD (...)" pattern instead of
+   * answering — while the chat form parsed 11/12, used a third of the output
+   * tokens, and was more accurate (8/9 vs 1/9 on the pairs where they differed).
+   * The trailing-cue fix that PR #66 used for extraction was also tried and is
+   * NOT sufficient here: it parsed 8/12 and repeated the over-"replaces" error.
+   */
+  system?: string;
 }
 export type GenText = (prompt: string, opts?: GenOpts) => Promise<string>;
 

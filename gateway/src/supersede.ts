@@ -127,24 +127,52 @@ export function supersessionCandidates(
   );
 }
 
+/** The judge's rules — sent as the SYSTEM message (see GenOpts.system). */
+export const JUDGE_SYSTEM = [
+  "You judge whether a NEW planning fact supersedes, contradicts, or merely relates to an OLD fact.",
+  'Output ONLY JSON: {"verdict":"replaces|contradicts|relates|uncertain","reason":"one sentence"}',
+  "Verdict rules:",
+  '- "replaces" — NEW directly updates/obsoletes OLD (same topic, intentional replacement).',
+  '- "contradicts" — both cannot be true; replacement is unclear or partial.',
+  '- "relates" — same area; both can coexist. Two records of DIFFERENT events',
+  "  (different PRs, different incidents) merely relate — neither replaces the other.",
+  '- "uncertain" — insufficient information to decide.',
+  "Read only what each fact states. Do not infer beyond the text.",
+  "Canon/standing-rule replacements require explicit replacement language in NEW.",
+].join("\n");
+
+/** The USER message: just the pair under judgement. */
 export function buildJudgePrompt(
   newFact: { body: string; kind: string },
   oldFact: { id: string; body: string; kind: string },
 ): string {
   return [
-    "You judge whether a NEW planning fact supersedes, contradicts, or merely relates to an OLD fact.",
-    'Output ONLY JSON: {"verdict":"replaces|contradicts|relates|uncertain","reason":"one sentence"}',
-    "Verdict rules:",
-    '- "replaces" — NEW directly updates/obsoletes OLD (same topic, intentional replacement).',
-    '- "contradicts" — both cannot be true; replacement is unclear or partial.',
-    '- "relates" — same area; both can coexist.',
-    '- "uncertain" — insufficient information to decide.',
-    "Read only what each fact states. Do not infer beyond the text.",
-    "Canon/standing-rule replacements require explicit replacement language in NEW.",
-    "",
     `NEW (${newFact.kind}): ${newFact.body}`,
     `OLD (${oldFact.kind}, id=${oldFact.id}): ${oldFact.body}`,
   ].join("\n");
+}
+
+/** Every balanced {...} span in `text`, outermost-first, string-aware so a
+ *  brace inside a JSON string never ends an object. */
+function* completeObjects(text: string): Generator<string> {
+  for (let i = text.indexOf("{"); i >= 0; i = text.indexOf("{", i + 1)) {
+    let depth = 0;
+    let inStr = false;
+    let esc = false;
+    for (let j = i; j < text.length; j++) {
+      const c = text[j];
+      if (inStr) {
+        if (esc) esc = false;
+        else if (c === "\\") esc = true;
+        else if (c === '"') inStr = false;
+      } else if (c === '"') inStr = true;
+      else if (c === "{") depth++;
+      else if (c === "}" && --depth === 0) {
+        yield text.slice(i, j + 1);
+        break;
+      }
+    }
+  }
 }
 
 export function parseJudgeVerdict(text: string): {
@@ -154,19 +182,27 @@ export function parseJudgeVerdict(text: string): {
   try {
     const fenced = text.match(/```(?:json)?\s*([\s\S]*?)```/i);
     const body = (fenced ? fenced[1] : text).trim();
-    const start = body.indexOf("{");
-    const end = body.lastIndexOf("}");
-    const parsed = JSON.parse(
-      start >= 0 && end > start ? body.slice(start, end + 1) : body,
-    ) as { verdict?: string; reason?: string };
-    const v = parsed.verdict;
-    if (
-      v === "replaces" ||
-      v === "contradicts" ||
-      v === "relates" ||
-      v === "uncertain"
-    ) {
-      return { verdict: v, reason: String(parsed.reason ?? "") };
+    // Scan for the FIRST COMPLETE object. The old parser spanned the first "{"
+    // to the LAST "}", so a model that emitted a good verdict and then kept
+    // talking produced an unparseable span: on 2026-09-22 that cost 8 of 12
+    // recoverable verdicts. Chat-mode judging (JUDGE_SYSTEM) stops the
+    // rambling; this keeps a later regression from silently costing verdicts.
+    for (const obj of completeObjects(body)) {
+      let parsed: { verdict?: string; reason?: string };
+      try {
+        parsed = JSON.parse(obj) as typeof parsed;
+      } catch {
+        continue;
+      }
+      const v = parsed.verdict;
+      if (
+        v === "replaces" ||
+        v === "contradicts" ||
+        v === "relates" ||
+        v === "uncertain"
+      ) {
+        return { verdict: v, reason: String(parsed.reason ?? "") };
+      }
     }
   } catch {
     // fail-open
@@ -181,6 +217,7 @@ export async function judgePair(
 ): Promise<JudgeResult> {
   const out = await gen(buildJudgePrompt(newFact, oldFact), {
     purpose: "judge",
+    system: JUDGE_SYSTEM,
   });
   const { verdict, reason } = parseJudgeVerdict(out);
   return {

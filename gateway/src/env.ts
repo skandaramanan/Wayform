@@ -50,7 +50,15 @@ export interface AiBinding {
   run(model: string, input: { text: string[] }): Promise<{ data: number[][] }>;
   run(
     model: string,
-    input: { prompt: string; max_tokens?: number; temperature?: number },
+    input: {
+      /** Raw completion. Mutually exclusive with `messages`. */
+      prompt?: string;
+      /** Chat form — what the judge uses, so the model answers instead of
+       *  continuing the document (see GenOpts.system). */
+      messages?: { role: string; content: string }[];
+      max_tokens?: number;
+      temperature?: number;
+    },
   ): Promise<{
     /** A string, or the already-parsed value when the completion was JSON. */
     response: unknown;
@@ -104,7 +112,7 @@ export interface Env {
   /** Test seam: injected text-gen. Production leaves it unset (uses AI). */
   genText?: (
     prompt: string,
-    opts?: { purpose?: "extract" | "judge" },
+    opts?: { purpose?: "extract" | "judge"; system?: string },
   ) => Promise<string>;
   /** Test seam: force the near-duplicate write gate on/off. Production
    *  leaves it unset (behavior comes from DUP_GATE_ENFORCE in supersede.ts). */

@@ -448,3 +448,65 @@ test("plan docs are never supersession candidates, conflicts or duplicates", asy
   assert.deepEqual(check.conflicts, []);
   assert.equal(judged, 0);
 });
+
+// ---------------------------------------------------------------------------
+// The supersession judge: chat-mode calls, and a parser that survives a model
+// that keeps talking. Measured 2026-09-22 on 18 real production pairs.
+// ---------------------------------------------------------------------------
+import {
+  parseJudgeVerdict as parseVerdict,
+  judgePair as judge,
+  JUDGE_SYSTEM,
+} from "../dist/gateway/src/supersede.js";
+
+test("a verdict followed by more output still parses", async () => {
+  // Real shape of a 2026-09-22 production failure: a good object, then the
+  // model carried on continuing the prompt until the 160-token cap. The old
+  // parser spanned the first "{" to the LAST "}" and got an unparseable span.
+  const raw =
+    '{"verdict":"replaces","reason":"NEW updates OLD."}\n' +
+    'NEW (status): PR #80 merged\nOLD (context): {"not":"json"';
+  assert.equal(parseVerdict(raw).verdict, "replaces");
+  assert.equal(parseVerdict(raw).reason, "NEW updates OLD.");
+});
+
+test("a brace inside a reason string does not end the object", () => {
+  const raw =
+    '{"verdict":"relates","reason":"the literal {\\"a\\":1} appears"}';
+  assert.equal(parseVerdict(raw).verdict, "relates");
+});
+
+test("preamble before the JSON is still fine, and junk alone is parse-failed", () => {
+  assert.equal(
+    parseVerdict('Sure. {"verdict":"uncertain","reason":"x"}').verdict,
+    "uncertain",
+  );
+  const bad = parseVerdict("NEW (status): the model never emitted JSON");
+  assert.equal(bad.verdict, "uncertain");
+  assert.equal(bad.reason, "parse-failed");
+});
+
+test("the judge is called as a chat, with the rules as the system message", async () => {
+  const seen = [];
+  const gen = async (prompt, opts) => {
+    seen.push({ prompt, opts });
+    return '{"verdict":"relates","reason":"different events"}';
+  };
+  const r = await judge(
+    gen,
+    { body: "PR #80 merged", kind: "status" },
+    { id: "a#1", body: "PR #56 merged", kind: "context" },
+  );
+  assert.equal(r.verdict, "relates");
+  assert.equal(seen.length, 1);
+  // The rules go in the system message; the user message is ONLY the pair —
+  // a raw completion of the rules-plus-pair document is what the model used to
+  // continue instead of answering.
+  assert.equal(seen[0].opts.system, JUDGE_SYSTEM);
+  assert.equal(seen[0].opts.purpose, "judge");
+  assert.match(
+    seen[0].prompt,
+    /^NEW \(status\): PR #80 merged\nOLD \(context, id=a#1\): PR #56 merged$/,
+  );
+  assert.doesNotMatch(seen[0].prompt, /Verdict rules/);
+});
