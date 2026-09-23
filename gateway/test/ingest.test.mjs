@@ -123,6 +123,16 @@ test("factToDoc maps a fact to a doc; synthetic id + source_id fall back to file
   assert.equal(d.kind, "constraint"); // from the fact, not the entry
   assert.equal(d.tier, "canon");
   assert.deepEqual(d.entities, ["x"]);
+  const t = factToDoc(
+    "s1",
+    "My Proj",
+    entry,
+    { ...fact, applies_when: "adding a dependency" },
+    0,
+    [1],
+  );
+  assert.equal(t.id, d.id, "applies_when is indexed, never part of the id");
+  assert.equal(t.body, "b\nApplies when: adding a dependency");
   assert.equal(d.supersededBy, null);
 });
 

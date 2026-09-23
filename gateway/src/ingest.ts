@@ -125,7 +125,11 @@ export function factToDoc(
     project: slug(project),
     kind: fact.kind,
     tier: fact.tier,
-    body: fact.body,
+    // Indexed and embedded with the fact, so BM25 and cosine both see the
+    // task words; the id above stays keyed on the fact alone.
+    body: fact.applies_when
+      ? `${fact.body}\nApplies when: ${fact.applies_when}`
+      : fact.body,
     sourceFile: entry.file,
     sourceAuthor: entry.author,
     sourceTs: entry.timestamp,
