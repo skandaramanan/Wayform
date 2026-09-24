@@ -1,0 +1,11 @@
+I looked at this repo's actual auth model before drafting a plan, and want to flag something before writing it.
+
+**What "fixed default authorization header" would mean here:** the closest match for "new integrations" is `integrations/github-actions` (a GitHub Actions workflow that self-hosters copy into their repo, currently requiring a `MEMORYLAYER_TOKEN` secret they set themselves). Making that work "out of the box" by shipping a fixed/default value means baking one static credential into the integration so every install authenticates with the same header, with no setup step.
+
+**Why I'm pausing:** that's the exact pattern this repo already ripped out and fixed. `gateway/src/tenancy.ts` and commit `3473517` ("gate /admin/* on GitHub operator identity, delete ADMIN_SECRET") describe it directly — the old `/admin/*` routes shared one static `x-admin-secret` header, and the fix notes: *"no per-person identity, no way to revoke one operator, no audit of who acted, and a leak meant rotating everywhere."* `rate-limit.ts` has a matching comment about the same migration. A fixed default `Authorization` header for integrations has the identical shape: one static value shared by every install, checked into a public workflow file, with no revocation and no audit trail — worse here since it's a token that can *write* to a team's memory store, and GitHub Actions YAML is publicly readable in most repos.
+
+Before I write a plan, which of these did you actually mean?
+
+1. **A literal shared static header** baked into the Action/gateway (what the task says literally) — I'd want to push back on this rather than plan it, given the precedent above.
+2. **Auto-provisioned per-integration credentials** — e.g. the operator's install/setup flow mints a scoped token automatically (reusing the existing OAuth/App-installation identity model) so the user never has to manually copy a secret, but each integration still gets its own revocable credential.
+3. **Something else** — e.g. a default/placeholder value for local dev only, not for the hosted path, or this is about a different "integration" surface than `integrations/github-actions` (MCP client config, CLI, etc.) — tell me which and I'll re-explore.

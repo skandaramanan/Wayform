@@ -1,0 +1,1513 @@
+# Team context: every live recorded decision and piece of context for this project (frozen 2026-09-23)
+
+Older entries can be outdated; later entries take precedence when they conflict.
+
+- [context] (2026-07-02) MemoryLayer is a vendor-neutral, multiplayer planning memory
+- [context] (2026-07-02) MemoryLayer provides a shared context space where decisions made in one person's session are already present in a collaborator's session
+- [context] (2026-07-02) Incumbent shipped memories in 2026 are walled to their own model/tool
+- [context] (2026-07-02) MemoryLayer's neutrality across rivals is against their interest, so none will ship it
+- [context] (2026-07-02) Planning-phase ideas and decisions don't persist or travel
+- [context] (2026-07-02) Claude chats lose context between them
+- [context] (2026-07-02) Claude Projects are manual
+- [context] (2026-07-02) Porting to Cursor loses context
+- [context] (2026-07-02) Ideas die inside the editor
+- [context] (2026-07-02) Planning with collaborators has no shared space
+- [context] (2026-07-02) The thinking layer is siloed, single-tool, single-player
+- [preference] (2026-07-02) Beats Notion/Issues because those are human-written and human-read
+- [context] (2026-07-02) The AI reads and writes the shared state natively as part of its own loop
+- [context] (2026-07-02) No human transcription
+- [context] (2026-07-02) Target market is AI-native micro-teams building with agents
+- [context] (2026-07-02) Explicitly NOT mature orgs on Jira/Confluence/Notion
+- [context] (2026-07-02) Narrow is the beachhead, not a limitation
+- [context] (2026-07-02) The MemoryLayer tool has a git repo of markdown files for storing context entries
+- [context] (2026-07-02) The context entries are stored in a separate private repo, github.com/skandaramanan/MemoryLayer-Memory
+- [context] (2026-07-02) The context repo is auto-cloned to ~/.memorylayer/context-store
+- [context] (2026-07-02) The write path involves pulling, writing one file, adding that file, committing, and pushing
+- [context] (2026-07-02) The read path involves pulling, gathering project files, sorting by timestamp, and returning the 30 most recent entries plus total
+- [decision] (2026-07-02) Store substrate: git repo of markdown
+- [decision] (2026-07-02) Store shape: per-author append files
+- [decision] (2026-07-02) Hosting: GitHub private repo
+- [decision] (2026-07-02) Read ordering: author-local wall-clock
+- [decision] (2026-07-02) Unprompted read: a convention, stated honestly
+- [decision] (2026-07-02) Access: shared repo, no accounts
+- [decision] (2026-07-02) Reliability of trigger: client hooks as thin per-tool adapters
+- [decision] (2026-07-02) Friction removal: post-signal only
+- [constraint, standing rule] (2026-07-02) Refuse the distributed state machine framing
+- [constraint, standing rule] (2026-07-02) Refuse the accumulated structured state as the moat reflex
+- [preference] (2026-07-02) Post-signal only for friction removal
+- [context] (2026-07-02) ## 6. Current state (2026-07-02) Built and live: MCP server (src/index.ts, src/store.ts, src/config.ts) exposing read_context + write_context over stdio. Reviewed: CEO → HOLD SCOPE; Eng → APPROVE WITH FIXES, all applied (pathspec commit + per-clone mutex for concurrency, recency cap for context bloat, push self-heal + honest error, author-derived email). Tested: 12 unit + integration tests, npm test, green. Proven end to end against the real repo (write → commit → push → read back). Wired into Claude Desktop and Claude Code. Not yet: first commit of server code; reliability hooks; recruited collaborators. ## 7. Reliability design (the load-bearing risk) Both tools are model-invoked, so the loop depends on the AI choosing to call them. Rules-file instruction alone is ~60–85% for read, lower for write, degrading over long chats. One miss teaches "I can't rely on this" → re-explain → signal dies. This is the single uncertain thing worth 4 weeks. Fix: take the decision away from the model. Read → guaranteed via a client hook (Claude Code UserPromptSubmit/SessionStart injects context every turn). Write → a light human gesture + optional end-of-session extraction hook (writing needs judgment; can't fully automate without junk-drawer risk; exact trigger OPEN). Neutrality preserved: the store and MCP contract stay neutral (a decision written from Claude is readable from Cursor/Codex); hooks are thin per-client adapters pointing at the same neutral store — a portability cost, not lock-in. The neutral MCP tool stays the universal baseline; hooks are an additive booster; true universal guaranteed injection needs the hosted proxy (Phase 2) because each vendor owns its client. Two separate bets: (1) reliance — shared memory reduces re-explaining; (2) neutrality — value is in crossing vendors. A single-tool test proves (1) not (2). Test (1) first. ## 8. Roadmap (prove reliance before building more) Phase 0 — Local proof (now): 1) first commit of reviewed+tested code (off a branch); 2) build read hook + write path; 3) README setup: seed context repo with one main commit (done); 4) prove cross-session read with nobody pasting. Phase 1 — The 4-week test: 5) recruit 2 named collaborators (open assignment); 6) confirm their AI clients (hook reach); 7) instrument metrics.jsonl read-rate + shared re-explained.md tally; 8) run on a real shared project 4 weeks, check the 3 numbers weekly. Phase 2 — ONLY if the signal shows: 9) friction removal (hosted store + remote MCP + invite links); 10) cross-client guaranteed read (hosted proxy); 11) structure on top (surfacing, conflict detection, projection, search). Dividing line is between step 8 and 9. Phase 2 is the reward for a passed test, never a prerequisite. ## 9. The test, risks, and open items Success signal (dependency, not curiosity): a collaborator stops re-explaining a decision because they trust it's already in the shared space. Pass: they rely instead of re-explaining. Fail: doesn't happen in 4 weeks → learned in a month, ~$1k of own time, before Goldman. Better than idea-shopping. Risks: it's a bet; substrate partly commoditized (defensibility = vendor-neutral multiplayer + the loop, not the mechanism which is ~250 lines clonable in an afternoon); near-zero penetration ≠ proof; scope creep is the documented personal failure mode. Open items: write trigger design (phrase vs slash command vs end-of-session hook); collaborator clients (fallback if not Claude Code); named collaborators (no signal without 2 committed humans). Founder-market fit: own lived pain; build-not-sell (first user); time-to-signal 4 weeks; no employer conflict; low model-provider blast radius.
+- [decision] (2026-07-02) Implement a guaranteed session-start read hook to inject the shared planning context
+- [constraint] (2026-07-02) The reliability of model-invoked reads is ~60-85% and decays over long chats
+- [preference] (2026-07-02) The hook should do a full sync of the read-model on session start
+- [context] (2026-07-02) The hook is written in TypeScript and uses the MCP-Config file for configuration
+- [decision] (2026-07-02) ARCHITECTURE (neutral core + thin per-vendor adapter): dist/hook.js is the vendor-NEUTRAL core
+- [decision] (2026-07-02) The ONLY per-vendor thing is the output envelope, isolated in src/hook-clients.ts
+- [decision] (2026-07-02) Onboarding a new tool = one case in src/hook-clients.ts; the core never changes
+- [decision] (2026-07-02) The reason we have a vendor-NEUTRAL core is because we want to be able to reuse code between tools and avoid duplicated effort
+- [decision] (2026-07-02) Use each client's SESSION-START event (Cursor sessionStart, Claude Code SessionStart) instead of prompt-submit to inject context, because Cursor sessionStart is the only start event that injects context and Cursor beforeSubmitPrompt cannot inject context.
+- [decision] (2026-07-02) FAIL-OPEN is load-bearing: on any error, hook.js prints the client's empty no-op and exits 0, so a broken read never blocks a session, because a session-breaking hook would itself cause the failure it exists to prevent.
+- [decision] (2026-07-02) Hook MUST always inject context on SessionStart, because context injection is load-bearing for the session and is not optional.
+- [decision] (2026-07-02) Hooks are project-scoped, not global, to prevent injecting the planning doc into unrelated work and polluting/kill context.
+- [decision] (2026-07-02) Secrets and identity are kept out of git by storing them in .memorylayer-hook.env, which is gitignored.
+- [decision] (2026-07-02) The launcher script, hooks/session-start.sh, is the only committed script and is invoked by .cursor/hooks.json and .claude/settings.json.
+- [constraint, standing rule] (2026-07-02) Author information must not be committed to the shared code repository.
+- [preference] (2026-07-02) The planning doc should be invoked only when a coding session is opened in the project, to prevent unnecessary injections and context pollution.
+- [decision] (2026-07-02) DECISION — Claude Desktop gets NO auto-read, stated explicitly: Desktop has no hook system, only MCP, and MCP is pull-based — it reads only when the model chooses to call read_context (the soft convention, best-effort, never guaranteed). Guaranteed auto-read on Desktop needs the hosted proxy (Phase 2) because the client is closed. So behavior splits by tool: Cursor + Claude Code = guaranteed hook, this-repo-only; Desktop = pull-based, model's choice. STATUS: neutral core + adapters built; 18/18 tests green (added 6 adapter unit tests); both Cursor and Claude Code project hooks verified firing in-repo off the same core with full context; global hooks torn down and ~/.claude/settings.json reverted. README section 4 updated (project scoping + Desktop no-auto-read). Consistent with neutrality (baseline MCP tool stays universal; hooks are additive thin per-client boosters, a portability cost not lock-in).
+- [decision] (2026-07-02) Code-quality hardening pass on the MCP server (Phase 0) — done
+- [decision] (2026-07-02) Goal was to take the server from startup-GRADE to startup-READY without adding product scope
+- [decision] (2026-07-02) The Phase 0 pass only covered the server startup code, and there's still other code that needs to be hardened because the MCP server is not done
+- [decision] (2026-07-02) Phase 1 will include the MCP client, because it's a critical component that needs to be brought up to the same code quality standards as the MCP server
+- [decision] (2026-07-02) Killed the frontmatter drift risk by extracting both serialization and parsing into src/frontmatter.ts
+- [decision] (2026-07-02) Modular split of store.ts into three focused files: src/frontmatter.ts, src/git-repo.ts, and a slimmed store.ts
+- [decision] (2026-07-02) Improved error handling by catching write failures in index.ts write_context and returning an error message
+- [decision] (2026-07-02) Improved testing for the new git-repo.ts module by adding comprehensive tests for GitRepo methods
+- [decision] (2026-07-02) Fixed the bug where the store was not properly handling concurrent updates by introducing a mutex
+- [decision] (2026-07-02) TEST COVERAGE 18 -> 30: added test/frontmatter.test.mjs, test/config.test.mjs, test/hook.test.mjs, unit.test.mjs trimmed to slug-only
+- [decision] (2026-07-02) HYGIENE: added LICENSE, .github/workflows/ci.yml, ESLint flat config + Prettier
+- [decision] (2026-07-02) SCOPE DISCIPLINE HELD: zero new runtime dependencies, only dev dependencies added
+- [decision] (2026-07-02) Write trigger for the shared store is designed and approved
+- [constraint] (2026-07-02) Current shared store implementation lacks a write trigger
+- [preference] (2026-07-02) Implement a write trigger to address data consistency and integrity issues
+- [decision] (2026-07-02) There will be three write paths: explicit instruction phrase, slash command /remember, and per-turn gated self-review on the Stop hook.
+- [decision] (2026-07-02) Path A will use an explicit instruction phrase ('record this: X because Y') with near-100% compliance.
+- [decision] (2026-07-02) Path B will use a slash command /remember with a thin per-vendor command file.
+- [decision] (2026-07-02) Path C will use per-turn gated self-review on the Stop hook to capture decisions when made.
+- [decision] (2026-07-02) Path D will be deprecated and removed because it was ~60-85% reliable but decayed and killed trust.
+- [decision] (2026-07-02) neutral = store + MCP contract + write_context + review-prompt text
+- [decision] (2026-07-02) per-vendor = slash-command file + Stop envelope case in hook-clients.ts
+- [decision] (2026-07-02) Claude Code and Cursor get all three paths
+- [decision] (2026-07-02) Claude Desktop = path A only (no commands/hooks)
+- [question] (2026-07-02) does Cursor expose a Stop-style hook that can re-engage the model
+- [context] (2026-07-02) the model did not spontaneously record the design until prompted
+- [preference] (2026-07-02) building the write trigger is evidence for
+- [decision] (2026-07-02) Write trigger is built on branch write-trigger and will be manually merged by Skanda
+- [decision] (2026-07-02) Scope discipline held: zero new runtime deps, neutrality spent only in hook-clients.ts + wiring
+- [decision] (2026-07-02) Cursor Stop-hook re-engagement unverified → Path C is Claude-Code-only for now (Cursor keeps A+B)
+- [decision] (2026-07-02) 44/44 tests pass (added review-prompt, hook-clients Stop, stop-hook spawn tests), eslint clean, prettier clean, launcher manually verified
+- [decision] (2026-07-02) NEXT (Phase 1): recruit 2 named collaborators, confirm their clients, instrument metrics.jsonl read-rate + re-explained tally, run the 4-week reliance test
+- [decision] (2026-07-02) Phase 2: engage Path C (Cursor Stop-hook) + file the PR
+- [context] (2026-07-02) Codex has a full Claude-Code-style hooks system with events including SessionStart and Stop
+- [context] (2026-07-02) Codex SessionStart context injection is byte-identical to Claude Code
+- [context] (2026-07-02) Codex Stop re-engages via a different shape
+- [context] (2026-07-02) Codex is configured via .codex/hooks.json
+- [context] (2026-07-02) Codex does not expose a Stop-style hook for re-engaging the model in Cursor
+- [context] (2026-07-02) Cursor has a single hook — OnLoad — which is triggered when a new file is loaded into the editor
+- [context] (2026-07-02) Cursor OnLoad context injection is different from Claude Code
+- [context] (2026-07-02) Cursor is configured via .cursor/hooks.json
+- [context] (2026-07-02) Cursor does not expose a Stop-style hook for re-engaging the model
+- [context] (2026-07-02) Codex and Cursor hook configurations are verified against official docs 2026-07-02
+- [context] (2026-07-02) CURSOR (1.7+) Stop question RESOLVED = YES
+- [context] (2026-07-02) The `stop` hook CAN re-engage the model via field {"followup_message":"..."} (auto-submitted as next user message), with BUILT-IN loop protection via loop_count/loop_limit (default 5)
+- [context] (2026-07-02) So Path C write self-review is now viable on Cursor (previously A+B only)
+- [context] (2026-07-02) SessionStart injection field is additional_context (matches current cursor envelope); one community bug report claimed sessionStart additional_context wasn't injecting — verify it's fixed live
+- [context] (2026-07-02) Consequence: full read+write hook parity across Claude Code + Codex + Cursor is achievable with neutrality still spent ONLY in src/hook-clients.ts + per-vendor config files (Codex = one enum value + ~3 envelope cases + one .codex/hooks.json)
+- [context] (2026-07-02) This is because the current implementation of the `stop` hook on Cursor is not yet documented, and we want to avoid documenting something that may change
+- [decision] (2026-07-02) Codex + Cursor hook parity design is approved
+- [context] (2026-07-02) Builds on the resolved hook-capability research already in the store
+- [decision] (2026-07-02) Full read + write-trigger parity across Claude Code + Codex + Cursor is approved
+- [decision] (2026-07-02) Codex's read envelope is a DISTINCT case in hook-clients.ts, not shared with claude-code
+- [decision] (2026-07-02) Codex's read envelope is a DISTINCT case in hook-clients.ts, not shared with claude-code, because although byte-identical today, a separate case keeps a future divergence in either tool a one-line change and matches the file's existing one-case-per-tool doctrine
+- [decision] (2026-07-02) SHIP on the ASSUMED Codex stop_hook_active loop-guard flag, not blocking, because the assumption is very likely right, worst case is bounded, and blocking would strand the Codex write path
+- [decision] (2026-07-02) Tests must lock in the guard behavior
+- [decision] (2026-07-02) a session_id marker-file fallback is specified but NOT built unless live testing shows Codex loops
+- [decision] (2026-07-02) CONCRETE CHANGES: add "codex" to HookClient + resolveClient; new codex/cursor Stop envelopes (codex Stop = {decision:block, reason}; cursor Stop = {followup_message}); generalize the stop-hook loop guard to stop_hook_active || loop_count>0 (client-agnostic); new .codex/hooks.json + a cursor stop entry with loop_limit; launchers unchanged; README §4 matrix update. Three live-verification TODOs documented (Codex stop_hook_active present; .codex/hooks.json fires interactively re openai/codex#17532; Cursor sessionStart additional_context injection lands). NEXT: writing-plans skill → implementation plan.
+- [decision] (2026-07-02) Repo-hygiene cleanup (Phase 0 loose ends) is settled and applied
+- [preference] (2026-07-02) keep the shipped code repo free of personal/junk
+- [preference] (2026-07-02) keep the shipped code repo clean and organized for the upcoming release
+- [decision] (2026-07-02) Vendor hook configs are committed and symmetric across .cursor/hooks.json, .codex/hooks.json, and .claude/settings.json
+- [decision] (2026-07-02) Personal Claude Code settings do not belong in the shared committed file .claude/settings.json
+- [decision] (2026-07-02) docs/superpowers/ specs and plans are kept, not deleted, because they are cited as canonical long-form specs
+- [decision] (2026-07-02) README drift is fixed by correcting claims about .claude/ exclusion in .gitignore
+- [constraint] (2026-07-02) Codex/Cursor live-verification TODOs cannot be burned down locally because neither CLI is installed
+- [decision] (2026-07-02) Cursor hook parity is LIVE-VERIFIED
+- [decision] (2026-07-02) do not re-engage Stop-hook on Cursor
+- [preference] (2026-07-02) keep A+B write paths open on Cursor
+- [constraint] (2026-07-02) cannot verify Codex Stop-hook functionality without a Codex runtime
+- [context] (2026-07-02) The docs were flattened to drop the redundant 'superpowers' directory layer.
+- [context] (2026-07-02) The relocation was applied via git mv, preserving history, and has not yet been committed.
+- [context] (2026-07-02) The new canonical paths for long-form specs are docs/specs/2026-07-02-write-trigger-design.md and docs/specs/2026-07-02-codex-cursor-hook-parity-design.md.
+- [context] (2026-07-02) The relocation supersedes the path in earlier entries that cited docs/superpowers/specs|plans/..., and all in-repo references have been updated.
+- [context] (2026-07-02) The relocation will be committed when Skanda merges it, because it is not yet committed.
+- [decision] (2026-07-02) The project can proceed with confidence because the repo health is good and the architecture is clean.
+- [decision] (2026-07-02) Keep the 4 shipped docs in-repo rather than archive or delete them
+- [constraint] (2026-07-02) Removing the docs would dangle references in durable memory
+- [preference] (2026-07-02) The docs' rationale trail is useful for future dev work
+- [decision] (2026-07-02) deliver MemoryLayer to test collaborators via PRIVATE GitHub repo install
+- [preference] (2026-07-02) keep the tool code private and UNINDEXED
+- [preference] (2026-07-02) reuse git-as-auth for collaborators
+- [constraint] (2026-07-02) avoid paid npm plan
+- [constraint] (2026-07-02) avoid requiring GitHub Actions
+- [decision] (2026-07-02) Use a `prepare` script for build-on-install step in the package
+- [constraint] (2026-07-02) GitHub actions can't handle the build process
+- [preference] (2026-07-02) Keep the dist/ folder clean and not commit it to the repository
+- [context] (2026-07-02) A collaborator needs GitHub access to TWO private repos (code + memory) instead of one, which is acceptable because it's the same invite click
+- [decision] (2026-07-02) `memorylayer init` installer — design APPROVED and committed (Phase 0.5, frictionless onboarding for the 4-week reliance test). Spec: docs/specs/2026-07-02-memorylayer-init-installer-design.md on branch frictionless-install. Builds on the distribution decision (private GitHub install) already in the store. PURPOSE: kill SETUP friction (one-command onboarding into a collaborator's OWN project repo) without touching USAGE/reliance friction (the thing the 4-week test measures). No remote infra; git-as-auth preserved.
+- [decision] (2026-07-02) Distribution will be a private GitHub install, not npm publish, as recorded on 2026-07-02T12:07
+- [decision] (2026-07-02) Invocation will be a global install then `memorylayer init`, with hooks calling the FAST LOCAL `memorylayer` command, not `npx github:` per-turn, because the Stop hook fires every turn and per-turn GitHub resolution adds latency and fails offline, and a failing hook fail-opens = silently lost writes
+- [decision] (2026-07-02) Client scope will be the three hook-capable clients only, which are Claude Code, Cursor, and Codex, with Desktop excluded
+- [decision] (2026-07-02) Detection will be wire ALL THREE zero-guess, with one person running init, committing, and the whole team inheriting regardless of which tool they open, with a cost of three small inert config dirs and a benefit of each client's hook detecting if it's the first to write to a given file
+- [decision] (2026-07-02) retire the bash launchers (hooks/session-start.sh, stop-review.sh)
+- [decision] (2026-07-02) replace bash launchers with ONE `memorylayer` bin routing subcommands
+- [preference] (2026-07-02) config self-loads .memorylayer-hook.env from CWD because the command self-loads the per-user env
+- [preference] (2026-07-02) EVERY config init writes is secret-free and committable
+- [decision] (2026-07-02) drop the bash dependency
+- [constraint] (2026-07-02) needs a `prepare` build script so `npm install -g github:` compiles dist/ on fetch
+- [constraint] (2026-07-02) the `prepare` script must be run manually before the first `npm install -g github:` command
+- [decision] (2026-07-02) init confirms git repo
+- [decision] (2026-07-02) init merges clients' hook and MCP configs
+- [decision] (2026-07-02) init prompts for input with defaults from git config
+- [decision] (2026-07-02) init writes .memorylayer-hook.env if missing
+- [decision] (2026-07-02) init is LOUD on error, backing up unparseable config and warning
+- [question] (2026-07-02) Codex MCP registration location is unknown
+- [constraint] (2026-07-02) hooks stay project-committed
+- [constraint] (2026-07-02) init does not touch neutral core
+- [constraint] (2026-07-02) Desktop, remote/hosted, auto-creating context repo, and metrics are out of scope
+- [decision] (2026-07-02) The `memorylayer init` installer will write Codex HOOKS to project-committed .codex/hooks.json and print a copy-paste `[mcp_servers.memorylayer]` block for the user to paste into ~/.codex/config.toml
+- [decision] (2026-07-02) The `memorylayer init` installer will not auto-edit ~/.codex/config.toml because it would require a new TOML dependency or fragile hand-rolled editing of a global user file
+- [constraint, standing rule] (2026-07-02) Codex registers MCP servers globally in ~/.codex/config.toml, not in a project file
+- [preference] (2026-07-02) The `memorylayer init` installer will auto-write Claude Code (.mcp.json) and Cursor (.cursor/mcp.json) MCP registration
+- [decision] (2026-07-02) Create a single `memorylayer` bin with subcommand routing in src/cli.ts
+- [decision] (2026-07-02) Refactor index/hook/stop-hook to exported run functions guarded by an isMain() helper
+- [decision] (2026-07-02) Make config.ts self-load .memorylayer-hook.env from cwd
+- [decision] (2026-07-02) Create pure non-clobbering idempotent mergers for the three hook configs in src/init-configs.ts
+- [decision] (2026-07-02) Create an env-file builder, git-config defaults, and gitignore updater in src/init-env.ts
+- [decision] (2026-07-02) Orchestrate the init process in src/init.ts, including detecting the repo, merging and writing configs, prompting for identity, and updating .gitignore
+- [decision] (2026-07-02) Migrate the repo's own hooks to `node ./dist/cli.js hook|stop-review <client>` and update package.json and README
+- [decision] (2026-07-02) MCP servers must spawn with cwd=project root for the .memorylayer-hook.env self-load to resolve
+- [constraint] (2026-07-02) Claude Code + Cursor do spawn project MCP servers at project root
+- [preference] (2026-07-02) fallback if not = explicit env pointer in the MCP registration
+- [decision] (2026-07-03) `memorylayer init` installer — IMPLEMENTED and green (Phase 0.5 complete on branch frictionless-install, not yet merged). 71 tests pass, lint + prettier clean, end-to-end smoke of `memorylayer init` verified (writes all 3 hook configs + .mcp.json + .cursor/mcp.json + .memorylayer-hook.env + .gitignore, prints next-steps + Codex TOML block). 8 commits: single-bin routing, self-load env, config mergers, env/gitignore helpers, init orchestration, security fix, cutover, doc-status.
+- [decision] (2026-07-03) loadHookEnv is called from cli.ts instead of loadConfig
+- [decision] (2026-07-03) loadHookEnv is called from cli.ts because it keeps loadConfig pure and makes tests non-hermetic
+- [decision] (2026-07-03) a cli.test.mjs assertion was wrong and was fixed to assert the cursor followup_message envelope
+- [decision] (2026-07-03) the Stop hook does not call loadConfig because it does not need to
+- [decision] (2026-07-03) loadHookEnv now allowlists keys
+- [constraint] (2026-07-03) .memorylayer-hook.env can be attacker-controlled
+- [preference] (2026-07-03) loadHookEnv ignores everything else
+- [decision] (2026-07-03) refactor index/hook/stop-hook to exported run* functions guarded by isMain()
+- [decision] (2026-07-03) delete Bash launchers (hooks/)
+- [decision] (2026-07-03) update package.json bin to dist/cli.js
+- [decision] (2026-07-03) add prepare:tsc for git-install builds
+- [decision] (2026-07-03) rewrite README setup to the install+init flow
+- [decision] (2026-07-03) merge frictionless-install to main
+- [decision] (2026-07-03) proceed with metrics-to-git workstream
+- [decision] (2026-07-03) recruit 2 collaborators for the 4-week test
+- [preference] (2026-07-03) simplify the current architecture because it is too complex and error-prone
+- [decision] (2026-07-03) Metrics instrumentation design is approved and spec is committed
+- [decision] (2026-07-03) Implementation of metrics instrumentation has not yet started
+- [context] (2026-07-03) Metrics instrumentation is on a new branch metrics-instrumentation stacked off frictionless-install
+- [preference] (2026-07-03) The project distrusts automated judgments of human behavior
+- [decision] (2026-07-03) instrument at the store choke point, NOT at hook fires
+- [constraint] (2026-07-03) reads funnel through ContextStore.read
+- [constraint] (2026-07-03) writes happen in exactly ONE place, index.ts write_context/store.write
+- [constraint] (2026-07-03) The Stop hook does NOT write — it only prints a review prompt
+- [decision] (2026-07-03) metrics/<author>.jsonl lives in the CONTEXT repo
+- [decision] (2026-07-03) per-author file to avoid merge conflicts
+- [decision] (2026-07-03) reads never touch git
+- [decision] (2026-07-03) store.flushMetrics() commits and pushes metrics file after writes
+- [constraint] (2026-07-03) recordMetric swallows all errors, never rethrows
+- [preference] (2026-07-03) fail-open throughout to avoid breaking sessions
+- [context] (2026-07-03) eventual sync is fine for a weekly check
+- [decision] (2026-07-03) no `memorylayer metrics` report command
+- [decision] (2026-07-03) no sessionId capture
+- [decision] (2026-07-03) no new runtime deps
+- [decision] (2026-07-03) writing-plans → TDD implementation plan
+- [decision] (2026-07-03) Metrics instrumentation is implemented and tested on branch metrics-instrumentation
+- [decision] (2026-07-03) PR #4 is opened on branch metrics-instrumentation, stacked cleanly on main
+- [preference] (2026-07-03) Avoid polluting main with untested code
+- [decision] (2026-07-03) The PR is ready to be merged to main
+- [constraint] (2026-07-03) All 3 task reviews must have spec and quality Approved, and zero Critical/Important findings
+- [preference] (2026-07-03) It is preferred to have write_context's recordMetric/flushMetrics calls independently .catch-wrapped
+- [decision] (2026-07-03) Skanda chose to strengthen two plan-authored tests before dispatch
+- [decision] (2026-07-03) Skanda strengthened the tests to assert the metrics file was NOT created and no "metrics: sync" commit exists
+- [preference] (2026-07-03) recruit 2 named collaborators and confirm their AI clients for the 4-week reliance test
+- [decision] (2026-07-03) keep git as the append-only ledger
+- [decision] (2026-07-03) add a disposable, rebuilt-from-git SQLite index for graph-like retrieval
+- [preference] (2026-07-03) git is a good ledger but a bad query surface
+- [constraint, standing rule] (2026-07-03) never rewrite git
+- [decision] (2026-07-03) ship Phase 1 alone first
+- [preference] (2026-07-03) avoid adding new dependencies
+- [preference] (2026-07-03) avoid native-dependency/packaging risk
+- [constraint] (2026-07-03) Phase 2 is gated on reliance-test data confirming the need
+- [context] (2026-07-03) Phase 1 (token-budget read) has shipped on main
+- [context] (2026-07-03) Phase 1 implemented ContextStore.read() with token budget
+- [context] (2026-07-03) Phase 1 uses estimateTokens heuristic with ENTRY_OVERHEAD_TOKENS=12
+- [context] (2026-07-03) Phase 1 added budget_tokens param to read_context MCP tool
+- [context] (2026-07-03) Phase 2 remains gated on reliance-test data
+- [constraint] (2026-07-03) npm's git-dependency install runs `prepare` in a minimal temp clone where the local devDependency bin (tsc) doesn't reliably resolve onto PATH
+- [context] (2026-07-03) npm install -g github:skandaramanan/MemoryLayer can fail even after the dist/-commit fix
+- [context] (2026-07-03) npm's arborist can get into a corrupted state from prior failed git-dep installs
+- [context] (2026-07-03) npm cache clean --force plus manually deleting the target install dir does NOT fix this because the corruption is in npm's in-memory/tree bookkeeping for that install invocation, not on-disk cache
+- [context] (2026-07-03) workaround: git clone the repo to a temp dir, npm install --omit=dev there, then npm install -g . from that local path
+- [context] (2026-07-03) this is a reproducible local environment failure mode for git-based global installs of this package, worth trying first if npm install -g github:... misbehaves again before assuming it's a repo/packaging bug
+- [context] (2026-07-03) npm install -g github:skandaramanan/MemoryLayer is reproducibly BROKEN on npm 10.9.2 / Node 23 / Homebrew
+- [constraint] (2026-07-03) npm symlinks the global package to an ephemeral ~/.npm/_cacache/tmp/git-clone* dir that contains only .git (no checked-out dist/)
+- [preference] (2026-07-03) distribution needs a fix (publish to npm registry so npm i -g memorylayer works, OR document the tarball/clone+`npm install -g .` path)
+- [decision] (2026-07-04) harden the free, git-backed OSS tool to production quality FIRST
+- [decision] (2026-07-04) add a hosted tier LATER
+- [constraint] (2026-07-04) start with max capabilities for free
+- [constraint] (2026-07-04) prove the core loop pulls before spending on infra
+- [context] (2026-07-04) Free-hosted deployment target is MULTI-TENANT with ~30 users spread across ~10 independent 2-3 person spaces that must NOT see each other's memory
+- [context] (2026-07-04) Free-hosted deployment target is not one big org and not merely headroom for the pilot
+- [context] (2026-07-04) The user clarified that "maximize free hosting tools" means "what can we achieve on free-tier hosting at ~30-user scale"
+- [context] (2026-07-04) At ~30-user scale, free tiers are roomy so the architecture is the real constraint, not the free-tier limits
+- [context] (2026-07-04) The free-hosting tools roadmap is also the first step toward a paid-hosting roadmap
+- [decision] (2026-07-04) a STATELESS MCP-over-HTTP gateway on a free serverless tier (Cloudflare Workers or Deno Deploy) that uses a GitHub App as the storage plane, with ONE PRIVATE REPO PER SPACE
+- [preference] (2026-07-04) maximizes free-tier headroom (thousands of users, not 30), needs no persistent disk/always-on process, and PRESERVES the git-is-the-log thesis (GitHub stays the source of truth/audit log)
+- [constraint] (2026-07-04) auth/routing state in Workers/Deno KV
+- [preference] (2026-07-04) tenant isolation comes from per-installation tokens scoped to a single space's repo (never a global token), so a routing bug cannot leak across spaces
+- [decision] (2026-07-04) Local clone-isolation bug fix is approved
+- [decision] (2026-07-04) The local Tier-0 tool violates the settled isolation guarantee
+- [constraint] (2026-07-04) The local clone-isolation bug fix must ensure one private repo per space
+- [decision] (2026-07-04) key the local clone dir by the remote URL
+- [decision] (2026-07-04) reconcile origin in ensure() to prevent mis-targeting
+- [decision] (2026-07-04) perform one-time cleanup on this machine
+- [constraint, standing rule] (2026-07-04) one private repo per space
+- [preference] (2026-07-04) avoid orphan branches because they hit protected-main push failures and their free-multiplayer upside evaporates
+- [decision] (2026-07-04) purge context/lyrebird-takehome/ from the MemoryLayer-Memory repo and discard it
+- [decision] (2026-07-04) write design spec for MemoryLayer-Memory
+- [decision] (2026-07-04) write writing-plans for MemoryLayer-Memory
+- [decision] (2026-07-04) implement MemoryLayer-Memory using TDD
+- [decision] (2026-07-04) Clone storage location is XDG-compliant, no legacy fallback
+- [decision] (2026-07-04) Base dir resolves MEMORYLAYER_HOME → $XDG_DATA_HOME/memorylayer → ~/.local/share/memorylayer
+- [decision] (2026-07-04) Clones live at <base>/clones/<repo-slug>-<hash8>/
+- [preference] (2026-07-04) Chosen the DATA bucket because clones can hold UNPUSHED commits
+- [context] (2026-07-04) Clone-isolation fix implemented per approved spec in config.ts
+- [context] (2026-07-04) config.ts keys repoPath as ~/.local/share/memorylayer/clones/<repo-slug>-<hash8>/
+- [context] (2026-07-04) git-repo.ts ensure() runs `git remote set-url origin <repoUrl>` every run
+- [context] (2026-07-04) the fix lives in the GLOBAL `memorylayer` binary, not per-repo config
+- [context] (2026-07-04) the stale global binary re-triggered the OLD shared-path bug during cleanup even after the code was fixed, because projects invoke the global binary
+- [context] (2026-07-04) only `npm install -g .` from the fixed build made re-homing work
+- [context] (2026-07-04) the running MCP server had to be restarted since its old clone path was deleted mid-migration
+- [context] (2026-07-04) every teammate must reinstall/update their global memorylayer for isolation to take effect
+- [decision] (2026-07-04) Post-review hardening of clone-isolation setup DECIDED + shipped (branch clone-isolation, follow-up to the keyed-clone fix; 98/98 tests green, lint+format clean)
+- [decision] (2026-07-04) init hook dedup now matches a STABLE "<subcommand> <client>" token in addOnce, not the whole canonical command string — because the old exact-string match failed to recognize an equivalent hook invoked via a different form
+- [decision] (2026-07-04) hooks' default project when MEMORYLAYER_PROJECT is unset now derives from the repo dir basename via new config.defaultProject() — because a repo with a valid CONTEXT_REPO_URL but missing project env silently merged its entries into the dogfood project's namespace
+- [decision] (2026-07-04) memorylayer init now validates that the repo is a git repo before adding hooks — because non-git repos were silently treated as git repos, leading to a confusing error when trying to add hooks
+- [decision] (2026-07-04) clone-isolation setup now checks if the repo is a git repo before cloning and adding hooks — because non-git repos were silently treated as git repos, leading to a confusing error when trying to clone or add hooks
+- [decision] (2026-07-04) the memory layer is keyed per CONTEXT_REPO_URL, not per working repo
+- [decision] (2026-07-04) many working repos may point at one memory layer on purpose
+- [decision] (2026-07-04) init deliberately leaves the URL to the user and does not enforce per-repo uniqueness
+- [constraint] (2026-07-04) the 4-week reliance test remains the operational gate because graph Phase 2, hosted gateway, and F3 lockfile are still intentionally gated on proof-of-pull
+- [context] (2026-07-04) Skanda.jsonl contains 43 events from 2026-07-03 09:32Z to 2026-07-04 11:03Z
+- [context] (2026-07-04) the instrumentation works partially for well-formed source/event/project/total schema
+- [context] (2026-07-04) there are data-hygiene bugs that corrupt the weekly jq tally: project-name casing split and duplicate hook fires
+- [context] (2026-07-04) to make this real Phase 1 data, the next steps are to normalize slugs, confirm dedup, onboard a 2nd collaborator, and run the full 4 weeks
+- [context] (2026-07-04) only Skanda.jsonl was analyzed, and other authors' metrics files could change the cross-person picture
+- [context] (2026-07-05) The complete pilot log from Skanda.jsonl and Qitao.jsonl shows a genuine two-person pilot with 112 events from 2026-06-30 09:05Z to 2026-07-04 23:53Z.
+- [context] (2026-07-05) The pilot log shows two authors with balanced contribution: Skanda has 27 writes and 40 reads, and Qitao has 22 writes and 23 reads.
+- [context] (2026-07-05) Both authors consistently read at session-start before writing, with a clean alternating handoff cadence and a read:write ratio of ~1:1, resulting in ~10 new entries per day.
+- [context] (2026-07-05) The cross-clone sync works, with the two authors' read 'total' values interleaving and climbing together from 1 to 47.
+- [context] (2026-07-05) The bidirectional, sustained, and balanced engagement between Skanda and Qitao meets the precondition for the reliance signal.
+- [context] (2026-07-05) The duplicate hook fires are local to Skanda's machine, with ~15 duplicate reads in bursts, and are not a tool-wide bug.
+- [context] (2026-07-05) The casing-split concern is not present in this pilot, as every event is project 'memorylayer'.
+- [context] (2026-07-05) The pilot is only ~16% into the 28-day window and needs to continue running to clear the Phase 1 gate.
+- [context] (2026-07-05) The manual weekly human tally with Skanda and Qitao needs to start to confirm the 'stopped re-explaining' signal.
+- [context] (2026-07-05) The Skanda-local duplicate hook fires need to be fixed or verified to ensure accurate metrics.
+- [decision] (2026-07-05) build the Phase 1 hosted gateway first
+- [preference] (2026-07-05) run the 4-week pilot on the hosted gateway
+- [preference] (2026-07-05) remove npm-10 install friction that blocks external pilot users
+- [preference] (2026-07-05) yield truer pilot metrics with less onboarding friction at $0 recurring cost
+- [decision] (2026-07-05) use Cloudflare Workers over Deno Deploy for the gateway platform
+- [preference] (2026-07-05) use CLI-driven space provisioning for the pilot
+- [preference] (2026-07-05) keep the dashboard [future]
+- [decision] (2026-07-05) coexist, no import for migration
+- [decision] (2026-07-05) Hosted-gateway implementation plan is written in docs/plans/2026-07-05-hosted-gateway-core.md
+- [decision] (2026-07-05) MCP transport is hand-rolled stateless JSON-RPC over plain-JSON POST because our two tools are single synchronous calls, the spec's stateless mode permits it, and it keeps the gateway at zero runtime dependencies
+- [decision] (2026-07-05) Task 1 extracts slug/packToBudget into dependency-free shared modules and points context-format's type import at frontmatter.js
+- [decision] (2026-07-05) write_context.author is ignored on the gateway because authenticated identity must beat client-declared identity
+- [decision] (2026-07-05) reads fetch at most the 40 newest entry files to stay under Workers' 50-subrequest free-plan cap
+- [decision] (2026-07-05) member tokens are stored in KV only as SHA-256 hashes, shown once at mint
+- [decision] (2026-07-05) scope split: this plan ends at a deployed curl-smoke-tested gateway
+- [context] (2026-07-06) Hosted gateway is LIVE and smoke-tested: https://memorylayer-gateway.memory-layer.workers.dev
+- [context] (2026-07-06) Full Task 8 smoke PASSED 2026-07-06: health; admin member mint for Skanda; write_context via deployed Worker committed real entry to MemoryLayer-Memory
+- [context] (2026-07-06) GitHub App installation 144657125 on skandaramanan/MemoryLayer-Memory has Contents R/W access only, with no Admin access
+- [context] (2026-07-06) Phase 1 gateway core is now fully DONE pending merge (branch hosted-gateway, Skanda merges manually)
+- [context] (2026-07-06) ADMIN_SECRET should be rotated before onboarding external pilot teams because it transited a chat session during setup
+- [decision] (2026-07-06) Distribution fix for the npm-10 github-install bug is to use clone-then-install (`git clone ... && npm install -g <dir>`) as the documented install path
+- [decision] (2026-07-06) The README has been rewritten to make the clone-then-install method primary, with the npm-10 bug explained in a callout and failure signatures in a troubleshooting table
+- [preference] (2026-07-06) Publishing to the npm registry is no longer a pilot blocker, but stays open as a later nicety
+- [context] (2026-07-06) The hosted gateway reduces local-CLI install friction for pilot users, who can join with URL+token and only need CLI for hooks
+- [context] (2026-07-06) The memorylayer-gateway GitHub App was created with "Where can this App be installed?" = "Only on this account".
+- [constraint] (2026-07-06) An external team leader cannot install the memorylayer-gateway GitHub App on their own repo today because the App was created with "Where can this App be installed?" = "Only on this account".
+- [preference] (2026-07-06) The memorylayer-gateway GitHub App should be changed to "Any account" installability before onboarding any external pilot team.
+- [context] (2026-07-06) The multi-team model puts each space repo in the team leader's OWN GitHub account, which requires public App installability.
+- [context] (2026-07-06) Phase 1 hosted gateway core is now on main
+- [context] (2026-07-06) Remaining eng track per the recorded sequencing: Plan B, Plan C, plus the two pre-reachout ops items
+- [context] (2026-07-06) gateway/dist/ is deliberately untracked because compiled Worker output is deploy-time only
+- [decision] (2026-07-07) implemented a URL-embedded token fallback on the gateway
+- [decision] (2026-07-07) chose path/query delivery over OAuth because it's a ~15-line change that unblocks ChatGPT today
+- [preference] (2026-07-07) mint client-specific tokens because a URL-borne token is more exposed
+- [question] (2026-07-07) whether ChatGPT accepts the connector's tool shape at Create time now that the 401 is gone
+- [context] (2026-07-07) A ground-up retrieval redesign was authored at docs/roadmap/2026-07-07-remote-relevance-engine.md
+- [context] (2026-07-07) docs/roadmap/2026-07-07-remote-relevance-engine.md marks docs/roadmap/2026-07-03-graph-memory-store.md SUPERSEDED and absorbs docs/retrieval-relevance-findings.md
+- [context] (2026-07-07) The core proposal drops the per-clone SQLite + bundled-ONNX local index entirely in favor of one server-side relevance service in the gateway
+- [context] (2026-07-07) The proposal includes D1 (facts/FTS5/embeddings, brute-force cosine at pilot scale), GitHub push-webhook ingest covering both planes, LLM extraction of atomic facts with provenance, a graph reduced to supersedes + derived_from + entity tags, RRF-fused thresholded retrieval, a session-start briefing with topic manifest, a prompt-conditioned push hook, and a golden-set/retrieval-log eval harness
+- [decision] (2026-07-07) Relevance-engine model stack stays $0
+- [preference] (2026-07-07) Skanda's standing preference is free
+- [constraint, standing rule] (2026-07-07) the $0 constraint stands
+- [context] (2026-07-07) the supersession judge is tuned conservative — surface conflicts_with rather than auto-link when unsure
+- [decision] (2026-07-08) Product focus is on remote/hosted-gateway only for user onboarding
+- [constraint] (2026-07-08) Local MCP/CLI is not a supported onboarding path and gets no further investment
+- [preference] (2026-07-08) Git clone + npm install is real friction that doesn't fit a startup product's low-friction feel
+- [decision] (2026-07-08) BUG FOUND + FIXED in Phase A's gateway/src/ingest.ts reindexSpace
+- [constraint] (2026-07-08) Cloudflare Workers' free-plan 50-subrequest-per-invocation limit
+- [preference] (2026-07-08) fix implemented: reindexSpace/ingestFiles gained optional {project, offset, limit} pagination
+- [preference] (2026-07-08) decision to leave the cron path unpaginated for now
+- [constraint] (2026-07-08) GitHub App webhook wiring for auto-indexing future local git-push writes is still an open item
+- [context] (2026-07-08) Phase A exit criterion CONFIRMED via live smoke test
+- [context] (2026-07-08) search_memory('cursor mcp config') should surface the 2026-07-04 Cursor decision was an incorrect claim
+- [context] (2026-07-08) query 'lyrebird takehome cleanup' correctly ranked the 2026-07-04 clone-isolation/lyrebird-cleanup decision #1 of 51 entries
+- [context] (2026-07-08) the 'cursor mcp config' fact is buried in the ledger but did not rank in the top 5 for the literal query because 'cursor' and 'mcp' are common words
+- [context] (2026-07-08) Phase A has been fully validated because it confirms the phased design assumption was correct
+- [context] (2026-07-08) The §5 pipeline in pure TS is shipped in gateway/src/{rank,index-db,retrieval,ingest,deps,webhook,reindex,api-read}.ts
+- [preference] (2026-07-08) The plan's formal numeric exit (golden-set recall@10 ≥ 0.9) is NOT yet measured
+- [context] (2026-07-08) Phase A's §5 pipeline is an entity tagger and a fact extractor
+- [decision] (2026-07-08) The B1 design is approved and committed
+- [decision] (2026-07-08) B1 scope includes server-side LLM fact extraction on the gateway, entity tags, canon tier, one-time re-ingest of existing entries, and a selective session-start briefing + topic manifest
+- [decision] (2026-07-08) Slice B2 into its own later spec because roadmap §8 flags false supersession as the one failure reindex cannot undo
+- [decision] (2026-07-08) Facts-are-docs, not a new table, because it is the smallest schema delta with zero churn to the proven Phase A
+- [decision] (2026-07-08) Extraction runs async via ctx.waitUntil on the gateway write path
+- [preference] (2026-07-08) an inline Workers AI text-gen call adds ~1-3s to every write
+- [constraint, standing rule] (2026-07-08) Server extraction ONLY, no write-path or ledger-format change
+- [preference] (2026-07-08) Gateway-exclusive, local inherits via existing remote-first reads
+- [decision] (2026-07-08) Extraction model = Workers AI free-tier open model ($0, Llama 3.3/Gemma/Qwen class)
+- [preference] (2026-07-08) paid model (Claude Haiku) is a metric-gated escalation only if the extraction-fidelity audit fails
+- [constraint, standing rule] (2026-07-08) Fail-open is central: extraction unavailable/failed/malformed JSON degrades to a single whole-entry normal fact
+- [decision] (2026-07-08) briefing-build failure falls back to the verbatim recency dump
+- [constraint] (2026-07-08) B1 exit gate requires extraction-fidelity audit passes on the re-ingested corpus
+- [preference] (2026-07-08) user reviews the spec
+- [preference] (2026-07-08) writing-plans precede TDD implementation plan
+- [context] (2026-07-08) Phase B1 was built inline via executing-plans from docs/superpowers/plans/2026-07-08-phase-b1-facts-briefing.md
+- [decision] (2026-07-08) awaiting Skanda's finish choice per the manual-merge pattern
+- [constraint, standing rule] (2026-07-08) frozen-local-plane decision: zero root/local-plane source touched
+- [preference] (2026-07-08) CANON_BOOST=1.5
+- [question] (2026-07-08) extraction-fidelity audit (sampled facts vs source entries) is remaining before Phase B1 is live
+- [context] (2026-07-08) NEXT after merge+backfill: Phase B2 (supersession detection) per the earlier slicing decision
+- [context] (2026-07-08) Phase B1 is MERGED and DEPLOYED to the production gateway
+- [constraint] (2026-07-08) extraction was floored for EVERY entry
+- [preference, standing rule] (2026-07-08) fail-open must still LOG
+- [context] (2026-07-08) Workers AI returned error 5028 "This model was deprecated on 2026-05-30" for @cf/meta/llama-3.1-8b-instruct
+- [context] (2026-07-08) PR #9 fixed the issue with robust prose-tolerant JSON parse + non-silent fail-open logging
+- [context] (2026-07-08) PR #10 fixed the issue by updating the EXTRACT_MODEL to @cf/meta/llama-3.3-70b-instruct-fp8-fast
+- [context] (2026-07-08) The current Cloudflare Workers AI models catalog shows that the bare 3.1-8b-instruct is deprecated and 3.3-70b-instruct-fp8-fast + 3.1-8b-instruct-fp8 are current
+- [context] (2026-07-08) DURABLE LESSONS: pin Workers AI model ids to CURRENT catalog entries and expect periodic deprecation
+- [context] (2026-07-08) Phase B1 extraction is now CONFIRMED WORKING in production after the llama-3.3-70b-instruct-fp8-fast model swap (PR #10) was deployed + reindexed
+- [context] (2026-07-08) /hook/read now renders a populated topic manifest (memory covers: cost (3), skanda (3), relevance-engine (2), … smoke-test (1))
+- [context, standing rule] (2026-07-08) the $0 constraint stands — faithfully extracted from the 2026-07-07 model-stack decision
+- [question] (2026-07-08) NEW NARROWER ISSUE: the large legacy 2026-07-02 dogfood entries still floor to whole-entry facts
+- [question] (2026-07-08) LEADING HYPOTHESIS: the Workers AI text-gen call has no max_tokens set, so its default output cap truncates the multi-fact JSON array for a big entry
+- [preference] (2026-07-08) LIKELY FIX: add max_tokens (~2000) to the AI.run call in gateway/src/deps.ts gen
+- [context] (2026-07-08) NEXT: capture wrangler tail during a full reindex filtered to [extract] lines to confirm truncation
+- [context] (2026-07-08) apply the max_tokens fix (new PR), redeploy + final reindex, then run the B1 extraction-fidelity audit on a sample
+- [constraint, standing rule] (2026-07-08) the llama-3.3-70b model emits a valid JSON fact array and then keeps talking
+- [context] (2026-07-09) Auto-index self-test PROBE-KESTREL (2026-07-09): a decision written through the hosted gateway should become searchable via the D1 index within seconds with NO manual reindex, exercising the ctx.waitUntil background-ingest path in production.
+- [preference] (2026-07-09) the write→auto-index loop should be confirmed hands-off
+- [constraint] (2026-07-09) the decision written through the hosted gateway should become searchable via the D1 index within seconds with NO manual reindex
+- [context] (2026-07-09) The gateway is a critical component of the overall system.
+- [context] (2026-07-09) The gateway's background ingest is triggered by write operations.
+- [context] (2026-07-09) The gateway is responsible for background ingest.
+- [context] (2026-07-09) The probe is a 2026-07-09 version of Marlin, a component of the gateway.
+- [context] (2026-07-09) Auto-index self-test PROBE-MARLIN (2026-07-09) confirms the gateway's background ingest fired on write.
+- [context] (2026-07-09) Auto-index self-test PROBE-OTTER (2026-07-09): third probe in the hands-off write→auto-index verification
+- [context] (2026-07-09) Retrievable by the unique term PROBE-OTTER without a manual reindex confirms the gateway's background ingest fired on write
+- [context] (2026-07-09) The PROBE-OTTER probe is in the "probing" state
+- [preference] (2026-07-09) Extraction is mildly non-deterministic across reindexes (canon tier can appear/disappear run-to-run)
+- [preference] (2026-07-09) The largest legacy 2026-07-02 dogfood mega-entries sometimes still floor to whole-entry facts and crowd the briefing budget
+- [preference] (2026-07-09) Prune later from the MemoryLayer-Memory repo if desired, then reindex
+- [decision] (2026-07-09) the `memorylayer` CLI binary will be distributed via PUBLIC npm publish (`npm install -g memorylayer`)
+- [preference] (2026-07-09) it serves the remote-only onboarding goal of zero access-grant
+- [preference] (2026-07-09) it's the mainstream CLI shape
+- [context] (2026-07-09) this decision is part of Plan B (`init --remote` hosted-member onboarding)
+- [context] (2026-07-09) The startup/product is now called "Wayform" (previously referred to as MemoryLayer) as of 2026-07-09.
+- [context] (2026-07-09) The shared store project space is still named "memorylayer" as of 2026-07-09.
+- [context] (2026-07-09) The CLI/npm package is still named "memorylayer" as of 2026-07-09.
+- [question] (2026-07-09) Whether the binary/npm package/MCP space also rename to wayform is a separate open decision.
+- [context] (2026-07-09) The rename is because the company is now focused on the Wayform product and the MemoryLayer name is no longer representative of the company's mission.
+- [decision] (2026-07-09) keep the shared store project space as memorylayer for now
+- [preference] (2026-07-09) the install surface should match the brand
+- [constraint] (2026-07-09) renaming the shared store project space would require migrating existing ledger entries/paths
+- [preference] (2026-07-09) long-term intent is to rename everything to wayform incrementally
+- [context] (2026-07-09) Plan B ships with gateway-only loadConfig mode
+- [context] (2026-07-09) wayform init --remote writes gitignored gateway env and project-scoped token-safe native HTTP MCP
+- [decision] (2026-07-09) unify user-facing copy on "Wayform" for commands and prose
+- [preference] (2026-07-09) a single name is cleaner than a divergent command-vs-product name
+- [constraint] (2026-07-09) INTERNAL identifiers will stay unchanged for now
+- [context] (2026-07-09) today's earlier decision was to use "wayform" for the binary and keep "memorylayer" for the store space
+- [context] (2026-07-09) GATEWAY OPS GOTCHA (2026-07-09): `wrangler kv key list|get|delete` default to the LOCAL KV simulator, not production
+- [constraint] (2026-07-09) you MUST pass `--remote` to touch the KV the deployed gateway Worker actually reads/writes
+- [preference] (2026-07-09) for security, we'll be moving away from the KV store for token management and towards a more secure token storage solution (e.g. Hashicorp's Vault) in the future
+- [decision] (2026-07-09) add `--remote` to every wrangler kv mint/list/get/delete in the runbook (`wrangler kv key delete --remote --namespace-id <id> member:<sha256>`) because the local-default is invisible (no error, just wrong store), and for a security operation (revocation) a silent no-op is dangerous
+- [decision] (2026-07-09) wayform init --remote registers the HOSTED MCP server as wayform
+- [constraint] (2026-07-09) naming the HOSTED MCP server as memorylayer collides with the local stdio server
+- [preference] (2026-07-09) the MCP server name is user-visible in /mcp
+- [context] (2026-07-09) MemoryLayer repo is now fully HOSTED-ONLY as of 2026-07-09
+- [context] (2026-07-09) MemoryLayer repo completed a full reset to onboard as a real hosted member via `wayform init --remote`
+- [context] (2026-07-09) MemoryLayer repo removed prior member tokens, rotated ADMIN_SECRET, and minted a fresh token
+- [context] (2026-07-09) MemoryLayer repo replaced local stdio config with wayform-hosted wiring
+- [context] (2026-07-09) MemoryLayer repo's fully-hosted status means no more manual config updates or dual-entry hooks are required
+- [context] (2026-07-09) all repos are now fully HOSTED-ONLY because MemoryLayer repo was the last holdout
+- [context] (2026-07-09) claude tool's MCP config now points to the wayform-hosted MCP server because MemoryLayer repo was onboarding to the hosted-member setup
+- [decision] (2026-07-09) Add an OPTIONS branch in router.ts to handle CORS/OPTIONS requests
+- [constraint] (2026-07-09) Cross-origin POST with Content-Type: application/json requires CORS handling
+- [decision] (2026-07-09) answer OPTIONS directly with 204 + CORS headers and wrap every other response in a withCors() helper
+- [preference] (2026-07-09) apply CORS handling gateway-wide, not just /mcp
+- [context] (2026-07-09) local dogfooding never exercises a browser-origin call, so this class of bug was invisible until a genuinely browser-based connector was tried
+- [decision] (2026-07-10) wayform@0.1.0 was published to the public npm registry
+- [decision] (2026-07-10) wayform@0.1.0 was verified via a genuinely fresh `npm install -g wayform`
+- [decision] (2026-07-10) Plan B end-to-end is complete
+- [question] (2026-07-10) license discrepancy between npm and package.json
+- [decision] (2026-07-10) switched gateway/package.json's test script to use an unquoted single-star glob, shell-expanded before Node sees it
+- [constraint] (2026-07-10) gateway test files are flat in gateway/test/ (no subdirs)
+- [preference] (2026-07-10) prefer shell-expanded globs over Node-expanded ones for node --test in gateway/CI work
+- [preference, standing rule] (2026-07-10) use shell-expanded globs (unquoted, matching root's pattern) over Node-expanded ones for node --test in this repo
+- [decision] (2026-07-10) Plan C (`wayform space create` onboarding CLI, PR #16) was merged to main at commit 4d5dd6e
+- [decision] (2026-07-10) Local and remote `plan-c/space-create-cli` branches were deleted post-merge
+- [preference] (2026-07-10) This was the last open step in the Plan C workflow because design and plan were already recorded
+- [decision] (2026-07-10) Phase B2 design was approved on 2026-07-10
+- [decision] (2026-07-10) max-feature scope was chosen for Phase B2 design based on Skanda review
+- [decision] (2026-07-10) sync conflict surfacing will be done on every write_context with specific implementation details
+- [decision] (2026-07-10) async auto-link will be done in waitUntil ingest after extraction with specific conditions
+- [decision] (2026-07-10) gateway-only optional supersedes:string[] will be available on write_context for author overrides
+- [decision] (2026-07-10) full supersession_log audit trail will be implemented for all verdicts
+- [decision] (2026-07-10) operator recovery will be done through POST /admin/clear-supersession and clearSupersession:true on reindex
+- [decision] (2026-07-10) GET /admin/supersession-audit will be used for sampled auto-link accuracy
+- [preference] (2026-07-10) user approved draft with 'max features' for all open questions
+- [preference] (2026-07-10) conservative judge policy remains unchanged from roadmap/B1 split
+- [decision] (2026-07-10) Phase B2 implemented on branch relevance/phase-b2
+- [decision] (2026-07-10) Ships: sync conflict surfacing on every write_context
+- [decision] (2026-07-10) Skanda approved max-feature B2 spec and chose inline execution
+- [context] (2026-07-10) B2 deployed to production on 2026-07-10
+- [context] (2026-07-10) Worker efaa5cdc has D1 migration 0003 applied
+- [constraint] (2026-07-10) Unpaginated POST /admin/reindex returns Cloudflare error 1101 because B2 adds LLM extraction and supersession judging, exceeding Worker CPU time and subrequest cap
+- [decision] (2026-07-10) Skanda requested open PR and merge after paginated reindex dogfood succeeded
+- [decision] (2026-07-10) Skanda made changes to MCP config and cursor position tracking to support Phase B2
+- [decision] (2026-07-10) .cursor/settings.json gitignored (commit 6c5bd0f on main) — per-user Cursor config, same treatment as .cursor/mcp.json
+- [preference] (2026-07-10) settings.json holds personal IDE permissions and must not land in the repo
+- [constraint] (2026-07-10) .cursor/hooks.json remains committed as shared team hook wiring
+- [context] (2026-07-10) DECIDED (2026-07-10): .cursor/settings.json gitignored
+- [preference] (2026-07-10) ignore .cursor/settings.json to prevent exposing sensitive user information
+- [decision] (2026-07-10) Phase C design is settled and committed in docs/superpowers/specs/2026-07-10-phase-c-prompt-hook-evals-design.md
+- [decision] (2026-07-10) POST /hook/prompt reuses the existing retrieve() pipeline, with silent empty-200 when nothing clears τ or on any error, and p95<500ms
+- [decision] (2026-07-10) golden-set recall@k harness uses a deterministic checked-in fixture and a POST /admin/golden-candidate path for human promotion of real observed misses
+- [decision] (2026-07-10) memory_feedback(fact_id, useful|wrong|stale) MCP tool records votes and soft-demotes, chosen over pure signal-collection
+- [decision] (2026-07-10) τ calibration script is recommend-only, because auto-applying τ risks silently silencing retrieval
+- [context] (2026-07-10) Phase C is implemented and open as PR #19 on branch phase-c-prompt-hook-evals
+- [context] (2026-07-10) POST /hook/prompt server-side push reuses retrieve(), is τ-gated, and fail-open with an empty 200
+- [context] (2026-07-10) Golden recall@k harness and migration 0004 are implemented
+- [context] (2026-07-10) Memory_feedback MCP tool and soft-demote are implemented
+- [context] (2026-07-10) A recommend-only τ calibration script is implemented using GET /admin/retrieval-log, recommendTau, and calibrate-tau.mjs
+- [constraint] (2026-07-10) FeedbackPenalties is keyed by SPACE only, not (space, project), because fact ids are space-unique and retrieve() is sometimes called with project undefined
+- [preference] (2026-07-10) Don't change FeedbackPenalties to be keyed by space+project, because it would break cross-project search_memory
+- [decision] (2026-07-10) Codex 0.144+ speaks native HTTP and applies project config for trusted repos
+- [decision] (2026-07-10) the old assumption 'Codex has no project-scoped MCP, paste an npx mcp-remote bridge into global ~/.codex/config.toml' is retired
+- [decision] (2026-07-10) Codex HTTP transport has no inline-token field, so the config uses bearer_token_env_var='MEMORYLAYER_GATEWAY_TOKEN'
+- [decision] (2026-07-10) .codex/config.toml is gitignored and regenerated per-member by `wayform init`/`init --remote`
+- [decision, standing rule] (2026-07-10) .codex/config.toml must be gitignored and never committed because it is regenerated per-member by `wayform init --remote` and carries no secret
+- [decision, standing rule] (2026-07-10) .cursor/settings.json must be gitignored and never committed because it is regenerated per-member by `wayform init --remote` and carries no secret
+- [constraint, standing rule] (2026-07-10) .codex/config.toml and .cursor/settings.json must be excluded from the `wayform init` command to prevent accidental commit
+- [decision] (2026-07-11) Token-bearing files written by onboarding must be written with owner-only perms (0600), because they carry a full member credential with no second factor
+- [constraint] (2026-07-11) A world-readable 0644 file lets any other local UID on a shared host lift the token and impersonate the member
+- [decision] (2026-07-11) The harden helper chmods pre-existing files on re-run because writeFileSync only applies mode on create
+- [context] (2026-07-11) Codex has a "tried local MCP first" confusion
+- [context] (2026-07-11) Codex "tried local MCP first" confusion root cause diagnosed on 2026-07-11
+- [context] (2026-07-11) project-scoped .codex/config.toml remote config is correct but its token handoff is fragile because bearer_token_env_var=MEMORYLAYER_GATEWAY_TOKEN requires manually sourcing .memorylayer-hook.env before launch
+- [context] (2026-07-11) IDE-launched Codex doesn't inherit MEMORYLAYER_GATEWAY_TOKEN env
+- [context] (2026-07-11) Codex logs confirm MCP startup failure due to unset MEMORYLAYER_GATEWAY_TOKEN environment variable
+- [constraint] (2026-07-11) Codex streamable-HTTP MCP servers accept ONLY bearer_token_env_var or OAuth — no literal bearer token or custom headers in config.toml
+- [constraint] (2026-07-11) The earlier fix candidate of embedding the literal token in the gitignored .codex/config.toml is ruled out
+- [preference] (2026-07-11) The remaining viable fix for the silent-token-handoff failure is to point Codex at the stdio server as a gateway relay
+- [question] (2026-07-11) Why does gateway /api/read hang indefinitely without a query param?
+- [context] (2026-07-11) The '/api/read queryless hang' has been diagnosed as NOT a hang and NOT caused by PR #18.
+- [context] (2026-07-11) The queryless /api/read completes with HTTP 200 in ~45s.
+- [context] (2026-07-11) The root cause is gateway readEntries (gateway/src/github-store.ts) fetching the MAX_ENTRY_FETCH=40 newest entry files sequentially via the GitHub Contents API.
+- [context] (2026-07-11) The latency grew linearly with the store, which now has 92 entries, causing it to always fetch 40 files (~45s).
+- [context] (2026-07-11) The blast radius includes queryless /api/read (~45s) and hosted MCP read_context without a query (~32s).
+- [decision] (2026-07-11) Fixed the queryless recency-read slowness in PR #22 by optimizing readEntries with Promise.all and introducing readEntriesCached KV-cache
+- [decision] (2026-07-11) Chose to optimize readEntries over serving recency from the D1 index because the recency contract requires raw entries in write order
+- [decision] (2026-07-11) Chose not to raise the CLI timeout because cold reads are still ~10s
+- [decision] (2026-07-11) Merged PR #21, which includes Codex literal http_headers token and gateway-only stdio server guards
+- [constraint, standing rule] (2026-07-11) The recency contract requires raw entries in write order
+- [context] (2026-07-12) Venture framing update from Skanda on 2026-07-13
+- [constraint] (2026-07-12) The Goldman/4-week window is retired because Skanda now sees MemoryLayer as something bigger than a bounded test
+- [context] (2026-07-12) Skanda has a founder edge as a Google intern with connections to founders, VCs, and YC founders
+- [preference] (2026-07-12) If validation fails, shut down MemoryLayer, or pivot only if the pivot is clear
+- [context] (2026-07-13) reindex data-loss bug confirmed on 2026-07-13
+- [context] (2026-07-13) reindex pagination residual risk triggered
+- [context] (2026-07-13) POST /admin/reindex with limit=40 silently persists only a fraction of a space's entries
+- [context] (2026-07-13) reindexSpace/ingestFiles page limit was sized for the READ path only
+- [context] (2026-07-13) ingestEntries now does per-entry extractFacts and embed, exceeding the Workers free-plan subrequest cap
+- [context] (2026-07-13) immediate remediation: re-run reindex with limit=10
+- [context] (2026-07-13) proper fix: lower the reindex default page size and/or move extract/embed off the per-page fetch loop
+- [context] (2026-07-13) reconcileAll's cron reindex is still unpaginated and would hit the same wall on any large space
+- [context] (2026-07-13) hosted MCP search_memory throws Cloudflare Error 1102 for some queries against the memorylayer space
+- [context] (2026-07-13) identical query failed 1102 twice in a row on 2026-07-13
+- [context] (2026-07-13) query failure is deterministic and corpus-size-correlated
+- [context] (2026-07-13) rank/retrieval path exceeds Worker CPU/memory ceiling on larger index
+- [context] (2026-07-13) failure needs profiling of query path's per-candidate cost and likely a candidate cap / cheaper ranking because it is a live retrieval failure hitting real queries
+- [context] (2026-07-13) search_memory Cloudflare Error 1102 is NOT query-specific, NOT corpus-content-specific, and NOT a logic bug in the ranking/retrieval code
+- [context] (2026-07-13) search_memory Cloudflare Error 1102 is a TRANSIENT cold-isolate resource hit on the read path, self-healing once warm
+- [preference] (2026-07-13) read path should pre-filter candidates instead of loading the entire space per query to mitigate the transient error
+- [context] (2026-07-13) retrieve() full-scans the whole space on every query, causing O(corpus) CPU/peak-memory usage
+- [context] (2026-07-13) The two 2026-07-13 gateway hot fixes are committed as ce8e388 and open for review as PR #23
+- [context] (2026-07-13) The two fixes are documented in the gateway project's incident record entry 220faba7
+- [context] (2026-07-13) Production runs ahead of main until #23 merges
+- [context] (2026-07-13) The two 2026-07-13 gateway hot fixes include bounded-candidate read path and paginated cron reconcile
+- [context] (2026-07-13) The two 2026-07-13 gateway hot fixes are already live as Worker deploys 2410f174/dc738c78
+- [decision] (2026-07-13) Start team-trial outreach immediately for A+B hybrid strategy
+- [decision] (2026-07-13) Use idle days between replies for top invocation quick wins only
+- [preference] (2026-07-13) Prioritize building features that take only a day or two to build
+- [constraint] (2026-07-13) Engineering is capped at trial blockers + ≤2-day invocation improvements
+- [preference] (2026-07-13) Win on automatic capture, attribution, and cross-tool identical behavior
+- [context] (2026-07-13) Skanda has a meeting with Jerry X Lingson of NextGen Ventures on Thursday 2026-07-17 for general intros and mentorship
+- [decision] (2026-07-13) trial outreach does not wait for the meeting with Jerry X Lingson because the first 3 outreach targets are people Skanda already knows
+- [context] (2026-07-13) Skanda plans to ask Jerry X Lingson for intros to 2-3 small eng teams building daily with Claude Code/Cursor as free trial users
+- [context] (2026-07-13) Jerry X Lingson is pipeline source #4, additive to the named-teams list
+- [context] (2026-07-13) Outreach-channel reality check on 2026-07-13 revises the trial-outreach tactics in the A+B hybrid decision
+- [context] (2026-07-13) Skanda has no warm builder friends to ask trial favors of
+- [context] (2026-07-13) Available channels are cold LinkedIn DMs to connections, dev communities, and warm intros
+- [preference] (2026-07-13) Cold converts ~1-in-10 vs ~1-in-2 warm
+- [decision] (2026-07-13) Target list scales from 5 named teams to 15-20 LinkedIn connections DM'd in batches of 5
+- [context] (2026-07-13) Community-reply outreach runs daily
+- [context] (2026-07-13) Thursday 2026-07-17 Jerry X Lingson meeting is promoted from pipeline source #4 to highest-value channel
+- [preference] (2026-07-13) Ask for warm intros to small eng teams using Claude Code/Cursor daily
+- [context] (2026-07-13) Cold DM message frame includes personalized 'why you' first line, one-line product picture, 'live and I use it daily' credibility, 'taking 2-3 teams' selection framing, 15-min observed-setup ask
+- [context] (2026-07-15) Skanda has an initial meeting on 2026-07-16 with NextGen Ventures
+- [context] (2026-07-15) NextGen Ventures is Australia's first student-led VC fund with ~$70K first cheques, pre-seed, $4.3M raised, backed by Blackbird/Airtree/Rampersand partners
+- [context] (2026-07-15) NextGen Ventures has 20 student scouts across 7 campuses
+- [context] (2026-07-15) Skanda will pitch the vendor-neutral team-memory insight and shipping speed, and be candid that traction is solo dogfood with team trials starting
+- [context] (2026-07-15) NextGen Ventures' student-founder community is framed as a trial-candidate pipeline, not just support
+- [context] (2026-07-15) Skanda will discuss the vendor-agnostic, open-source, team-memory tooling with the NextGen Ventures team
+- [context] (2026-07-15) NextGen Ventures meeting
+- [preference] (2026-07-15) Skanda's top-3 enabler asks are mentoring from a current/ex-founder, help becoming investment-ready, and student-founder community
+- [preference] (2026-07-15) Skanda does not need investment because their founder network/LP backing is worth more
+- [preference] (2026-07-15) avoid the generic company brain label
+- [context] (2026-07-15) pitch framing, not a committed roadmap
+- [context] (2026-07-15) Competitive-landscape framing verified via web on 2026-07-15
+- [context] (2026-07-15) Mem0 raised $24M Series A from Basis Set, Peak XV, GitHub Fund, and YC, with 186M quarterly API calls, and is AWS exclusive memory provider for its Agent SDK
+- [context] (2026-07-15) Letta raised $10M seed at $70M post from Felicis
+- [context] (2026-07-15) Zep is also active in the "memory layer for AI" category
+- [context] (2026-07-15) MemoryLayer's lane is multiplayer, cross-tool, decision-level team memory for people using coding agents
+- [context] (2026-07-15) Known weaknesses include zero external validation yet, real platform risk, and wedge-vs-company question
+- [context] (2026-07-15) Skanda worked at Google, where AI was a separate bolted-on tool
+- [context] (2026-07-15) decisions were made in docs and meetings, then AI used to code
+- [context] (2026-07-15) once people started making decisions WITH AI, nothing captured them and they were lost to the team
+- [context] (2026-07-15) the firsthand gap is the 'why you / unique insight' answer: everyone builds single-player single-vendor memory, nobody builds team memory across tools because no vendor has the incentive
+- [context] (2026-07-15) business model is per-seat SaaS with a hosted gateway
+- [context] (2026-07-15) MemoryLayer is the product for teams USING coding agents, distinct from Mem0/Zep/Letta which are APIs for developers building agents
+- [context] (2026-07-15) Qitao Shi was onboarded as the second member of the memorylayer dogfood space on 2026-07-15
+- [context] (2026-07-15) The first member token was minted for someone other than Skanda on 2026-07-15
+- [context] (2026-07-15) The trial success metric is Qitao's sessions surfacing decisions Skanda wrote
+- [context] (2026-07-15) Qitao Shi needs to run `wayform init --remote` and do a verified cross-member read
+- [context, standing rule] (2026-07-15) The MemoryLayer-Memory repo is the only one with a dogfood space
+- [decision] (2026-07-15) remediate the onboarding playbook security incident by untracking the file and correcting the .gitignore path
+- [decision] (2026-07-15) rotate the exposed credentials, including the admin secret and Skanda's member token, rather than rewriting git history
+- [context] (2026-07-15) the onboarding playbook contains the live admin secret and Skanda's mlk_ member token and was committed and pushed to the private MemoryLayer code repo
+- [context] (2026-07-15) the root cause of the security incident was the outdated .gitignore rules
+- [preference] (2026-07-15) rotation of exposed credentials makes the leaked values worthless, and a history rewrite adds force-push risk without additional security benefit
+- [context] (2026-07-15) Two operational gotchas were found live during the 2026-07-15 credential rotation
+- [constraint] (2026-07-15) `wrangler kv key delete` defaults to the LOCAL dev namespace unless `--remote` is passed
+- [preference] (2026-07-15) The revoke command in the onboarding playbook should include `--remote`
+- [constraint] (2026-07-15) `wayform init --remote` run outside a git repo proceeds anyway and scatters files into the current working directory
+- [preference] (2026-07-15) `wayform init --remote` should hard-fail when run outside a git repo
+- [decision] (2026-07-15) Fixed the two cold-onboarding init bugs found via Qitao's 2026-07-15 onboarding
+- [decision] (2026-07-15) `wayform init` now hard-fails with exit 1 outside a git repo
+- [decision] (2026-07-15) Claude Code MCP auto-registration falls back to ~/.claude/local/claude when `claude` isn't on the spawn PATH
+- [preference] (2026-07-15) the printed manual fallback now shell-quotes the Authorization header
+- [decision] (2026-07-15) onboarding should start with `npm install -g wayform@latest`
+- [preference] (2026-07-15) wayform 0.1.2 should be used instead of 0.1.0/0.1.1 because they have footguns
+- [decision] (2026-07-16) Pilot onboarding playbook restructured to make member setup a single command
+- [decision] (2026-07-16) Checklist B sends members a paste-ready npx wayform@latest init --remote --gateway <url> --token mlk_... block
+- [constraint] (2026-07-16) init --remote already wires Claude Code, Cursor, and Codex, so hand-copied snippets were redundant
+- [preference] (2026-07-16) per-tool snippets remain only as fallbacks for ChatGPT/Claude Desktop or init failure
+- [constraint] (2026-07-16) wayform 0.1.2 must be published to npm before any real onboarding because wayform 0.1.1 lacks the git-repo hard-fail, claude-CLI alias fallback, and correct Codex config emit
+- [decision] (2026-07-16) wayform init now auto-trusts the Codex hooks it writes
+- [constraint] (2026-07-16) Codex requires per-hook trust separate from project trust_level
+- [preference] (2026-07-16) auto-trusts Codex hooks to prevent silently skipped untrusted hooks
+- [context] (2026-07-16) wayform init appends trusted_hash entries to $CODEX_HOME/config.toml
+- [constraint] (2026-07-16) only marker-matched wayform/memorylayer hooks are trusted
+- [preference] (2026-07-16) refresh existing tables' stale hash in place
+- [context] (2026-07-16) Free-tier capacity audit for the 5-teams×5-devs pilot scale (2026-07-16): the stack survives 25 devs, but two limits are binding
+- [constraint] (2026-07-16) Workers AI 10k neurons/day is the first ceiling — llama-3.3-70b extraction costs ~100 neurons per write_context, capping ~100 fact-extracted writes/day ACCOUNT-WIDE
+- [constraint] (2026-07-16) KV 1,000 writes/day is tight (~500–800/day projected) because the 60s TTLs on hook + recency caches make nearly every session start a cache-miss put
+- [preference] (2026-07-16) swap EXTRACT_MODEL to an 8B-class model (~10× cheaper, $0) vs $5/mo Workers Paid (overage at $0.011/1k neurons)
+- [constraint, standing rule] (2026-07-16) do NOT raise MAX_ENTRY_FETCH above 40 (cold read = ~43 of the 50-subrequest free cap)
+- [context] (2026-07-16) wayform init --remote failed with "requires --gateway and --token" on 2026-07-16
+- [context] (2026-07-16) wayform 0.1.2 parses --gateway and --token flags correctly
+- [context] (2026-07-16) iMessage mangles shell commands by turning -- into an em dash —
+- [context] (2026-07-16) iMessage breaks multi-line backslash continuations
+- [context] (2026-07-16) onboarding fix: send wayform init command as one line through a channel that doesn't reformat text
+- [decision] (2026-07-16) Stop-hook now throttled + gated to cut its token cost
+- [preference] (2026-07-16) fire only every 4th stop per session
+- [constraint] (2026-07-16) Cursor status !== "completed" to skip meaningless fires
+- [constraint] (2026-07-16) Codex empty last_assistant_message to skip meaningless fires
+- [constraint] (2026-07-16) Claude Code turns whose transcript shows write_context was already called this turn to skip meaningless fires
+- [context] (2026-07-16) docs/onboarding/pilot-onboarding.local.md contains a live-looking mlk_THEI… member token
+- [context] (2026-07-16) the file was not shipped to npm because package files are only in dist
+- [context] (2026-07-16) the file was not included in today's release commit because its local edits were excluded
+- [context] (2026-07-16) remediation is pending Skanda's call to untrack the file, fix .gitignore, and rotate the exposed token
+- [question] (2026-07-16) whether the file should be deleted or kept in the private repo with the token removed
+- [context] (2026-07-16) root cause was that the July 15 remediation added only self-onboarding.md to .gitignore and missed pilot-onboarding.local.md
+- [question] (2026-07-16) rotate the mlk_THEI… member token, which remains in private-repo git history
+- [decision] (2026-07-17) keep dual init configs for real Claude Code + Cursor
+- [constraint] (2026-07-17) Cursor merges and runs both .cursor/hooks.json and .claude/settings.json on the same stop event
+- [preference] (2026-07-17) configs are additive, not exclusive
+- [context] (2026-07-17) Second Brain is a close SURFACE competitor, not a wedge-killer, with overlapping features such as MCP memory for Claude/ChatGPT/Cursor, Cloudflare Workers+D1+Vectorize, MIT, self-host free tier, semantic recall, contradiction/smart-merge, and polished "AI shouldn't start from zero" messaging
+- [context] (2026-07-17) Second Brain has gained traction with #3 Product Hunt PotD (~May 31 2026), ~600 GitHub stars, desktop installer, Obsidian/iOS/CLI/dashboard, v2 knowledge graph + Notion sync
+- [context] (2026-07-17) Second Brain does not overlap with MemoryLayer's settled wedge, as it is single-player personal knowledge memory, whereas MemoryLayer is multiplayer team decision memory for people using coding agents
+- [context] (2026-07-17) The category slogan and DIY CF memory layer were taken by Second Brain, but the multiplayer "system of record for why" lane is still open because we have the coding agent advantage, and our "system of record for why" is a strong unique selling point
+- [context] (2026-07-17) There are risks of marketing collision and Second Brain potentially adding teams later, but we should not pivot into their feature race and instead stay focused on the trial metric = person B session surfaces person A's decision
+- [context] (2026-07-17) Wayform has retrieval-quality eval infra including gateway/eval/golden.json and gateway/test/golden.test.mjs
+- [constraint] (2026-07-17) gateway/test/golden.test.mjs asserts recall@10 >= 0.9 floor
+- [preference] (2026-07-17) golden.json's fixture should be grown to make the 0.9 recall floor a meaningful signal
+- [question] (2026-07-17) what's missing for Wayform's retrieval logic coverage testing
+- [decision] (2026-07-17) Shipped six improvements derived from the second-brain-cloudflare competitive review
+- [decision] (2026-07-17) 1102 fix: retrieval is now bounded-by-construction with embedding scan recency-capped at EMBED_SCAN_CAP=2000
+- [decision] (2026-07-17) Hydration no longer fetches embeddings
+- [decision] (2026-07-17) TOKEN_MATCH_LIMIT changed from 500 to 200 newest-first
+- [decision] (2026-07-17) Entity scan capped at 4000 rows
+- [decision] (2026-07-17) BM25 tokenizes only token-matched candidates
+- [decision] (2026-07-17) Added retrieval_timing log line and observability in wrangler.toml
+- [decision] (2026-07-17) Search_memory now fails open like read_context
+- [decision] (2026-07-17) Invocation playbook adds three rules
+- [preference] (2026-07-17) Work must be bounded up front because 1102 is an uncatchable isolate kill
+- [preference] (2026-07-17) Transient index/AI errors return the recency read or a plain non-error notice instead of isError
+- [decision] (2026-07-17) Add conclusions in session-prompt.ts, mcpInstructions, and the Stop-hook review prompt
+- [decision] (2026-07-17) Implement near-duplicate write gate in detectWriteConflicts with DUP_COSINE_FLOOR=0.95 and DUP_GATE_ENFORCE=false
+- [decision] (2026-07-17) Move conflict check before GitHub commit and store all failure paths
+- [decision] (2026-07-17) Amend decision to use write_context with supersedes:[old fact id] and update gateway tool descriptions and playbook
+- [decision] (2026-07-17) Create Merged-PR recorder GitHub Action with template in integrations/github-actions/ and dogfood copy in .github/workflows/record-merged-pr.yml
+- [decision] (2026-07-17) MEMORYLAYER_TOKEN repo secrets are required before it works
+- [decision] (2026-07-17) Rejected scope: LLM body-merging because it conflicts with append-only ledger and attribution
+- [decision] (2026-07-17) Rejected scope: Vectorize migration because free-tier in-Worker fixes suffice until ~2000 docs
+- [context] (2026-07-17) The MemoryLayer merged-PR recorder is being tested
+- [context] (2026-07-17) The smoke test checks the functionality of the MemoryLayer
+- [context] (2026-07-17) The PR skandaramanan/MemoryLayer#0 was merged into main from test by skandaramanan
+- [context] (2026-07-17) The gateway already runs as a GitHub App
+- [context] (2026-07-17) The gateway exposes the HMAC-verified POST /webhook/github endpoint
+- [context] (2026-07-17) The proposed App-based merged-PR recorder would be ~1 day of work because the gateway already has every hard part
+- [context] (2026-07-17) The proposed App-based merged-PR recorder requires a product-repo → space+project mapping
+- [context] (2026-07-17) The App-based merged-PR recorder draws from the same ~100 fact-extracted-writes/day Workers AI ceiling
+- [context] (2026-07-17) High-traffic repos still want a label gate because auto-recording every merge across installed repos draws from the same ~100 fact-extracted-writes/day Workers AI ceiling
+- [context] (2026-07-17) Invocation review conclusion (2026-07-17): do not optimize raw MCP call count.
+- [context] (2026-07-17) A successful session-start injection should eliminate redundant queryless read_context calls.
+- [context] (2026-07-17) The useful target is opportunity-level context use plus curated write precision.
+- [context] (2026-07-17) The second-brain-cloudflare reference gets most invocation lift from aggressive persistent client instructions and a SessionStart REST recall/injection.
+- [context] (2026-07-17) Recommended MemoryLayer direction: preserve the guaranteed project-scoped SessionStart briefing.
+- [context] (2026-07-17) Remove model-reengaging Stop continuations/followup_message that create visible extra chats.
+- [context] (2026-07-17) Add MCP annotations (reads readOnly, write additive/non-destructive).
+- [context] (2026-07-17) Add richer trigger/examples in tool descriptions.
+- [context] (2026-07-17) Add project-scoped static fallback rules for hookless/cloud clients.
+- [context] (2026-07-17) Add init/doctor postflight that verifies hook execution, MCP discovery, trust, project binding, and a read-only call.
+- [context] (2026-07-17) If automatic write recall remains low, use a silent lifecycle side-effect that sends the completed turn to a gateway extractor/deduper and writes only settled durable decisions.
+- [context] (2026-07-17) Evaluate per client/model on cold-start handoff, mid-session read opportunities, write recall/precision, latency, and zero visible follow-ups.
+- [context] (2026-07-17) Consider a write-through cache to eliminate the gateway and reduce latency.
+- [context] (2026-07-17) Second Brain's real invocation engine is persistent global client instructions plus rich tool descriptions
+- [context] (2026-07-17) Second Brain's boundary hooks are not in default onboarding and are likely no-ops
+- [context] (2026-07-17) MemoryLayer already has stronger project-scoped SessionStart injection, initialize.instructions, explicit tool policy, and a server-side /hook/prompt relevance endpoint
+- [context] (2026-07-17) cold-start correctness now outranks further prompt tuning
+- [context] (2026-07-17) local init generates memorylayer although npm exposes only wayform
+- [context] (2026-07-17) hosted space creation may leave no initialized branch for the first write
+- [context] (2026-07-17) empty stores suppress the SessionStart policy
+- [context] (2026-07-17) hosted MCP guidance can default to team space rather than the working project
+- [context] (2026-07-17) local stdio omits memory_feedback
+- [context] (2026-07-17) current telemetry misses important tool boundaries
+- [preference] (2026-07-17) do not optimize raw MCP call count; optimize opportunity-level context use, curated write precision, cross-member handoff, and zero visible follow-ups
+- [preference] (2026-07-17) fix executable wiring, initialize the hosted repo, inject policy even with no entries, bind/verify the actual project, and remove Stop continuations/followup_message that create extra chats
+- [preference] (2026-07-17) wire /hook/prompt into Claude Code UserPromptSubmit where hidden injection is supported
+- [preference] (2026-07-17) add MCP annotations/richer descriptions, post-init connection/trust/read smoke checks, install managed project rules and /remember, and log every MCP tool call/outcome
+- [preference] (2026-07-17) use a silent lifecycle side-effect plus gateway extractor/deduper instead of re-engaging the main assistant if measured write recall stays low
+- [context] (2026-07-17) keep the trial metric: person B receives person A's decision before answering
+- [decision] (2026-07-17) Built the App-based merged-PR recorder
+- [preference] (2026-07-17) Because: one-click App install replaces per-repo yml copies + token secrets
+- [decision] (2026-07-17) Deliberately skipped: commit-subject fetch, label gating, unregister endpoint
+- [decision] (2026-07-17) Remove Stop-hook re-engagement and visible extra chats across Cursor, Claude Code, and Codex
+- [decision] (2026-07-17) Wire the existing `/hook/prompt` only into clients with supported hidden prompt-context injection, especially Claude Code `UserPromptSubmit`
+- [decision] (2026-07-17) Cursor remains rules/MCP-driven because `beforeSubmitPrompt` cannot inject
+- [decision] (2026-07-17) Add MCP annotations and richer examples, local `memory_feedback` parity, project-scoped fallback rules plus managed `/remember`, and MCP call/outcome telemetry
+- [decision] (2026-07-17) Keep a P2 silent write-capture path feature-gated and ship only if pilot opportunity-level write-recall metrics justify it, because current Stop follow-ups are annoying/expensive and invocation reliability must improve without disrupting the user's conversation
+- [decision] (2026-07-17) baseline-benchmark work happens on new branch `baseline-benchmarks`
+- [decision] (2026-07-17) invocation-rate test harness is the first priority
+- [decision] (2026-07-17) mine existing D1 `retrieval_log` for real invocation/read data
+- [decision] (2026-07-17) latency + token-cost scripts for session-start hook and reads are the third priority
+- [decision] (2026-07-17) grow golden.json retrieval eval from the real 61-entry corpus and tighten recall floor 0.9→0.95
+- [context] (2026-07-17) MCP tool-calling success rates are much lower than synthetic benchmarks suggest
+- [context] (2026-07-17) invocation reliability is an industry-wide weak spot
+- [context] (2026-07-17) test invocation with a should-trigger/should-NOT-trigger query set
+- [context] (2026-07-17) report a trigger rate rather than single-shot pass/fail
+- [context] (2026-07-17) phrase tool descriptions as 'use this when...' instructions
+- [decision] (2026-07-17) Pilot onboarding playbook updated to reflect shipped onboarding-friction work
+- [decision] (2026-07-17) Checklist A updated to lead with `wayform space create` fast path
+- [decision] (2026-07-17) Checklist B updated to note first member's token is already minted by space create
+- [decision] (2026-07-17) New optional section added for App-based merged-PR recorder
+- [decision] (2026-07-17) Checklist C updated to include one-time step to set up App-based project board
+- [constraint] (2026-07-18) wayform doctor fails for every hosted/remote member because src/doctor.ts hardcodes REQUIRED_ENV_KEYS=[CONTEXT_REPO_URL, MEMORYLAYER_AUTHOR] but init --remote writes a gateway-only env (MEMORYLAYER_GATEWAY_URL/TOKEN, no CONTEXT_REPO_URL)
+- [preference] (2026-07-18) hook + recency KV cache TTLs should be ~300s instead of 60s because it is a free several-fold KV-write cut and write-invalidation keeps it correct
+- [preference] (2026-07-18) EXTRACT_MODEL should be updated from llama-3.3-70b to a newer version because it removes the ~100 writes/day account ceiling at pilot load and needs an eval spot-check first
+- [constraint] (2026-07-18) reindex cron has no retry cap/backoff on failed extractions, which burns next day's neuron budget
+- [decision] (2026-07-18) measure real LLM tool-call decisions via headless `claude -p` runs with wayform MCP attached
+- [preference] (2026-07-18) not direct server calls, because direct-call harnesses only test server reliability
+- [constraint] (2026-07-18) all 4 misses were write_context on implicit 'log/record this for the team' phrasing without an explicit verb like 'record' or 'save'
+- [decision] (2026-07-18) use this data to inform the LLM invocation policy
+- [context] (2026-07-19) First real waitlist lead (2026-07-19): David Berquist, dberquist@spear.ai — Spear AI (defense-adjacent maritime/acoustics ML, 51–200 employees), team of 8+ devs on Claude Code + Cursor + CodeRabbit, shared GitHub codebase
+- [context] (2026-07-19) Assessment settled in session: strong ICP fit; capacity is NOT a blocker (free-tier audit sized for 25 devs; one 8-dev team is fine once the already-scoped 8B extract swap + KV TTL bump land)
+- [constraint] (2026-07-19) Real open risk is data policy — defense-adjacent teams may require self-hosting/compliance the hosted gateway doesn't offer
+- [preference] (2026-07-19) to be scoped on a discovery call before onboarding, with the honest position 'hosted-only right now'
+- [preference] (2026-07-19) OAuth explicitly DEFERRED (2–3 days alone, client-compat risk, and Codex onboarding standardized on literal bearer headers) — instead, self-minting via invite codes is the accepted direction
+- [preference] (2026-07-19) ADMIN_SECRET-guarded POST /admin/invites mints a hashed, expiring, use-capped space-bound invite; public POST /join exchanges invite+name for a fresh mlk_ member token via the existing member-creation path; wayform init --remote --invite exchanges it client-side
+- [preference] (2026-07-19) one invite code per team replaces hand-minting and distributing N live credentials (the failure class behind both token-leak incidents and the iMessage mangling bug), and removes OAuth's near-term justification
+- [context] (2026-07-19) PR feat(gateway): App-based merged-PR recorder via pull_request webhook (skandaramanan/MemoryLayer#27) was merged
+- [context] (2026-07-19) PR feat(gateway): App-based merged-PR recorder via pull_request webhook (skandaramanan/MemoryLayer#27) was authored by skandaramanan and merged by skandaramanan
+- [context] (2026-07-19) PR feat(gateway): App-based merged-PR recorder via pull_request webhook (skandaramanan/MemoryLayer#27) was merged into main from feat/app-merged-pr-recorder
+- [context] (2026-07-19) The App-based merged-PR recorder via pull_request webhook replaces the PR-#25 Action template
+- [context] (2026-07-19) The App-based merged-PR recorder via pull_request webhook writes a bot-authored context entry in the mapped space+project when a merged PR is detected
+- [context] (2026-07-19) The webhook.ts file now handles pull_request events with action=closed && merged
+- [context] (2026-07-19) The webhook.ts file writes a one-line summary of the merged PR, including title, number, author, merger, base←head, and 600-char body excerpt
+- [context] (2026-07-19) The commits for PR feat(gateway): App-based merged-PR recorder via pull_request webhook include feat(gateway): App-based merged-PR recorder via pull_request webhook and style: prettier format hook-read.ts
+- [decision] (2026-07-19) 1102 fix VERIFIED in production
+- [preference] (2026-07-19) the fix bounds work by construction
+- [context] (2026-07-19) PR merged: chore: retire merged-PR recorder Action (App path is live) (skandaramanan/MemoryLayer#28)
+- [context] (2026-07-19) Deletes the dogfood Action workflow now that the App-based recorder handles merged PRs via /webhook/github
+- [context] (2026-07-19) Merging this PR is itself the end-to-end test of the App path — it should produce one bot-authored entry in the store
+- [context] (2026-07-19) After merge: delete repo secrets MEMORYLAYER_MCP_URL and MEMORYLAYER_TOKEN
+- [context] (2026-07-19) Generated with [Claude Code](https://claude.com/claude-code) in MemoryLayer/MemoryLayer#28
+- [decision] (2026-07-19) App-based merged-PR recorder is fully LIVE and verified end-to-end
+- [decision] (2026-07-19) Skanda completed the manual GitHub App steps for the dogfood repo
+- [decision] (2026-07-19) The dogfood repo was registered in product-repos:registry via direct wrangler KV write
+- [decision] (2026-07-19) PR #28 served as the live test for the App-based merged-PR recorder
+- [decision] (2026-07-19) The Action path is fully retired on the dogfood repo
+- [decision] (2026-07-19) 8B extraction-model swap evaluated and REJECTED
+- [preference] (2026-07-19) keep llama-3.3-70b-instruct-fp8-fast due to quality regression in 8B model
+- [constraint] (2026-07-19) 70B failures floor safely, but cheap-model failures corrupt the index
+- [decision] (2026-07-19) Apply D1 migration 0004_phase_c_eval_feedback.sql to the remote memorylayer-index database
+- [preference] (2026-07-19) Add a console.warn with the real error in the mcp.ts feedback catch
+- [decision, standing rule] (2026-07-19) Add wrangler d1 migrations list --remote to the deploy checklist before pilot onboarding
+- [decision] (2026-07-19) EXTRACT_MAX_TOKENS=1024 in gateway/src/deps.ts
+- [constraint] (2026-07-19) Workers AI's default 256 was truncating multi-fact JSON arrays mid-emission, silently flooring entries to whole-entry facts
+- [preference] (2026-07-19) EXTRACT_MODEL stays llama-3.3-70b-instruct-fp8-fast
+- [decision] (2026-07-19) Fixed the `wayform doctor` hosted-member bug from the 2026-07-18 pre-pilot audit
+- [decision] (2026-07-19) Updated src/doctor.ts to branch on mode instead of hardcoding local-only REQUIRED_ENV_KEYS
+- [decision] (2026-07-19) Added a gateway probe for hosted members to distinguish token-rejected from unreachable
+- [decision] (2026-07-19) Modified clone/remote/sync git checks to only run when repoUrl is set
+- [decision] (2026-07-19) Added a 0600 perms check on .memorylayer-hook.env / .cursor/mcp.json / .codex/config.toml
+- [decision] (2026-07-19) removed the duplicate 'wrote .codex/config.toml' print in src/init-remote.ts
+- [decision] (2026-07-19) Next Steps in src/init-remote.ts now leads with round-trip verification
+- [decision] (2026-07-19) Next Steps in src/init-remote.ts now includes 'wayform doctor' and 'read the shared context' (Claude Code /mcp check) before the commit-configs and Codex-trust steps, because cold members previously had no way to know setup actually worked
+- [decision] (2026-07-19) rewritten docs/onboarding/pilot-onboarding.local.md around the operator's real flow
+- [decision] (2026-07-19) standardized the fallback-section server-name to 'wayform' everywhere
+- [decision] (2026-07-20) The gateway-aware `wayform doctor` fix was shipped to main (c6267d9, 176/176 tests, version bumped to 0.1.6) on 2026-07-20.
+- [decision] (2026-07-20) The invite-code /join design was approved with parameters changed from the earlier note: 14-day expiry, 25 uses, on 2026-07-20.
+- [constraint] (2026-07-20) The `wayform space create`'s teammate handoff prints the LEADER'S OWN token for every teammate, so a whole team would share one identity.
+- [decision] (2026-07-20) Spear-pilot production-ready list progress on 2026-07-20
+- [decision] (2026-07-20) SHIPPED to main: gateway-aware `wayform doctor` fix with version bumped to 0.1.6
+- [decision] (2026-07-20) NOT yet published to npm due to npm auth (E401) block
+- [decision] (2026-07-20) Invite-code /join design APPROVED with 14-day expiry and 25 uses
+- [constraint] (2026-07-20) registry still serves 0.1.5 while the playbook requires ≥0.1.6
+- [preference] (2026-07-20) Skanda must run `npm login && npm publish` to unblock publish
+- [preference] (2026-07-20) Health worth checking before pilot
+- [preference] (2026-07-20) Init --remote next-steps now lead with doctor + round-trip verification
+- [constraint] (2026-07-20) `wayform space create`'s teammate handoff prints the LEADER'S OWN token for every teammate
+- [preference] (2026-07-20) Invite handoff in plan Task 5 replaces `wayform space create`'s teammate handoff
+- [decision] (2026-07-20) Invite-code /join SHIPPED and LIVE
+- [decision] (2026-07-20) One team invite replaces per-dev operator mints
+- [decision] (2026-07-20) ADMIN_SECRET-guarded POST /admin/invites mints team invite
+- [decision] (2026-07-20) Devs run `wayform init --remote --gateway <url> --invite wfi_…` to join
+- [decision] (2026-07-20) Successful joins log `join: space=… author=… tokenHash=…` for operator ledger reconstruction
+- [decision] (2026-07-20) KV decrement-before-mint can over-admit ~1 under concurrency
+- [decision] (2026-07-20) Playbook Checklist B updated to invite-first
+- [decision] (2026-07-20) CLI --invite ships in the next npm publish
+- [decision] (2026-07-20) Invite code is the primary way to join a space
+- [context] (2026-07-20) PR feat: invite-code /join merged in skandaramanan/MemoryLayer#29
+- [context] (2026-07-20) One team invite replaces per-dev operator token mints
+- [context] (2026-07-20) Devs run wayform init --remote --gateway <url> --invite wfi_… and the gateway mints their personal mlk_ token
+- [context] (2026-07-20) gateway/src/invites.ts has POST /admin/invites and public POST /join
+- [context] (2026-07-20) CLI option --inviite changed to --invite
+- [question] (2026-07-20) Are the mlk_ MEMBER tokens still active?
+- [preference] (2026-07-20) Rotate the mlk_ MEMBER tokens
+- [decision] (2026-07-21) upgraded Workers Paid to $5/mo on 2026-07-20
+- [constraint] (2026-07-21) the ceiling backstop constraint is now spent, not held in reserve
+- [preference] (2026-07-21) never bill past $5, because Cloudflare offers no hard account spend cap
+- [constraint, standing rule] (2026-07-21) Workers AI's 10,000 neurons/day free allocation is identical on Free and Paid, but Paid bills past it at $0.011/1k neurons
+- [decision] (2026-07-21) Shipped new gateway/src/neuron-budget.ts with KV day-keyed counter, DAILY_NEURON_BUDGET=9500, and EXTRACT_NEURON_COST=100
+- [decision] (2026-07-21) Wired KV day-keyed counter into deps.ts's gen wrapper, which throws when exhausted
+- [decision] (2026-07-21) Set wrangler.toml [limits] cpu_ms=5000 as CPU billing backstop
+- [decision] (2026-07-21) Fails open on KV errors because a broken counter must not halt indexing
+- [decision] (2026-07-21) Value unlocks taken in the same change: TOKEN_MATCH_LIMIT 200→1000
+- [decision] (2026-07-21) CRON_REINDEX_PAGE 10→50, because the 50-subrequest cap
+- [decision] (2026-07-21) CRON_REINDEX_PAGE is now exported and its pagination test derives sizes from the constant instead of hardcoding 10
+- [decision] (2026-07-21) EMBED_SCAN_CAP=2000 and ENTITY_SCAN_ROW_LIMIT=4000 are not changed
+- [decision] (2026-07-21) MAX_ENTRY_FETCH stays 40 because it is now wall-time-bound
+- [decision] (2026-07-21) the 2026-07-20 rejection of a cheaper EXTRACT_MODEL still stands because a paid overage path is available
+- [context] (2026-07-21) PR feat(gateway): Workers Paid guardrails — neuron budget, CPU cap, retuned limits merged
+- [context] (2026-07-21) The account moved to the $5/mo Workers Paid plan
+- [context] (2026-07-21) Workers AI has a 10,000 neurons/day free allocation on both Free and Paid plans
+- [context] (2026-07-21) The Paid plan bills past the 10,000 neurons/day free allocation at $0.011/1k
+- [context] (2026-07-21) A guard is needed to prevent unexpected costs because Workers AI can bill past the $5 subscription
+- [context] (2026-07-21) Audit triggered by a hunch that things had drifted
+- [context] (2026-07-21) main branch is in sync with origin/main
+- [context] (2026-07-21) npm registry serves version 0.1.7
+- [context] (2026-07-21) production was deployed on 2026-07-20T05:28Z
+- [context] (2026-07-21) PR #29 was merged on 2026-07-20
+- [context, standing rule] (2026-07-21) gateway changes do not require an npm version bump
+- [context, standing rule] (2026-07-21) root tsconfig has rootDir=src
+- [context, standing rule] (2026-07-21) gateway ships by cd gateway && npm run deploy
+- [context, standing rule] (2026-07-21) CLI ships by npm publish
+- [context] (2026-07-21) PR #30 shipped with gitleaks secret scanning
+- [context] (2026-07-21) gitleaks scans the working tree, not history, because rotated leaks live only in dead commits
+- [context] (2026-07-21) two false-positive classes are allowlisted: docs/archived/2026-07-05-hosted-gateway-core.md and local dev configs
+- [context] (2026-07-21) PR #30 was auto-recorded under author 'GitHub' within minutes of merge, proving extraction still runs under the new neuron budget guard
+- [context] (2026-07-21) PR #30 touched three CLI files (src/doctor.ts, src/init-remote.ts, src/space-create.ts) with no behavior change
+- [context] (2026-07-21) Registry `latest` = 0.1.7 = functionally identical to main
+- [context] (2026-07-21) Gateway deploy verified three ways: clean rebuild, version f4454022, and production KV key `neuron-budget:2026-07-21`
+- [context] (2026-07-21) Gateway deploy done on 2026-07-21
+- [preference] (2026-07-21) Prefer reading KV counter over deployment timestamps as proof of gateway deploy effect
+- [context] (2026-07-21) GitHub branch protection does not require green checks on main
+- [context] (2026-07-21) PR #29 merged onto a red main for two days because GitHub branch protection does not require green checks on main
+- [context] (2026-07-21) PR #31 merged to rebuild dist to match formatted source
+- [context] (2026-07-21) PR #31 is a follow-up to #30
+- [context] (2026-07-21) PR #30 caused the issue by running prettier over src files without regenerating dist
+- [context] (2026-07-21) The issue is that committed build output does not reproduce from source
+- [context] (2026-07-21) The fix is to rebuild dist with npm run build
+- [context] (2026-07-21) PR #32 merged: untrack dist, refresh docs and deps
+- [context] (2026-07-21) dist/ is now gitignored and rebuilt before publish
+- [context] (2026-07-21) README.md updated to reflect removal of --help option
+- [context] (2026-07-21) dependencies in package.json updated to prevent vulnerabilities
+- [context] (2026-07-21) PR #32 fixes issues from production-readiness audit
+- [decision] (2026-07-21) Production-readiness cleanup is complete as of 2026-07-21 with PRs #31 and #32 merged and main at ce453df
+- [decision] (2026-07-21) Branch protection is now on for main branch because the control had already failed in practice
+- [decision] (2026-07-21) Configured branch protection to require all 8 CI checks, including secret-scan, gateway, and test across ubuntu/macos x node 18/20/22
+- [decision] (2026-07-21) Configured branch protection with strict=true, required_linear_history=true, and enforce_admins=TRUE to prevent similar incidents in the future
+- [context, standing rule] (2026-07-21) Branch protection rules are enforced to safeguard against similar incidents
+- [decision] (2026-07-21) PR #33 is used to verify that the --admin bypass flag does not work for enforcing admins
+- [decision] (2026-07-21) PR #33 is closed and deleted after verification
+- [decision] (2026-07-21) The drill in PR #33 should be re-run after any protection change
+- [decision] (2026-07-21) dist/ is no longer tracked in git
+- [decision] (2026-07-21) dist/ is regenerated at publish time using prepublishOnly: npm run build
+- [decision] (2026-07-21) README line 128 corrected
+- [decision] (2026-07-21) patch/minor deps bumped
+- [decision] (2026-07-21) TypeScript 7 and Zod 4 HELD as majors
+- [decision] (2026-07-21) high-severity transitive brace-expansion DoS cleared via npm audit fix
+- [decision] (2026-07-21) three stale merged remote refs deleted
+- [decision] (2026-07-21) update the dist-drift report to only catch changes to npm and init --remote
+- [decision] (2026-07-21) update the dist-drift report to correctly handle branch protection
+- [decision] (2026-07-21) make the READMEs more accurate
+- [context] (2026-07-21) PR skandaramanan/MemoryLayer#34 reduces GitHub Actions included-minute burn after the 90% account usage alert
+- [context] (2026-07-21) PR skandaramanan/MemoryLayer#34 keeps Linux Node 18/20/22 + gateway + secret-scan
+- [context] (2026-07-21) PR skandaramanan/MemoryLayer#34 keeps a single macOS Node 22 smoke on pull requests only
+- [context] (2026-07-21) PR skandaramanan/MemoryLayer#34 cancels superseded runs on the same PR/branch via concurrency
+- [context] (2026-07-21) PR skandaramanan/MemoryLayer#34 reduces weighted minutes per merged PR from ~70 to ~15
+- [decision] (2026-07-21) CI Actions-minute cut SHIPPED 2026-07-21
+- [constraint] (2026-07-21) skandaramanan account hit 90% of the 3,000 included Actions minutes
+- [preference] (2026-07-21) set an Actions spending budget in GitHub billing
+- [decision] (2026-07-21) shape: Linux Node 18/20/22 always; one macOS Node 22 smoke named test-macos on pull_request only
+- [context, standing rule] (2026-07-21) Wayform's product plane is remote MCP only
+- [constraint, standing rule] (2026-07-21) Agents must not plan, measure, optimize, or recommend against local stdio MCP
+- [constraint, standing rule] (2026-07-21) Local/stdio code may still exist in the repo for legacy or packaging, but it is not the product path we ship or improve for users
+- [preference, standing rule] (2026-07-21) The product plane is designed with a remote-first approach to MCP because it is the product path we ship or improve for users
+- [decision] (2026-07-21) Shipped on branch baseline-benchmarks the latency/tools/quality plan for remote MCP only
+- [preference] (2026-07-21) Hook/recency KV TTL changed from 60s to 300s
+- [context] (2026-07-21) PR Improve remote MCP latency, invocation, and hooks (skandaramanan/MemoryLayer#35) was merged by skandaramanan
+- [context] (2026-07-21) PR Improve remote MCP latency, invocation, and hooks (skandaramanan/MemoryLayer#35) changes hook/recency KV TTL to 5 minutes and warms the recency cache on write
+- [context] (2026-07-21) PR Improve remote MCP latency, invocation, and hooks (skandaramanan/MemoryLayer#35) rewrites gateway tool descriptions and session playbook for soft-write invocation
+- [context] (2026-07-21) PR Improve remote MCP latency, invocation, and hooks (skandaramanan/MemoryLayer#35) includes test plan with npm test and benchmark scripts
+- [context] (2026-07-21) PR Improve remote MCP latency, invocation, and hooks (skandaramanan/MemoryLayer#35) requires deployment of gateway and re-run of latency and invocation benchmarks on baseline-benchmarks and main
+- [context] (2026-07-21) PR merged: chore: bump wayform to 0.1.8 (skandaramanan/MemoryLayer#36)
+- [context] (2026-07-21) Bump npm package to 0.1.8 because 0.1.7 is already taken
+- [context] (2026-07-21) Align gateway MCP serverInfo version with the release
+- [context] (2026-07-21) Gateway for this release is already deployed separately
+- [context] (2026-07-21) Test plan: Local build + format check, npm publish, Users: npm i -g wayform@0.1.8
+- [preference] (2026-07-21) users should re-run init --remote after upgrade
+- [decision] (2026-07-23) use a public-source Wayform bootstrap/integration CLI with a private managed gateway
+- [decision] (2026-07-23) sequence demand validation first
+- [decision] (2026-07-23) replace the passive waitlist with an operator-assisted design-partner application
+- [decision] (2026-07-23) start external trials immediately using the existing npm package
+- [decision] (2026-07-23) time-box clean public-client repository work to two founder-days
+- [constraint] (2026-07-23) do not make the existing monorepo public because it mixes the gateway/control plane and may contain rotated credentials in git history
+- [preference] (2026-07-23) remove managed-access gating only after at least two teams retain for two weeks and one team makes a paid commitment
+- [context] (2026-07-23) code secrecy is not the moat
+- [context] (2026-07-23) zero external activation is the largest risk
+- [context] (2026-07-23) current workspace provisioning is not self-serve
+- [preference] (2026-07-23) send one final low-pressure follow-up, then stop chasing
+- [preference] (2026-07-23) do not treat Spear silence as a product failure or stall the whole pipeline
+- [constraint] (2026-07-23) expand to 15–20 named prospects via warm intros + personal cold email
+- [preference] (2026-07-23) Apollo is acceptable as research/contact finding, not as a blast sequencer yet
+- [decision] (2026-07-24) Next build priority is a Linear ticket module
+- [preference] (2026-07-24) prioritize building Linear ticket creation/update integration next
+- [preference] (2026-07-24) ahead of other feature work
+- [context] (2026-08-02) Almanac / CodeAlmanac competitive model is Apache-2.0 open-core as of 2026-08
+- [context] (2026-08-02) Almanac ships a local-only Python CLI on PyPI and a wiki in plain markdown under almanac/ in the customer's repo
+- [context] (2026-08-02) Almanac uses the user's own Codex/Claude subscriptions for ingest and garden
+- [context] (2026-08-02) Almanac has a stated future plan to offer a paid cloud control plane with features such as GitHub App, team state, and managed workers
+- [context] (2026-08-02) Almanac differs from Wayform in that it is a passive conversation-to-wiki in-repo via GitHub workflow, whereas Wayform is a curated multiplayer decision memory with vendor-neutral MCP injection
+- [decision] (2026-08-02) Pivot stance 2026-08-02: full ground-up pivot is premature
+- [preference] (2026-08-02) Prefer small pivots first
+- [preference] (2026-08-02) Prefer solo-day-1 value then invite multiplayer
+- [preference] (2026-08-02) Prefer ICP away from defense/compliance toward multi-tool micro-teams via warm intros
+- [preference] (2026-08-02) Prefer sell against CLAUDE.md not 'memory layer'
+- [preference] (2026-08-02) Prefer lean passive GitHub capture as onboarding wedge while keeping curated decisions + guaranteed injection
+- [constraint] (2026-08-02) Do not pivot into Almanac's wiki lane, Second Brain PKM, or Mem0 agent-builder APIs
+- [constraint] (2026-08-02) Ground-up options only after kill criteria fail (e.g. ≥15 real conversations + ≥2 cold onboards with zero cross-member reliance)
+- [constraint] (2026-08-02) Founder pre-commitment still holds: pivot only if clear, else shut down
+- [decision] (2026-08-02) the 2026-07-24 decision that next build priority is a Linear ticket module is withdrawn
+- [decision] (2026-08-02) the 2026-07-24 decision should not be treated as current priority
+- [decision] (2026-08-21) Wayform's product surface is LIVE IN-AGENT — the brain at code-generation time — NOT a PR reviewer/merge-gate bot
+- [preference] (2026-08-21) prevention at generation time beats correction at review time because a PR fix is already rework
+- [constraint] (2026-08-21) PR ingestion survives only as capture/anchoring infrastructure
+- [decision] (2026-08-21) anchor decisions to code paths/entities at ingest
+- [context] (2026-08-22) Pilot was wound down on 2026-08-22
+- [context] (2026-08-22) No external teams are running on hosted Wayform
+- [context] (2026-08-22) All future onboardings are brand-new client teams
+- [context] (2026-08-22) Dogfood remains Skanda's own space
+- [decision] (2026-08-22) The Worker HTTP gate is OAuth-only via @cloudflare/workers-oauth-provider 0.10.3
+- [decision] (2026-08-22) Endpoints /mcp, /hook/read, /hook/prompt, and /api/read require a provider access token
+- [decision] (2026-08-22) Unauthenticated or mlk_ bearers get 401 + WWW-Authenticate with RFC 9728 resource_metadata
+- [decision] (2026-08-22) The DCR is at /oauth/register, CIMD is on, and PKCE is S256-only
+- [decision] (2026-08-22) We decided to make the Worker HTTP gate OAuth-only because the current token handling is insecure and we want to prevent pasteable tokens from being a first-class path
+- [decision] (2026-08-30) hosted MCP configs now write `type: "http"` alongside `url`
+- [constraint] (2026-08-30) mergeRemoteHttpMcp in src/init-configs.ts emitted `{ url }` only
+- [preference] (2026-08-30) Claude Code SKIPS a url entry with no type
+- [context] (2026-08-30) the defect was introduced in 9b82167 "URL-only MCP configs"
+- [decision] (2026-08-30) use wayform login for the project .mcp.json server
+- [constraint] (2026-08-30) a static header disables the client's OAuth fallback
+- [preference] (2026-08-30) remove stale entries to prevent 401 errors
+- [decision] (2026-08-30) the root package's dist/ is no longer checked in
+- [context] (2026-08-30) committed build output had silently drifted from src/ when PR #30 reformatted three CLI files without rebuilding
+- [constraint] (2026-08-30) root dist/ and gateway/dist are both gitignored
+- [decision] (2026-08-30) when a decision reverses an earlier one, pass `supersedes` with the old fact ids
+- [context] (2026-08-30) the correcting fact was written; the contradicted facts were left unlinked
+- [preference, standing rule] (2026-08-30) Recording a new decision is not sufficient
+- [decision] (2026-08-30) OAuth browser flow hardened and restyled
+- [constraint] (2026-08-30) auth pages must not leak the viewer to a third party and must be readable with a blocked CDN
+- [preference] (2026-08-30) theme-aware via color-scheme + prefers-color-scheme
+- [preference] (2026-08-30) no external CSS/fonts/images and no JavaScript for consent pages
+- [decision] (2026-08-30) Response.redirect() returns an immutable Response
+- [decision] (2026-08-30) never Response.redirect() if any caller mutates headers
+- [decision] (2026-08-30) catch blocks should not render err.message straight to the browser
+- [decision] (2026-08-30) wayform login should open a browser on all platforms
+- [decision] (2026-08-30) the CLI callback page should branch on the outcome and return 400 with retry instructions on sign-in failure
+- [decision] (2026-08-30) the consent screen lists what is being granted (read decisions / write attributed decisions / GitHub sign-in) and offers Cancel, which returns a proper OAuth `access_denied` to the waiting client instead of leaving it to time out on a closed tab
+- [constraint] (2026-08-30) the gateway/test/setup.test.mjs test broke when the shell added a data: favicon <link href> as the document's first href
+- [preference] (2026-08-30) no rate limiting anywhere on the gateway (DCR at /oauth/register is unauthenticated and open to anyone)
+- [preference] (2026-08-30) Cursor and Codex OAuth paths are wired but never verified live end-to-end
+- [preference] (2026-08-30) light mode was not visually checked (only dark)
+- [constraint] (2026-08-30) the GitHub App is set to "Only on this account" as of 2026-07-06, which blocks any external team leader from installing
+- [decision] (2026-08-30) Gateway rate limiting + self-serve session revocation SHIPPED 2026-08-30
+- [decision] (2026-08-30) Chose the Workers rate-limiting binding
+- [preference] (2026-08-30) Documented trade-off accepted: counters are PER-CLOUDFLARE-LOCATION and eventually consistent
+- [constraint] (2026-08-30) No KV or D1 writes, so guarding every request adds no storage ops
+- [preference] (2026-08-30) REJECTED a Durable Object limiter because it adds a DO invocation plus duration billing to literally every request
+- [decision] (2026-08-30) Placement is the load-bearing design decision: the guard is in worker.ts, NOT router.ts, because /oauth/register and /oauth/token are served INSIDE workers-oauth-provider and never reach our router — the Worker entry is the only point every request passes. A test pins that placement so a future refactor into the router is caught. Buckets: auth surfaces (/authorize, /callback, /oauth/register, /oauth/token, /install/*, /admin/*) 20/min; /mcp 240/min. /admin/* is included specifically because it was brute-forceable at line rate behind one shared secret. Keyed by SHA-256 of the Authorization header when present (never the raw token — keys surface in diagnostics), IP otherwise, so a team behind one NAT does not share a budget. /health and the HMAC-verified GitHub webhook are deliberately NEVER throttled: a dropped webhook stalls indexing silently, worse than the abuse it would prevent. Missing or throwing limiter fails open.
+- [decision] (2026-08-30) Use MCP tools for self-serve revocation in gateway/src/sessions.ts
+- [preference] (2026-08-30) Revocation is a HARD isError whenever it cannot be confirmed
+- [context] (2026-08-30) Member is already authenticated on the MCP connection
+- [constraint] (2026-08-30) Ownership is verified against the caller's own grant list before revoking
+- [decision] (2026-08-30) Skanda says the account is on the Cloudflare $5/month Workers Paid plan
+- [decision] (2026-08-30) the $0 constraint stands canon is no longer the binding constraint for infra choices
+- [decision] (2026-08-30) the rate-limiting binding is still the cheapest and simplest correct tool
+- [preference] (2026-08-30) Durable Objects is a legitimate future option
+- [constraint] (2026-08-30) Cursor and Codex OAuth paths are not verified live end-to-end
+- [constraint] (2026-08-30) light mode is not visually checked
+- [constraint] (2026-08-30) the GitHub App is set to Only on this account
+- [decision] (2026-08-30) CORRECTION to the same-day rate-limiting entry: the /mcp limit (RL_API, 240/min) has been DELETED
+- [decision] (2026-08-30) ONE limiter (RL_AUTH, 20/min) on unauthenticated surfaces only: /authorize, /callback, /oauth/register, /oauth/token, /install/*, /admin/*
+- [preference] (2026-08-30) revoke_session is preferred over rate limiting for compromised-member problems
+- [constraint] (2026-08-30) the rate limiter is designed to prevent abuse of unauthenticated surfaces
+- [decision] (2026-08-30) removed the RateLimitEnv interface
+- [decision] (2026-08-30) removed sessions.ts's describe() function
+- [decision] (2026-08-30) kept PageOpts.variant despite having a single consumer
+- [decision] (2026-08-30) Implement Phase E of Wayform
+- [constraint] (2026-08-30) Wayform lacks traction with only two users for a week
+- [preference] (2026-08-30) Wayform should be an active, defensive product
+- [decision] (2026-08-30) implement the expiry mechanism as described in the Phase E plan
+- [decision] (2026-08-30) add a decision expiry mechanism to the retrieval logic of the lifecycle
+- [constraint] (2026-08-30) do not return a decision if it has expired
+- [preference] (2026-08-30) use the supersession_log to determine if a decision has expired because it already contains all the necessary information
+- [decision] (2026-08-30) a Claude Code PreToolUse hook `wayform guard claude-code` posts a summarized action to a new gateway POST /mcp/hook/guard
+- [decision] (2026-08-30) the hook runs retrieve() with trigger "hook_guard" then judges the top SYNC_JUDGE_LIMIT hits
+- [decision] (2026-08-30) only a "contradicts" verdict interrupts
+- [decision] (2026-08-30) v1 emits `ask`, NEVER `deny` because a false positive on ask costs one keystroke, on deny it costs the feature
+- [decision] (2026-08-30) Guarded tools are Edit/Write/Bash only, since PreToolUse fires on every tool and reads cannot contradict a decision
+- [decision] (2026-08-30) Hard 1500ms timeout, fail-open to allow
+- [decision] (2026-08-30) Claude Code only, matching the existing prompt-hook precedent
+- [decision] (2026-08-30) Cursor/Codex pre-execution hook contracts must be verified against current docs before wiring, or they will silently never fire
+- [decision] (2026-08-30) Fire-rate metrics come free from retrieval_log via trigger "hook_guard" + the existing /admin/retrieval-log
+- [decision] (2026-08-30) All PreToolUse hooks are designed to fire on every tool invocation, but this one is special because it will only post to the gateway when the tool is Claude Code and the hook is `wayform guard claude-code`
+- [decision] (2026-08-30) Cursor/Codex guards are out of scope for Phase E
+- [decision] (2026-08-30) a deny tier is out of scope for Phase E
+- [decision] (2026-08-30) code-vs-decision staleness is out of scope for Phase E
+- [decision] (2026-08-30) compliance/attestation packaging is out of scope for Phase E
+- [decision] (2026-08-30) every decision is a signed, dated, attributed git commit
+- [preference] (2026-08-30) vendor-neutrality is necessary for compliance
+- [context] (2026-08-30) the project needs to focus on its core objectives and deliverables for Phase E
+- [decision] (2026-08-31) repoint the KV key at `skandaramanan-memorylayer-memory`
+- [constraint, standing rule] (2026-08-31) spaces are named `<owner>-<repo>` under the GitHub-identity scheme
+- [decision] (2026-08-31) add logging to handleMergedPr's drop paths to make them visible
+- [preference] (2026-08-31) a control or capture path that produces NO OUTPUT when it fails should have a positive signal
+- [decision] (2026-08-31) a product-repo registration pointing at a nonexistent space should log an error
+- [decision] (2026-08-31) ADMIN_SECRET is not needed to read production KV
+- [constraint] (2026-08-31) `npx wrangler kv key get` WITHOUT `--remote` reads LOCAL storage
+- [preference] (2026-08-31) use `npx wrangler kv key get --remote` to read production KV
+- [context] (2026-08-31) The merged-PR recorder did not fire after repointing `product-repos:registry` at the correct space
+- [context] (2026-08-31) PR #38 and PR #39 did not produce a `PR merged:` entry in the ledger
+- [context] (2026-08-31) Manual write_context calls wrote normally in the same window
+- [question] (2026-08-31) Whether GitHub is delivering `pull_request` events to /webhook/github
+- [context] (2026-08-31) The gateway now logs `pr_drop` with a reason and `pr_record` on success
+- [context] (2026-08-31) The GitHub event subscription is configured to send `pull_request` events to the `gateway` component
+- [context] (2026-08-31) PR fix(gateway): log accepted and rejected webhook deliveries (skandaramanan/MemoryLayer#42) was merged
+- [context] (2026-08-31) The PR was authored by skandaramanan and merged by skandaramanan
+- [context] (2026-08-31) The PR was merged from fix/webhook-visibility into main
+- [context] (2026-08-31) A rejected webhook was invisible because `handleWebhook` returns 401 before logging and `wrangler tail` renders that as `- Ok`
+- [context] (2026-08-31) The PR fixes a `WEBHOOK_SECRET` mismatch that rejected every delivery, push and pull_request alike, and logs `webhook` events on every accepted and rejected delivery
+- [decision] (2026-08-31) MERGED-PR RECORDER FIXED AND VERIFIED END-TO-END 2026-08-31
+- [decision] (2026-08-31) THE ACTUAL ROOT CAUSE was a WEBHOOK_SECRET mismatch
+- [decision] (2026-08-31) Fixed by regenerating the secret and setting it on both the GitHub App and the Worker
+- [decision] (2026-08-31) FOUR DEFECTS were found on this path
+- [constraint] (2026-08-31) WEBHOOK_SECRET mismatch caused all deliveries to 401
+- [decision] (2026-08-31) GitHub App was not installed on the PRODUCT repo
+- [preference] (2026-08-31) Fixed GitHub App installation by adding it to the installation's repository access
+- [constraint] (2026-08-31) `product-repos:registry` pointed at non-existent space `memorylayer`
+- [preference] (2026-08-31) Fixed `product-repos:registry` by KV put
+- [constraint] (2026-08-31) `spaces:registry` wrongly registered the CODE repo as a context repo
+- [preference] (2026-08-31) Removed `spaces:registry` registration of CODE repo
+- [decision] (2026-08-31) wrangler tail renders a 401 response as "- Ok" because that is the INVOCATION outcome, not the HTTP status
+- [constraint] (2026-08-31) EVERY stage of this path was silent on failure
+- [preference] (2026-08-31) drop paths in handleMergedPr should return a log on failure
+- [decision] (2026-08-31) webhook logs the event type on every accepted delivery
+- [decision] (2026-08-31) webhook_rejected logs a reason distinguishing bad_signature from no_secret_configured
+- [decision] (2026-08-31) pr_event logs every pull_request that arrives including ignored ones
+- [decision] (2026-08-31) pr_drop logs the reason on each drop path
+- [decision] (2026-08-31) pr_record logs success
+- [constraint, standing rule] (2026-08-31) a control or capture path that produces NO OUTPUT when it fails cannot be distinguished from one that is working
+- [preference, standing rule] (2026-08-31) every control or capture path needs a positive signal, never silence-means-success
+- [context] (2026-08-31) The code repo was renamed from MemoryLayer to Wayform
+- [context] (2026-08-31) The code repo rename was done to align user-facing copy on Wayform
+- [context] (2026-08-31) The store project slug remains memorylayer
+- [context] (2026-08-31) The MEMORYLAYER_* env vars remain unchanged
+- [context] (2026-08-31) The MCP server was not affected by the code repo rename because it uses the npm package wayform
+- [decision] (2026-08-31) Rename the code repo `skandaramanan/MemoryLayer` to `skandaramanan/Wayform` on 2026-08-31 (PR #43) because it was one character away from the context repo `skandaramanan/MemoryLayer-Memory` and that similarity cost real time during the same day's webhook diagnosis
+- [decision] (2026-08-31) Align README user-facing copy to 'Wayform' to complete the 2026-07-09 decision to unify copy on that name
+- [decision] (2026-08-31) The store project slug stays `memorylayer` because it would orphan live data
+- [decision] (2026-08-31) The space stays `skandaramanan-memorylayer-memory` because renaming it would strand the whole index
+- [decision] (2026-08-31) The MEMORYLAYER_* env var names stay because there is no user-facing confusion
+- [decision] (2026-08-31) The context repo MemoryLayer-Memory keeps its name because renaming it would mean touching spaces:registry for no gain
+- [decision] (2026-08-31) Update `product-repos:registry` to handle the rename of `skandaramanan/MemoryLayer` to `skandaramanan/Wayform` by writing both keys pointing at the same space before renaming, then pruning the old key after verifying
+- [preference] (2026-08-31) Write both keys pointing at the same space before renaming, then prune the old key after verifying as a reusable pattern for any future repo rename
+- [constraint] (2026-08-31) Webhook payloads key on `repository.full_name`, which caused the merged-PR recorder to break with `pr_drop unmapped_repo` after the rename
+- [context] (2026-08-31) `wayform doctor` reports the derived default project as <dir basename>, which may differ from the effective pinned MEMORYLAYER_PROJECT
+- [decision] (2026-08-31) ponytail-audit cuts implemented on branch chore/ponytail-audit-cuts
+- [decision] (2026-08-31) deleted the retired stop-review path
+- [decision] (2026-08-31) moved the MemoryIndexDb test fake to gateway/src/index-db-memory.ts
+- [decision] (2026-08-31) deleted keychainGet/Set/Delete delegate wrappers and the invites.ts tombstone
+- [decision] (2026-08-31) collapsed the codex/claude-code SessionStart envelope duplication
+- [preference] (2026-08-31) deliberately NOT done: flipping DUP_GATE_ENFORCE
+- [context] (2026-08-31) repo-wide over-engineering audit found these were the only remaining cuts in an otherwise lean codebase
+- [question] (2026-08-31) because repo-wide over-engineering audit found these were the only remaining cuts in an otherwise lean codebase
+- [context] (2026-08-31) PR #45 is open with all CI checks green as of 2026-08-31
+- [context] (2026-08-31) The branch was rebased onto main and force-pushed with lease
+- [context] (2026-08-31) One CI failure was fixed by a style-only commit 13eb3a3
+- [context] (2026-08-31) Awaiting Skanda's approving review to merge
+- [context, standing rule] (2026-08-31) Run `npm run format:check` alongside lint/tests before pushing
+- [context] (2026-08-31) PR merged: feat: PreToolUse decision guard + ponytail-audit cuts (skandaramanan/Wayform#45)
+- [context] (2026-08-31) feat: decision guard adds POST /mcp/hook/guard gateway endpoint, remoteGuardCheck client, and wayform guard hook entrypoint
+- [context] (2026-08-31) feat: decision guard is wired into wayform init Claude Code settings and includes guard fire-rate metric + docs
+- [context] (2026-08-31) chore: ponytail-audit cuts delete retired stop-review path, remove unused deps + imports, and refactor ponytail-audit to use mcp-config
+- [context] (2026-08-31) PR skandaramanan/Wayform#45 was authored by skandaramanan and merged by skandaramanan into main from feat/decision-guard
+- [decision] (2026-08-31) PR #45 (PreToolUse decision guard + ponytail-audit cuts) rebase-merged to main at bfeeae9
+- [context] (2026-08-31) Branches feat/decision-guard and chore/rename-to-wayform deleted local+remote post-merge
+- [context] (2026-08-31) Because: Skanda approved merge after CI went green
+- [preference] (2026-08-31) Rebase-merge chosen to keep the 8-commit stack linear on main
+- [question] (2026-08-31) Still open from this work: DUP_GATE_ENFORCE flip decision (needs dup_gate score data from Workers Logs)
+- [decision] (2026-08-31) PR #45's merge to main is confirmed green locally and the production gateway already answers POST /mcp/hook/guard
+- [decision] (2026-08-31) PR #46 fixes the client plane dead issue by renaming fallout, adding PreToolUse wiring, and updating the global CLI
+- [constraint] (2026-08-31) the hook can actually fire when the enforcement feature is shipped
+- [preference] (2026-08-31) live guard fire in a fresh session against a real recorded decision, latency sanity, and fire count via /admin/retrieval-log?trigger=hook_guard
+- [context] (2026-08-31) Rename fallout (bug): package.json ships only a wayform bin, but local-mode init still wrote every hook command and stdio MCP entry as memorylayer … — a binary that no longer exists on a fresh install
+- [context] (2026-08-31) Fixed the local-path default to wayform and kept a memorylayer bin alias so pre-rename configs on existing machines keep working
+- [context] (2026-08-31) Dogfood wiring (chore): wires the PreToolUse guard (wayform guard claude-code, matcher Edit|Write|Bash) into this repo's .claude/settings.json via wayform init --guard claude-code
+- [context] (2026-08-31) so that the claude-code tool can be used to check for code quality in this repo
+- [context] (2026-08-31) Phase E live-fire findings were measured against production on 2026-08-31
+- [constraint] (2026-08-31) The gateway had NEVER been deployed with the guard
+- [constraint] (2026-08-31) Measured server-side retrieve() for trigger hook_guard on the 417-doc corpus is ~3.7s
+- [preference] (2026-08-31) GUARD_TIMEOUT_MS=1500 client ceiling should be revisited against measured data
+- [constraint] (2026-08-31) The judge is blocked today by the self-imposed Workers AI neuron cap
+- [question] (2026-08-31) How to make guard-path retrieve cheaper or raise the 1500ms ceiling
+- [context] (2026-08-31) Briefing/search layer alone talked the agent out of the contradicting edit in a live session
+- [context] (2026-09-12) PR skandaramanan/Wayform#48 merged, gating /admin/* on GitHub operator identity and renaming MEMORYLAYER_ to WAYFORM_
+- [context] (2026-09-12) /admin/* routes now use GitHub operator identity instead of ADMIN_SECRET
+- [context] (2026-09-12) MEMORYLAYER_ renamed to WAYFORM_ because the project name changed from MemoryLayer to Wayform
+- [context] (2026-09-12) PR skandaramanan/Wayform#48 closes two items Phase 0 deliberately deferred
+- [context] (2026-09-12) ADMIN_SECRET removed from codebase because a single secret cannot be used with multiple operators
+- [context] (2026-09-12) PR merged: Add `wayform token`, and stop doctor blaming the network for a slow read (skandaramanan/Wayform#49)
+- [context] (2026-09-12) Admin routes are gated on GitHub identity now
+- [context] (2026-09-12) A hand-run curl needs the caller's own OAuth token
+- [context] (2026-09-12) The OAuth token lives in the OS keyring with no way to reach it short of a `security find-generic-password` incantation piped through a JSON parser
+- [context] (2026-09-12) The `wayform token` command resolves through `getValidAccessToken`
+- [context] (2026-09-12) PR merged: fix(gateway): put /admin inside the OAuth plane so operator identity resolves (skandaramanan/Wayform#50)
+- [context] (2026-09-12) PR author: skandaramanan, merged by: skandaramanan, branch: main←fix/admin-oauth-plane
+- [context] (2026-09-12) /admin/* returned 403 for every caller in production — including a correctly configured operator
+- [context] (2026-09-12) ADMIN_GITHUB_IDS ("87741943") deployed and visible in the wrangler binding table, wayform token --header returning a valid credential, and GET /admin/installations still 403
+- [context] (2026-09-12) OAuth provider was configured apiRoute: "/mcp" and did not include /admin, causing requireOperator to read ctx?.props?.operator as undefined
+- [context] (2026-09-12) PR changes apiRoute configuration to include /admin so that /admin/* routes get their bearer tokens validated and ctx.props populated
+- [context] (2026-09-12) PR merged: fix(gateway): move admin routes under /mcp so operator tokens are accepted (skandaramanan/Wayform#51)
+- [context] (2026-09-12) Follow-on to putting `/admin` inside the OAuth plane, which turned a permanent **403** into a permanent **401 "Invalid audience"**
+- [context] (2026-09-12) `workers-oauth-provider` validates a token's audience against the request path, not against configured metadata
+- [context] (2026-09-12) `workers-oauth-provider` validation logic checks if the origins match, then checks if the audience pathname matches the resource pathname or if the resource pathname starts with the audience pathname followed by a slash
+- [context] (2026-09-12) Move admin routes under `/mcp` to fix **401 "Invalid audience"** error
+- [decision] (2026-09-12) Retire 'vendor-neutral multiplayer planning memory' as positioning for MemoryLayer
+- [decision] (2026-09-12) Position MemoryLayer as 'human-centric planning memory'
+- [decision] (2026-09-12) NEW DIRECTION — an APP whose primary object is the PLAN ("Living Confluence"): one prompt becomes a full engineering plan built from a repo map plus the team's decision history; the plan is a living, shareable, versioned doc; dispatch an agent to build it; decisions and outcomes record back; stale facts are superseded
+- [decision] (2026-09-12) Claim: "plan #50 is better than plan #1 because it read plans 1-49"
+- [constraint] (2026-09-12) THE MEMORY LAYER IS THE ENGINE, NOT REPLACED
+- [preference] (2026-09-12) supersede.ts, retrieval.ts, rank.ts, index-db.ts, github-store.ts, webhook.ts stay untouched
+- [preference] (2026-09-12) On `shipped` the plan SPLITS: retire the checklist from retrieval, promote the decisions it produced — else plan #500 retrieves 500 stale checklists
+- [decision] (2026-09-12) Positioning category is spec-driven development, subcategory persistent/team
+- [decision] (2026-09-12) Rung is specs that don't drift, available, and SDD practitioners named the hole themselves
+- [decision] (2026-09-12) Buyer framing leads with PLAN DURABILITY, evidenced by Claude Code issues #24686 and #26832
+- [decision] (2026-09-12) Do not use the Confluence comp in sales copy because it anchors price at commodity docs
+- [decision] (2026-09-12) Lead with single-player durability, expand into team compounding because there is no primary voice-of-customer evidence for cross-teammate/multiplayer pain
+- [decision] (2026-09-12) Explicitly not doing local orchestration, a repo-map product, hosted execution in v1, language-specific or build-system-specific
+- [decision] (2026-09-12) PHASE 0 SHIPPED (main 7d21c11, PRs #48-#51): junk and the dual memorylayer bin removed; 30 commits of leaked mlk_ tokens excised from git history with filter-repo (repo private, 0 forks, and the mlk_ SCHEME no longer exists in code — exposure was already closed architecturally, not by the Aug 23 rotation); 10 branches -> 1 (feat/oauth-provider-wrap was ENTIRELY SUPERSEDED and would have REVERTED THE GUARD — archived as tag archive/oauth-provider-wrap, DO NOT MERGE); ADMIN_SECRET deleted, /mcp/admin/* gated on GitHub operator identity via ADMIN_GITHUB_IDS, live-verified 200; MEMORYLAYER_* -> WAYFORM_* with a permanent fallback; `wayform token --header`; doctor no longer reports a slow read as "unreachable".
+- [decision] (2026-09-12) THE LESSON THAT KEEPS REPEATING — FIVE bugs this session were found by RUNNING the tool, not by testing it: doctor's literal filename check; doctor conflating slow-read with unreachable; the OAuth apiRoute gap; the audience mismatch; and this project/space split. In every case the suite was green. Two had NO test covering the code at all. After any rename, path move, auth change, or config change, run the actual command against the actual deployment — and when a test seam exists for testability (env.oauthProps), something must separately assert the real thing the seam replaces. NEXT: Phase 1 — the plan object, its lifecycle, and the shipped split. Gate on reading a Wayform plan next to a cold plan-mode plan, not on a test asserting a plan was generated.
+- [context] (2026-09-12) PR merged: fix(mcp): stop offering the space name as a default project (skandaramanan/Wayform#52)
+- [context] (2026-09-12) mcpInstructions said 'Default project if unsure: '<defaultProject>'', and mcp.ts passed member.space
+- [context] (2026-09-12) A space holds many projects
+- [context] (2026-09-12) The hook fails if the default project name is the space name, because the project does not exist
+- [context] (2026-09-12) Five real decisions from the pivot session went into project skandaramanan-memorylayer-memory (18 entries) while every hook reads project MemoryLayer (423 entries — WAYFORM_PROJECT in the hook env)
+- [context] (2026-09-13) PR merged: fix(rank): restore the entity generator for long facts, and unflatten RRF (skandaramanan/Wayform#53)
+- [context] (2026-09-13) A query built from a document's own rarest terms ranked that document 16th of 425
+- [context] (2026-09-13) The observed score was 0.0197, and 0.0197 / 1.2 = 0.0164 = exactly 1/61: a single generator, rank 1
+- [context] (2026-09-13) Production D1 said why — docs over ~3k chars carry zero entity tags
+- [context] (2026-09-13) The number of entity tags dropped to zero for docs longer than ~3k chars, because the entity generator failed to produce any entities for long facts
+- [preference] (2026-09-13) CLEAN ATTRIBUTION: three docs took the floor path BOTH times, so they are byte-identical controls
+- [decision] (2026-09-13) The ranking fix is now considered verified and complete because the measured MRR increased from 0.3058 to 0.6667
+- [decision] (2026-09-13) Implement floorEntities as a fallback for LLM extraction failures
+- [decision] (2026-09-13) Add a logging statement to track LLM extraction failures and floorEntities rescues
+- [preference] (2026-09-13) floorEntities is more valuable as a fallback for LLM extraction failures because it can rescue docs of any size
+- [decision] (2026-09-13) floorEntities() derives identifier-shaped tags with no model
+- [decision] (2026-09-13) RRF_K is changed from 60 to 5
+- [decision] (2026-09-13) TAU is now derived as 1/(RRF_K + TAU_RANK_DEPTH + 1)
+- [preference] (2026-09-13) read the file before invoking an admin endpoint on production
+- [decision] (2026-09-13) Use a content hash or a stable per-fact UUID for fact IDs in Phase 1
+- [constraint] (2026-09-13) Fact IDs are positional and unstable across re-extraction
+- [preference] (2026-09-13) Use gateway/eval/rank-eval.mjs for future tuning of RRF_K, TAU, and kind priors
+- [context, standing rule] (2026-09-13) Fact ids are content-derived, not positional
+- [context] (2026-09-13) The extraction process now has a budget and stops instead of degrading when exceeding it
+- [context] (2026-09-13) Chunked extraction allows for more efficient memory use because extracting the entire source text into memory at once is no longer required
+- [decision] (2026-09-13) Session-start and prompt-hook injection tightened
+- [constraint] (2026-09-13) ONE token budget shared across all sections, filled in priority order canon > conflicts > decisions > open questions
+- [preference] (2026-09-13) Decisions are newest-first; a quiet week backfills to the latest 8 so product direction never drops out
+- [constraint] (2026-09-13) Open questions older than 30 days are dropped
+- [preference] (2026-09-13) Facts with net-negative memory_feedback are removed from the briefing
+- [decision] (2026-09-13) Index plane efficiency overhaul deployed on 2026-09-13
+- [context] (2026-09-13) Ingest state tracks each ledger file's git blob sha, extractor version, and status
+- [preference] (2026-09-13) Unchanged content is never extracted twice
+- [context] (2026-09-13) Ingest state table is indexed on git blob sha and extractor version
+- [preference] (2026-09-13) Rebuild cursors resume regardless of head
+- [context] (2026-09-13) D1 migration 0006_ingest_state applied
+- [preference] (2026-09-13) Neuron use is settled against real token usage
+- [constraint] (2026-09-13) Judges are capped at 4 per entry and 160 tokens
+- [context] (2026-09-13) The briefing uses one shared budget with clipped facts
+- [constraint] (2026-09-13) Prompt hook is clamped to 1500 tokens and 5 facts
+- [context] (2026-09-13) PR #55 merged: Tighter session briefing, and never extract unchanged content twice
+- [context] (2026-09-13) session-start briefing gave each section its own 4000-token budget
+- [context] (2026-09-13) facts are clipped to 400 chars and carry their id
+- [context] (2026-09-13) prompt hook ran on every turn with the 4000-token read budget, now clamped server-side to 1500 tokens
+- [context] (2026-09-13) neuron efficiency improvements: removed redundant computation, reduced memory usage, and increased cache hits
+- [context] (2026-09-13) removed the redundant getFacts function
+- [context] (2026-09-13) fixed the bug that caused the session briefing to render incorrectly
+- [context] (2026-09-13) added tests to verify that the session briefing renders correctly
+- [context] (2026-09-13) added tests to verify that the prompt hook runs correctly
+- [decision] (2026-09-13) do NOT POST /mcp/admin/reindex to recover the floored corpus
+- [constraint] (2026-09-13) the cron now self-migrates
+- [context] (2026-09-13) the first pass adopts well-extracted legacy entries without calling the model after each UTC budget reset
+- [context] (2026-09-13) a retry sweep then re-extracts floored entries, 10 per tick and at most once per 24h each, within budget
+- [constraint] (2026-09-13) the neuron budget (9500/day, account-wide) is the binding constraint on the index plane
+- [preference] (2026-09-13) never bulk re-extract without checking remaining neurons
+- [question] (2026-09-13) the next quality check after the sweep drains is re-running eval/rank-eval.mjs against MRR 0.6667 / top-3 5/5
+- [context] (2026-09-13) Worker 9efff8b0 was merged and deployed as PR #55 on 2026-09-13
+- [decision] (2026-09-14) PR #55 fixed two index-plane bugs after the 2026-09-14 neuron reset
+- [constraint] (2026-09-14) replaceBySource deleted old fact id and cleared pointers to it when retry sweep re-split correction 214dfa04
+- [preference] (2026-09-14) pointers to vanishing ids move to the entry's first new fact, pointers to surviving ids stay
+- [constraint] (2026-09-14) legacy backfill never ran because tree walk only ran while a space had zero ingest_state rows
+- [decision] (2026-09-14) per-space KV marker index-backfill:<space> = EXTRACTOR_VERSION decides the walk
+- [context] (2026-09-14) PR #56 merged by skandaramanan
+- [context] (2026-09-14) PR #56 fixes bugs found in production after the first neuron-budget reset
+- [context] (2026-09-14) retry sweep re-split correction 214dfa04 into atomic facts
+- [context] (2026-09-14) replaceBySource deleted old fact id and cleared every pointer to it
+- [context] (2026-09-14) pointers to ids that vanish now move to the entry's first new fact
+- [context] (2026-09-14) pointers to ids that survive are left untouched
+- [context] (2026-09-14) if every fact of an entry was superseded by the same fact, its re-extracted facts stay superseded
+- [context] (2026-09-14) PR #56 runs the legacy backfill once
+- [context] (2026-09-14) Floor an entry only when every chunk failed
+- [context] (2026-09-14) Entries were being retried at full cost to fix a single bad slice
+- [context] (2026-09-14) A partially failed slice stays as one whole-text fact until the entry changes or EXTRACTOR_VERSION is bumped
+- [question] (2026-09-14) Cause of PR-recorder summaries flooring is not yet known
+- [context] (2026-09-16) PR merged: Stop flooring clean model output; respect the floored retry cooldown (skandaramanan/Wayform#58)
+- [context] (2026-09-16) The backfill cursor was stuck at 200 of 227
+- [context] (2026-09-16) Workers AI returns `response` as a parsed object when the completion is valid JSON
+- [context] (2026-09-16) The fact-array parser grabbed the first code fence
+- [context] (2026-09-16) The fact-array parser was not handling backticks in code fences
+- [decision] (2026-09-16) PR #58 fixed the legacy backfill stall at cursor 200/227
+- [constraint] (2026-09-16) Workers AI returns `response` as an already-parsed object when the completion is valid JSON
+- [preference] (2026-09-16) deps.ts now JSON.stringifies non-string responses
+- [preference] (2026-09-16) Floored entries now count as current until the 24h FLOORED_RETRY_MS cooldown passes
+- [context] (2026-09-16) The legacy backfill stalled at cursor 200/227 and burned ~9000 neurons/day on 2026-09-15 and 2026-09-16
+- [question] (2026-09-16) Why the legacy backfill stalled at cursor 200/227 and burned ~9000 neurons/day on 2026-09-15 and 2026-09-16
+- [context] (2026-09-17) Rank eval re-run on 2026-09-17 after the backfill completed
+- [context] (2026-09-17) Corpus: 1493 live facts, all tagged, versus 307 docs on 2026-09-13
+- [context] (2026-09-17) Same 5 queries, bm25 + entity, no cosine
+- [context] (2026-09-17) Rank is measured as the first fact from the expected entry, because entries are now split into many facts and the old expected fact ids no longer exist
+- [context] (2026-09-17) Result: MRR 0.5667, top-1 2/5, top-3 4/5, versus the 2026-09-13 baseline of MRR 0.6667, top-3 5/5
+- [context] (2026-09-17) The drop is mostly benchmark staleness, not a retrieval regression
+- [context] (2026-09-17) The a90c854d query moved 1→3 because two facts from a different entry (b3a69113) state the same WEBHOOK_SECRET finding and rank above it
+- [context] (2026-09-17) The control 2bd08c51 missed because its duplicate entry was correctly auto-superseded by 55334076, and its top-3 are all correct-topic onboarding-CLI facts from other entries
+- [context] (2026-09-17) 8481264b improved 2→1, 72c7c756 improved 3→2, and b0f0304c stayed at 1
+- [context] (2026-09-17) One real weakness: for the pivot query, rank 1 is an irrelevant fact ("account was on the Free plan")
+- [context] (2026-09-17) The 5 cases should be rewritten to accept any entry that states the answer before they are used as a regression gate again
+- [context] (2026-09-17) The corpus is now large enough that the baseline should be re-run periodically to keep it from becoming stale
+- [context] (2026-09-17) PR #59 merged with fixes for memory quality issues
+- [context] (2026-09-17) PR #59 fixes come from auditing the production memory plane
+- [context] (2026-09-17) PR #59 includes 1,493 live facts and 73 automatic supersession links
+- [context] (2026-09-17) About half of the automatic 'replaces' links in PR #59 were false
+- [context] (2026-09-17) Judge verdicts in PR #59 are now suggestions because false links hide true facts
+- [decision] (2026-09-17) the LLM judge no longer auto-links supersession
+- [constraint] (2026-09-17) a judge "replaces" verdict is now a suggestion
+- [preference] (2026-09-17) author-stated write_context supersedes still links
+- [decision] (2026-09-17) the extraction prompt requires facts to name their subject
+- [preference] (2026-09-17) deliberately not built: a guard verdict cache and DUP_GATE_ENFORCE
+- [context] (2026-09-17) PR skandaramanan/Wayform#60 raises the daily neuron limit for a single UTC date
+- [context] (2026-09-17) PR skandaramanan/Wayform#60 bumps EXTRACTOR_VERSION to 2026-09-17.1
+- [context] (2026-09-17) PR skandaramanan/Wayform#60 sets the daily neuron limit through the KV key neuron-budget-limit:<date>
+- [context] (2026-09-17) PR skandaramanan/Wayform#60 limits the daily neuron limit to NEURON_BUDGET_HARD_MAX (90,000 neurons)
+- [context] (2026-09-17) PR skandaramanan/Wayform#60 resets the daily neuron limit to 9,500 at midnight UTC
+- [decision] (2026-09-17) re-extract the corpus under the self-contained-fact prompt
+- [constraint] (2026-09-17) the daily neuron limit is raised to 85,000 neurons for 2026-09-17 only
+- [constraint, standing rule] (2026-09-17) the daily neuron limit is clamped in code to NEURON_BUDGET_HARD_MAX = 90,000 neurons
+- [preference] (2026-09-17) keep the cost around $0.60 and never above $1
+- [context] (2026-09-18) PR 61 is a fix for the extraction grounding issue
+- [context] (2026-09-18) PR 61 is merged into main from fix/extraction-grounding
+- [context] (2026-09-18) PR 61 was authored by skandaramanan and merged by skandaramanan
+- [context] (2026-09-18) A spot check of the re-extracted corpus found the model inventing specifics that sound authoritative but appear in no source
+- [context] (2026-09-18) Examples of invented specifics include a "dual cursor" decision "made on 2022-12-15", "Node.js 14.17.0", "watched for 24 hours", and a "query field" that no source mentions
+- [context] (2026-09-18) PR #62 merged to fix grounding filter issue in Wayform
+- [context] (2026-09-18) PR #61 shipped with broken replacement string in escapeRe
+- [context] (2026-09-18) Real facts with dotted tokens were dropped due to grounding check failure
+- [context] (2026-09-18) Fix restores correct replacement string and adds tests for grounded dotted-token cases
+- [decision] (2026-09-18) Extraction grounding shipped 2026-09-18
+- [decision] (2026-09-18) PR #61 (Worker bcde2806) added temperature 0 on every extraction and judge call, isGrounded(), and supersession carry-over on re-extraction
+- [decision] (2026-09-18) PR #62 (Worker 7ac391c6) hotfixed escapeRe, which a `$&` expansion had corrupted
+- [context] (2026-09-18) A scan of all 1854 live facts found 62 invented facts in 49 entries
+- [decision] (2026-09-18) The 49 entries plus 2 from the bad window were re-queued as floored with a backdated timestamp
+- [constraint] (2026-09-18) Known limit: prose-only invention with no specifics passes the filter
+- [preference] (2026-09-18) The 2026-09-18 extraction grounding is considered a success
+- [context] (2026-09-18) PR skandaramanan/Wayform#63 merged
+- [context] (2026-09-18) PR skandaramanan/Wayform#63 adds two paths for automatic supersession
+- [context] (2026-09-18) fragment judge was only right on 26% of the links it made
+- [context] (2026-09-18) evidence judge uses a measured 95% gate for its verdicts
+- [context] (2026-09-18) evidence judge's verdicts are used to confirm supersession links because fragment judge was only right on 26% of the links it made
+- [decision] (2026-09-18) supersession is automatic through agent confirmation
+- [decision] (2026-09-18) write_context reports the judge's 'replaces' verdicts alongside contradictions for the nearest existing facts
+- [decision] (2026-09-18) the writing agent confirms the ones its entry really makes obsolete via a new MCP tool, supersede_facts(fact_ids, replaced_by_entry)
+- [preference] (2026-09-18) the evidence judge stays OFF because it measured precision 0.857 and recall 0.462 on 50 hand-labeled production pairs
+- [context] (2026-09-18) Cron ticks were ending with `exceededMemory` (128MB) mid-batch because only ~4 re-extractions per tick were happening, and one entry left pending each time
+- [context] (2026-09-18) listDocs now pages 200 rows at a time by id
+- [context] (2026-09-18) PR fix(index-db): decode D1 BLOBs as bytes; unwrap re-encoded embeddings (skandaramanan/Wayform#65) was merged
+- [context] (2026-09-18) PR fix(index-db): decode D1 BLOBs as bytes; unwrap re-encoded embeddings (skandaramanan/Wayform#65) was authored by skandaramanan and merged by skandaramanan
+- [context] (2026-09-18) PR fix(index-db): decode D1 BLOBs as bytes; unwrap re-encoded embeddings (skandaramanan/Wayform#65) was merged from branch fix/d1-blob-decode to main
+- [context] (2026-09-18) D1 returns BLOBs as byte arrays
+- [context] (2026-09-18) decodeEmbedding read the bytes as floats, resulting in semantic cosine never matching (length 3072 vs 768), re-ingest stored embeddings 4×/16× larger, cron hit exceededMemory every tick, because decodeEmbedding read the bytes as floats
+- [context] (2026-09-18) author skandaramanan, merged by skandaramanan
+- [context] (2026-09-18) main←fix/extract-prompt-cue
+- [context] (2026-09-18) Extraction prompt ended on the raw entry; the model sometimes continued it in prose (parse failure → floored)
+- [context] (2026-09-18) Adds a trailing `JSON array of facts:` cue: 10/10 chunks JSON vs 8/10, ~24% fewer neurons
+- [context] (2026-09-18) JSON-schema mode tested and rejected (empty arrays)
+- [constraint, standing rule] (2026-09-18) D1 returns BLOB columns as a plain Array of byte values, not an ArrayBuffer; embedding decode must go through bytes (Uint8Array.from) before Float32Array
+- [context] (2026-09-18) Until 2026-09-18 (PR #65) the semantic cosine path contributed nothing to production retrieval, because decodeEmbedding read D1's byte arrays as floats and cosineTopK skipped every doc on the 3072-vs-768 length mismatch
+- [context] (2026-09-18) The cron's exceededMemory (128MB) crashes on 2026-09-18 were caused by re-ingest writing mis-decoded embeddings back 4x larger per round (up to 49KB rows); fixed by decoding via bytes and unwrapping all-integer 0..255 decodes (PR #65)
+- [decision] (2026-09-18) The extraction prompt must end with an explicit 'JSON array of facts:' cue, because ending on the entry text let llama-3.3-70b at temperature 0 continue the entry as looping prose and floor it (PR #66)
+- [decision] (2026-09-18) Workers AI JSON-schema mode (response_format json_schema) was rejected for extraction on 2026-09-18 because it returned empty fact arrays for 9 of 10 chunks
+- [context] (2026-09-18) PR fix(extract): split overlong paragraphs at whitespace, not mid-word was authored by skandaramanan and merged by skandaramanan
+- [context] (2026-09-18) PR fix(extract): split overlong paragraphs at whitespace, not mid-word was merged from branch fix/chunk-word-boundary to main
+- [context] (2026-09-18) Overlong paragraphs were previously hard-cut every 1200 chars mid-word
+- [context] (2026-09-18) The post-drain grounding scan found 6 ungrounded facts out of 62, and this PR is the only extractor one
+- [context] (2026-09-18) PR feat(health): /health?deep=1 production invariants + daily check (skandaramanan/Wayform#68) was authored by skandaramanan and merged by skandaramanan
+- [context] (2026-09-18) PR feat(health): /health?deep=1 production invariants + daily check (skandaramanan/Wayform#68) was merged into main from feat/prod-health
+- [context] (2026-09-18) Daily production smoke `/health?deep=1` checks embedding decode, cosine self-match, stuck pending claims and cron completion
+- [context] (2026-09-18) Daily production smoke `/health?deep=1` is run daily by `prod-health.yml` and failure results in email
+- [context] (2026-09-18) author skandaramanan, merged by skandaramanan
+- [context] (2026-09-18) main←chore/release-0.3.0
+- [context] (2026-09-18) Version bump only
+- [context] (2026-09-18) npm publish is run by the owner (OTP)
+- [decision] (2026-09-18) GET /health?deep=1 on the gateway checks embedding decode (768 floats), cosine self-match, no ingest_state claim pending over an hour, and a cron pass completed within the last hour; prod-health.yml runs it daily and a failed run emails the owner
+- [decision] (2026-09-18) chunkPayload splits an overlong paragraph at whitespace because a mid-word cut made the model extract the fragment 'ER_TOKEN' as a fact (PR #67)
+- [decision] (2026-09-18) A Wayform plan is stored as an append-only event log in the git ledger under plans/<project>/<planId>/<rev>-<ts>-<rand>.md, one Contents API PUT per change, because append-only avoids GitHub sha races and read-modify-write and keeps every version in the ledger.
+- [decision] (2026-09-18) Plan D1 tables (plan, plan_body, plan_decision, plan_run, plan_counter; migration 0007) are a projection of the ledger's plan events, rebuildable via POST /mcp/admin/reindex {plans:true}, because the ledger stays the source of truth.
+- [decision] (2026-09-18) The plan lifecycle is forward-only draft->active->building->shipped, and superseded is reachable from any live state only with a successor plan, because no backward edge is needed yet; one pure step() function in plan-core.ts defines it for both live writes and rebuild replay.
+- [decision] (2026-09-18) In-flight plans (draft/active/building) are indexed as one docs row (kind=plan, id plan:<planId>) so search_memory can find them, and that row is deleted when the plan ships or is superseded, because the user chose searchable in-flight plans over a briefing-only list.
+- [decision] (2026-09-18) Shipping a plan with zero produced decisions is allowed and returns a warning, because small plans like dependency bumps should not have to invent a decision (user choice 2026-09-18).
+- [decision] (2026-09-18) A shipped plan's produced decisions are written as a normal writer-split context/ entry and ingested inline, then linked in plan_decision as role=produced, so they go through the existing ingest/supersession path with zero LLM extraction.
+- [decision] (2026-09-18) Plan docs (kind=plan) are excluded from supersession candidates, the write dup gate and the guard, because a checklist is not a decision to replace, dedupe against or enforce.
+- [decision] (2026-09-18) Plan supersession sets plan.superseded_by and logs a supersession_log row (plan:<old> -> plan:<new>, reason plan-supersedes) but does not touch the old plan's produced facts, because a replaced plan does not make its decisions stale; fact replacement is explicit via the ship supersedes list.
+- [decision] (2026-09-18) Phase 1 exposes plans via MCP tools create_plan, read_plan, edit_plan, transition_plan over a service layer (gateway/src/plans.ts), with no REST endpoint until Phase 3, because MCP-over-HTTP is already an authenticated API and the desktop app can reuse the service layer.
+- [decision] (2026-09-18) Gateway plan SQL is tested with node:sqlite running the real migrations (gateway CI moved to Node 22), because running real SQL catches bugs an in-memory fake would not.
+- [context] (2026-09-18) The default alternative to MemoryLayer is Claude Code + Linear/Notion MCP (or a CLAUDE.md file), because those tools already hold tickets/specs, have MCP servers, and cost teams nothing extra to adopt.
+- [context] (2026-09-18) Claude Code + Linear/Notion breaks because capture is manual (decisions made mid-agent-session never reach Notion unless a human writes them up) and retrieval is pull-based (the agent must think to search), whereas MemoryLayer extracts automatically and pushes relevant decisions at session start/per prompt.
+- [context] (2026-09-18) Auto-capture and push-injection are features, not a moat, because a DIY SessionEnd-summarize-to-Notion plus SessionStart-search hook gets roughly 60% of the value in an afternoon; the edge must be measurably better extraction/retrieval, which is currently unmeasured.
+- [context] (2026-09-18) Apply the Linear-vs-Jira pattern by winning the new cohort (solo devs and 2-5 person agent-native teams before they adopt Notion) and building for the agent rather than the human: zero manual writing, the human only reviews and corrects.
+- [context] (2026-09-18) MemoryLayer's equivalent of Linear's 'speed is the product' is the agent never re-asking or contradicting a settled decision, so re-asks/contradictions per week should be the metric to tune against.
+- [preference] (2026-09-18) Keep the plan schema opinionated and narrow (no assignees, statuses, priorities or custom fields) because modelling tickets richly drifts MemoryLayer into competing head-on with Linear; instead push decisions/plans out to Linear/GitHub and sit alongside them.
+- [question] (2026-09-18) MemoryLayer's structural defense is vendor neutrality across Claude Code/Cursor/Codex, because no model vendor is incentivised to make memory portable; this only matters if users actually switch agents, which should be verified with dogfood users.
+- [context] (2026-09-18) Proposed validation test: one dogfood user runs DIY hooks + Notion for a week, then the MemoryLayer gateway for a week, comparing the count of agent re-asks/contradictions of settled decisions.
+- [context] (2026-09-18) PR feat(plans): D1 schema + lifecycle state machine for the plan object (Phase 1 A) (skandaramanan/Wayform#70) merged
+- [context] (2026-09-18) PR feat(plans): D1 schema + lifecycle state machine for the plan object (Phase 1 A) (skandaramanan/Wayform#70) authored by skandaramanan and merged by skandaramanan
+- [context] (2026-09-18) PR feat(plans): D1 schema + lifecycle state machine for the plan object (Phase 1 A) (skandaramanan/Wayform#70) merged into main from feat/plan-schema
+- [context] (2026-09-18) Phase 1, slice A of 4: the plan object's storage model and lifecycle, with no API yet
+- [context] (2026-09-18) Ledger is the truth: a plan is an append-only event log under plans/<project>/<id>/, one file per change
+- [context] (2026-09-18) D1 is a projection that can be rebuilt from the event log files
+- [context] (2026-09-18) Rebuild lands in slice B
+- [context] (2026-09-18) plan-core.ts defines the lifecycle (draft → active → building → shipped, superseded from any live state, rev lock)
+- [context] (2026-09-18) plan-core.ts has a pure step() function that is the only definition of the lifecycle
+- [context] (2026-09-18) plan-db.ts projects one step in one D1 transaction
+- [context] (2026-09-18) plan-db.ts has an applyStep function
+- [context, standing rule] (2026-09-18) Ledger is the truth
+- [context] (2026-09-18) PR feat(plans): plan service + create/read/edit tools, rebuildable from the ledger (Phase 1 B) (skandaramanan/Wayform#71) merged
+- [context] (2026-09-18) PR feat(plans): plan service + create/read/edit tools, rebuildable from the ledger (Phase 1 B) (skandaramanan/Wayform#71) authored by skandaramanan and merged by skandaramanan
+- [context] (2026-09-18) PR feat(plans): plan service + create/read/edit tools, rebuildable from the ledger (Phase 1 B) (skandaramanan/Wayform#71) merged into main from feat/plan-service
+- [context] (2026-09-18) Phase 1, slice B of 4: plans can be created, read, edited and versioned through MCP, and the D1 projection can be rebuilt from the git ledger
+- [context] (2026-09-18) plans.ts service layer has one write path: step() validates, one event file is committed to plans/<project>/<id>/, then applyStep projects it into D1
+- [context] (2026-09-18) if an edit loses the rev race, the plan is rebuilt from the ledger and the caller is told to re-read, so D1 never holds anything the ledger doesn't
+- [context] (2026-09-18) rebuild can be triggered by POST /mcp/admin/reindex {"plans":true} (operator-only, paged) which replays the ledger into D1
+- [context] (2026-09-18) tests wipe D1, rebuild it
+- [context] (2026-09-18) PR fix(ingest): record ingest_state once facts are written, not after judging was merged in Wayform#72
+- [context] (2026-09-18) The PR fix(ingest): record ingest_state once facts are written, not after judging was authored by skandaramanan and merged by skandaramanan
+- [context] (2026-09-18) The PR fix(ingest): record ingest_state once facts are written, not after judging was merged from fix/ingest-state-before-judging to main
+- [context] (2026-09-18) The issue was found by running /health?deep=1 after deploying Phase 1 slice B
+- [context] (2026-09-18) The issue caused noStuckPending to be false because ingestEntriesDetailed wrote the final ok/floored status only after applySupersession
+- [context] (2026-09-18) PR feat(plans): lifecycle, ship-produces-decisions, plan supersession (Phase 1 C) (skandaramanan/Wayform#73) was merged
+- [context] (2026-09-18) PR feat(plans): lifecycle, ship-produces-decisions, plan supersession (Phase 1 C) (skandaramanan/Wayform#73) was authored by skandaramanan and merged by skandaramanan
+- [context] (2026-09-18) PR feat(plans): lifecycle, ship-produces-decisions, plan supersession (Phase 1 C) (skandaramanan/Wayform#73) merged main←feat/plan-lifecycle
+- [context] (2026-09-18) Phase 1, slice C of 4: plans move through their lifecycle, and shipping splits a plan into facts
+- [context] (2026-09-18) transition_plan: draft → active → building → shipped, with an illegal transition dry-run through step() before anything is written
+- [context] (2026-09-18) Ship = split: decisions become one writer-split context/ entry, ingested inline so their fact ids exist, and linked as produced
+- [context] (2026-09-18) PR feat(plans): in-flight plans searchable; shipped checklists leave retrieval (Phase 1 D) (skandaramanan/Wayform#74) was merged
+- [context] (2026-09-18) PR feat(plans): in-flight plans searchable; shipped checklists leave retrieval (Phase 1 D) (skandaramanan/Wayform#74) was authored by skandaramanan and merged by skandaramanan
+- [context] (2026-09-18) PR feat(plans): in-flight plans searchable; shipped checklists leave retrieval (Phase 1 D) (skandaramanan/Wayform#74) was merged into main from feat/plan-retrieval
+- [context] (2026-09-18) Phase 1, slice D of 4, implements the split-on-shipped rule on the retrieval side, as described in PLAN.md as the single most important rule in the system
+- [context] (2026-09-18) A draft, active or building plan is represented as one docs row (plan:<id>, kind=plan, Plan #N [state] title plus the markdown clipped to 4000 chars, embedded) in syncPlanDoc
+- [context] (2026-09-18) Shipping or superseding a plan deletes its corresponding docs row in syncPlanDoc
+- [context] (2026-09-18) Ingest never indexes plans/, so the only way a plan body reaches the index is through syncPlanDoc
+- [context] (2026-09-18) A checklist is not a decision, and kind=plan is excluded from supersession candidates
+- [decision] (2026-09-18) Ingest records ingest_state (ok/floored) immediately after a ledger entry's facts are written, before supersession judging, because judging can outlive a waitUntil and a Worker cut off mid-judge left fully indexed entries stuck pending (found by /health?deep=1 on 2026-09-18, fixed in PR #72).
+- [constraint, standing rule] (2026-09-18) Never prune docs whose sourceFile starts with plans/ from the reindex offset-0 pass, because plan docs are owned by plans.ts syncPlanDoc and pruning them wipes every in-flight plan from search on each full pass.
+- [decision] (2026-09-18) Plan ids are 'p' plus 7 hex characters, because read_plan treats an all-digit reference as a #number and about 2% of bare 8-hex ids are all digits.
+- [decision] (2026-09-18) The Wayform product plan lives in Wayform, not docs/PLAN.md: the roadmap is MemoryLayer plan #2 and each phase is its own plan (#3 Phase 0, #1 Phase 1, #4 Phase 2, #5-#9 Phases 3-7), because dogfooding the plan object makes it the team's plan of record.
+- [decision] (2026-09-18) Superpowers plans and specs are saved with create_plan in Wayform ONLY in the MemoryLayer repo, via the repo-level CLAUDE.md (PR #75), not the global ~/.claude/CLAUDE.md, because the user uses superpowers in other repos where plans should stay local files.
+- [context] (2026-09-18) PR chore: plans for this repo live in Wayform (skandaramanan/Wayform#75) was merged
+- [context] (2026-09-18) PR was authored by skandaramanan and merged by skandaramanan
+- [context] (2026-09-18) PR merged into main from chore/plans-in-wayform
+- [context] (2026-09-18) PR adds a repo-level CLAUDE.md file
+- [context] (2026-09-18) In this repo, superpowers writing-plans and brainstorming save plans with create_plan (Wayform project MemoryLayer) instead of local files
+- [context] (2026-09-18) In this repo, superpowers executing-plans uses read_plan/transition_plan
+- [context] (2026-09-18) This change is scoped to this repo only, so other repos keep superpowers' defaults
+- [context] (2026-09-18) PR merged: refactor(gateway): one service layer under MCP and HTTP (Phase 0.3) (skandaramanan/Wayform#76)
+- [context] (2026-09-18) Finishes Phase 0 (plan #3, section 0.3): Split the MCP tool surface from the shared domain logic so the desktop app calls the same core over HTTP
+- [context] (2026-09-18) `mcp.ts` is transport only, down from 1159 lines to 269
+- [context] (2026-09-18) `memory.ts` (new) is the memory service
+- [context] (2026-09-18) `mcp-tools.ts` (new) holds the tool schema
+- [decision] (2026-09-18) The gateway's mcp.ts is transport only (JSON-RPC plus thin adapters); domain logic lives in service modules memory.ts, plans.ts, spaces.ts and sessions.ts, because the MCP server and the Phase 3 desktop app must call one shared service layer (Phase 0.3, PR #76).
+- [constraint, standing rule] (2026-09-18) Never put domain logic or policy checks in a transport (mcp.ts or an HTTP route handler); put it in the service module so every transport gets the same behaviour, because a check that lives in one transport can be skipped by another.
+- [decision] (2026-09-18) The HTTP read route /mcp/api/read and MCP read_context both call memory.ts readMemory and return identical text for the same input, enforced by gateway/test/service-layer.test.mjs.
+- [context] (2026-09-19) PR feat(plans): plan mirror is merged
+- [context] (2026-09-19) PR feat(plans): plan mirror implements Wayform plan #10
+- [context] (2026-09-19) The plan mirror feature writes in-flight plans to .wayform/plans/ in the code repo
+- [context] (2026-09-19) The .wayform folder is git-ignored
+- [context] (2026-09-19) The set_plan_mirror function in the MCP tool enables plan mirror for a project
+- [decision] (2026-09-19) Plan mirror: a per-project, space-admin-only toggle (set_plan_mirror, KV key plan-mirror:<space>:<project-slug>) makes every teammate's session-start hook write in-flight plans into .wayform/plans/ in their code repo, because a team-wide switch needs no per-person setup.
+- [decision] (2026-09-19) The plan mirror folder git-ignores itself via .wayform/.gitignore = '*' rather than editing the repo's .gitignore or using a submodule, because the code repo's git must never see plan files (a submodule would record a pointer on every plan change).
+- [decision] (2026-09-19) Mirrored plan files are a read-only view of in-flight plans only (draft/active/building); edits go through edit_plan, because two-way file sync would need conflict handling against the append-only ledger log.
+- [decision] (2026-09-19) GET /mcp/api/plans renders each plan from its meta plus latest body only (no Decisions/Runs sections), one D1 query per plan, because per-plan readPlan cost ~5 queries and would exceed the Workers Free 50-queries-per-invocation cap at ~10 plans.
+- [constraint] (2026-09-19) The CLI plan-mirror writer refuses to follow a symlinked .wayform or .wayform/plans and prunes only files matching ^\d+-[a-z0-9-]+\.md$, because a symlinked plans dir let the prune delete files outside the repo.
+- [context] (2026-09-19) PR #78 is a chore release for version 0.3.1
+- [context] (2026-09-19) PR #78 was authored by skandaramanan and merged by skandaramanan
+- [context] (2026-09-19) PR #78 merged main branch with chore/release-0.3.1 branch
+- [context] (2026-09-19) Release 0.3.1 ships plan mirror session-start hook from PR #77
+- [decision] (2026-09-21) Plan generation runs in the calling agent, not in the gateway: Wayform's plan_brief MCP tool returns retrieved decisions, open questions, related plans and a skeleton, and the agent writes the plan — because that is $0 on the starved free-tier neuron budget, ships no LLM key in any binary, uploads no source, and is identical across Claude Code, Cursor and Codex.
+- [decision] (2026-09-21) Phase 2 §2.1 (tree-sitter + PageRank repo map) is deferred, not cancelled, because cold plan mode already has the repo — file routing is not the delta Wayform is measured on; build it only if the bake-off loses because the plan cited the wrong files.
+- [decision] (2026-09-21) Phase 2 §2.2 (mining git history for cold-start decisions) is off the critical path for the exit gate because the dogfood store already holds 1822 facts; it is real work only for a cold customer repo.
+- [constraint] (2026-09-21) The Phase 2 exit bake-off's cold arm must run `claude -p` with --strict-mcp-config --mcp-config '{"mcpServers":{}}', because the project's own wayform MCP config would otherwise inject the session-start briefing and make the baseline compare Wayform to itself.
+- [constraint] (2026-09-21) plan_brief excludes open questions from the inherits list it offers create_plan, because inheriting an open question records an answer nobody gave.
+- [constraint] (2026-09-21) The Phase 2 bake-off's cold arm must run in a throwaway `git worktree` of HEAD with `.claude/` deleted, not merely with --strict-mcp-config: that flag drops MCP servers but NOT hooks, and .claude/settings.json (which IS tracked) wires `wayform hook` into SessionStart and UserPromptSubmit, so the first run's cold plans quoted recorded decisions and the baseline was Wayform against itself.
+- [constraint] (2026-09-21) A headless `claude -p` session cannot answer a permission prompt, so any eval that exercises a newly added MCP tool must pass it via --allowedTools; the first bake-off's five wayform arms were all denied mcp__wayform__plan_brief and wrote plan-shaped apologies that the harness saved as results.
+- [decision] (2026-09-21) plan_brief's real weakness is retrieval precision, not the absence of a repo map: on the `rbac` prompt it returned 12 near-miss facts and missed 6d411906#1mqe19j (never put policy checks in a transport), which is the one decision that bound the task — the agent then designed the viewer check into mcp.ts, the exact thing that fact forbids.
+- [decision] (2026-09-21) Before Phase 2 §2.1 (repo map) is reconsidered, the fix to try is retrieval precision on thin queries — a relative-score cut against the top hit, so a query with little relevant memory returns 3 facts instead of filling maxResults with near-misses.
+- [context] (2026-09-21) Evidence that the Wayform arm's judgment is real when the brief lands: on the dispatch prompt the agent inherited 5 fact ids and explicitly cut 5 more as near-misses, and on the repo-map prompt it found the same-day decision deferring §2.1 and gated its own plan on it rather than building it.
+- [decision] (2026-09-21) The Phase 2 exit bake-off PASSED on 2026-09-21 against a clean cold arm — Wayform won 3 of 5 cases, tied 2, and cited a decision the cold plan missed in 4 of 5 — so plan generation in the calling agent from a plan_brief is validated and Phase 3 is unblocked, without building the §2.1 repo map.
+- [decision] (2026-09-21) The fix to try for plan_brief's precision gap is to give the brief a canon/standing-rules section built the way renderBriefing does it, not only query-matched retrieve() hits: in the contaminated first pass the SessionStart briefing surfaced the service-layer rule that query-time retrieval missed on the rbac prompt, which is exactly the asymmetry that cost the case.
+- [context] (2026-09-21) Bake-off evidence that grounding changes the plan's shape, not just its citations: on dispatch the cold arm designed a GitHub-issue bot that auto-ships on PR merge, colliding with the recorded 'live in-agent, not a PR reviewer/merge-gate bot' decision, while the Wayform arm built on src/hook-clients.ts and kept the plan in building because shipped means merged.
+- [context] (2026-09-21) On the repo-map prompt the Wayform arm found the same-day decision deferring §2.1 and gated its own plan on the bake-off outcome instead of building it, while the cold arm produced a good design for work that had already been deferred — a plan that knows not to build something is the higher-value output.
+- [decision] (2026-09-21) The rbac plan_brief miss is a RECALL failure, not a precision one: the binding fact becomes retrievable only after drafting. Measured live — the raw prompt does not return 6d411906#1mqe19j, the drafted plan body returns it at entry rank 9/10, and the Approach paragraph alone at 6/10 — because the prompt never contains 'mcp.ts' and the plan does.
+- [constraint] (2026-09-21) No ranking change can surface a standing rule that shares no token, entity tag or embedding neighbourhood with the task: rank.ts applies CANON_BOOST multiplicatively to a fused score that exists only for docs the three candidate generators produced, so 1.5 x nothing is nothing. Raising CANON_BOOST, lowering TAU or raising maxResults cannot reach that class of fact.
+- [decision] (2026-09-21) Canon facts must be DUMPED into the plan brief unranked (filter tier==='canon', newest-first, feedback-filtered), never ranked top-N by query: over the real 47-doc canon pool the binding fact ranks 4th for the literal rbac prompt purely on the stopwords 'so' and 'can', and misses on five of six paraphrases. All 47 canon measure 1521 tokens against a 2500 budget, so the dump fits.
+- [decision] (2026-09-21) The relative-score precision cut for plan_brief is FALSIFIED on the bake-off's own retrieval_log: a rel>=0.5xtop cut keeps 12 of 12 facts on rbac (its top hit is the weakest of the five, so the list is flat) while cutting the two winning arms to 2/12 and 3/12 and deleting facts those plans actually inherited. No absolute floor separates rbac's noise from dispatch's signal either.
+- [decision] (2026-09-21) The plan draft check belongs inside create_plan as retrieval-only advisory text, not as a separate plan_check tool with an LLM judge: a separate tool is skippable by the agents most likely to need it, and every serious objection to the check was an objection to the judge (false 'contradicts' forcing rewrites, judgePair calibrated on one-sentence pairs not 200-line plans, and a neuron-exhausted judge reporting clean on the busiest day).
+- [constraint] (2026-09-21) A plan-body retrieval check needs a budget near 1500 tokens, not guard.ts's GUARD_BUDGET_TOKENS of 400: at 400 the binding fact sits at flat rank ~18-20 and never surfaces.
+- [decision] (2026-09-21) The bake-off scorecard is length-confounded and cannot distinguish these strategies: word-count delta rank-correlates with the verdict 5 of 5 (+335/+212/+192 won, -39/-56 tied), the scorer is a length-biased LLM judgement, and 'cited a decision the cold plan missed' goes to 5/5 mechanically once a canon section guarantees a citable rule. Re-score blind, shuffled, length-controlled, and as 'cited a decision that CHANGED the design'.
+- [decision] (2026-09-21) Replace the bake-off as the primary instrument for plan-quality work with a deterministic recall benchmark: for each of N known binding facts, the task whose correct design depends on it, measuring only whether the brief or the save-time check surfaced fact X. Zero LLM calls, runs in seconds, comparable across strategies — because four of the five bake-off cases are at ceiling, leaving one free parameter for seven strategies.
+- [constraint] (2026-09-21) Canon tier is a ratchet with no pawl and needs a demote_fact / tier-retirement path: canon is minted client-side by extract.ts coerce() from both write_context and transition_plan(to='shipped') — so shipping a plan can mint canon — nothing retires it but supersession (which demands a successor rule), renderBriefing's canon section has no cap and already spends ~1900 of its 4000-token budget, and memory_feedback only demotes 0.8 per vote against a 1.5 boost in retrieval.
+- [decision] (2026-09-21) The save-time draft check in create_plan is REVERTED and should not be rebuilt without new evidence: measured against the live corpus it found the transport rule at rank 4 in the rbac plan that already cited it and NOT AT ALL in the rbac plan that violated it, so it confirms plans that already know and misses the ones that don't. A term-selection variant made it worse (rank 4 to not-returned).
+- [constraint] (2026-09-21) Do not retrieve on a raw plan or document body: retrieve() keeps only the first MAX_QUERY_TOKENS (16) unique tokens, and the first 16 tokens of a real agent-written plan are its preamble — measured 'cold 99s i couldn t save the plan anywhere wayform mcp server isn connected'. Any future retrieval over long text must select terms, and term selection alone was measured insufficient.
+- [decision] (2026-09-21) plan_brief dumps every canon fact under a cap into a Standing rules section and this is shipped and proven: the recall benchmark went 2/8 to 8/8 on canon cases, and re-running the rbac bake-off case flipped it — the new plan puts requireWriter in the service layer citing 6d411906#1mqe19j by id, inherited 4 standing rules and cut all 10 the brief suggested.
+- [context] (2026-09-21) Evidence against the cargo-culting worry about a Standing rules section: shown 47 canon facts, the rbac agent cited 4 and cut all 10 query-matched suggestions, so it selected rather than pasted. n=1, worth re-checking as canon grows.
+- [constraint] (2026-09-21) A recall benchmark run straight after `npm run deploy` reports false misses — the first three cases hit the old Worker version on 2026-09-21 and the number looked like a retrieval result. eval/brief-recall/run.mjs now issues a discarded warmup call first.
+- [context] (2026-09-21) Two throwaway plans (#13, #14 in MemoryLayer, titled 'safe to ignore') were created to verify the save-time check on the live gateway and immediately transitioned to shipped so their bodies leave retrieval. They can be ignored or superseded; there is no delete_plan.
+- [context] (2026-09-21) PR merged: feat(plans): plan_brief — the agent generates, the gateway supplies judgment (Phase 2) (skandaramanan/Wayform#79)
+- [context] (2026-09-21) The gateway never calls a generation model: it supplies judgment, the agent supplies the LLM and the repo
+- [context] (2026-09-21) The `plan_brief` function turns a prompt into a decision-grounded brief the calling agent writes the plan from
+- [context] (2026-09-21) It is $0 on the free tier, ships no LLM key in any binary, uploads no source, and behaves identically in Claude Code, Cursor and Codex
+- [decision] (2026-09-21) Phase 2 shipped as plan_brief (PR #79, merged db6b24e): one MCP tool that returns the team's τ-gated decisions, open questions, related in-flight plans and every canon standing rule, and the calling agent writes the plan from it — the gateway never calls a generation model.
+- [decision] (2026-09-21) The Phase 2 exit bake-off passed 3 wins / 2 ties with a decision cited that the cold plan missed in 4 of 5 cases, but the scorecard is length-confounded (word-count delta rank-correlates with the verdict 5/5) and must be re-scored blind, shuffled and length-controlled before it is used to judge anything else.
+- [decision] (2026-09-21) plan_brief dumps every canon fact for the project into a Standing rules section, unranked and newest-first, minus feedback-flagged ids, with ids on every line and none pre-filled into inherits — because a standing rule sharing no token, tag or embedding neighbourhood with the task is never a retrieval candidate and CANON_BOOST is multiplicative. Recall benchmark 2/8 to 8/8 on canon cases.
+- [constraint] (2026-09-21) The plan-quality instrument is eval/brief-recall/ — 11 cases, each a task whose correct design depends on a known recorded fact, measuring only whether the brief surfaced it. Read the normal-tier column (currently 1/3), not the total: the canon dump makes canon cases trivially green, so those eight are a regression guard against canon ever being ranked again.
+- [context] (2026-09-21) PR #80 fixes rank-eval to accept its own header documents
+- [context] (2026-09-21) wrangler d1 execute --json wraps rows as [{results}]
+- [context] (2026-09-21) fact_entities comes back as rows rather than the id-keyed map the eval indexed
+- [context] (2026-09-21) baseline MRR was 0.6667 and top-3 5/5
+- [context] (2026-09-22) PR #81 fixes retrieval to embed once per brief
+- [context] (2026-09-22) PR #81 adds a pawl for canon to prevent net-negative feedback from boosting canon facts
+- [context] (2026-09-22) PR #81 reduces AI calls by half by embedding once per brief
+- [context] (2026-09-22) PR #81 ensures fail-open remains unchanged
+- [decision] (2026-09-22) plan_brief embeds the prompt once and passes the vector to both retrieve() passes via RetrieveOpts.queryVec, because each pass used to embed the identical query — two Workers AI calls for one vector on every brief, with the same critical path either way.
+- [decision] (2026-09-22) memory_feedback(wrong|stale) is the retirement path for canon: a canon fact with net-negative feedback loses CANON_BOOST in adjustScores and is dropped from both the briefing and the plan brief, because one 'wrong' vote previously left it at 1.5 x 0.8 = 1.2, above every kind prior, so canon could only be retired by asserting a successor rule.
+- [constraint] (2026-09-22) The briefing's canon section may use at most BRIEFING_CANON_SHARE (0.5) of the briefing budget and must count its overflow, because canon renders first against one shared budget and, uncapped, ~200 canon facts would silently erase the conflicts, recent decisions and open questions below it.
+- [decision] (2026-09-22) Normal-tier misses in the plan brief are a candidate-generation limit, not a threshold problem: on 2026-09-22 both missed facts were absent from BM25 top-50 and from entity overlap, their RRF scores sat under TAU even as candidates, and the brief's 12 slots were full of higher scorers — so no floor, K or maxResults change reaches them without flooding the brief.
+- [constraint] (2026-09-22) Before a gateway deploy, check applied D1 migrations with `npx wrangler d1 execute memorylayer-index --remote --command "select name from d1_migrations order by id"` and compare against `ls gateway/migrations/`, NOT `wrangler d1 migrations list --remote` — because that command fails with Cloudflare API error 7403 on this account (re-verified 2026-09-22, wrangler 4.125) while `d1 execute --remote` works against the same database.
+- [decision] (2026-09-22) The four throwaway verification plans — MemoryLayer #13 and #14, and eval-save-check #1 and #2 — are left in place, not deleted, because they are shipped (so their bodies are already out of retrieval), their only cost is clutter in read_plan listings, and building a delete_plan tool for four junk plans is functionality nobody needs (2fa94dbb#brt6qi). Add delete_plan only when a real user needs to remove a plan.
+- [context] (2026-09-22) Five permissions.allow entries in .claude/settings.local.json embedding a literal mlk_ gateway token in curl commands were removed on 2026-09-22. The token was already dead — the live gateway returns 401 for that exact /mcp/mlk_… URL, and the only mlk_ references left in code are leak detectors in doctor.ts and init-remote.ts — so no rotation was needed; the entries were stale text.
+- [context] (2026-09-23) The supersession judge now runs as a chat call with its rules in the system message, verified live on 2026-09-23 after deploy b36c3b49.
+- [decision] (2026-09-23) The supersession judge sends its rules as a SYSTEM message and only the fact pair as the USER message, instead of one raw completion prompt. Measured on 18 real production pairs: raw completion ran to the 160-token cap on 11 of 12 recorded failures (the model continued the prompt's own NEW/OLD pattern instead of answering), while chat form parsed 11/12, used a third of the output tokens (39 vs 121), and was more accurate (8/9 vs 1/9 where they differed).
+- [constraint] (2026-09-23) The trailing-cue fix from PR #66 that repaired the EXTRACTION prompt is NOT sufficient for the supersession judge: measured on the same 18 pairs it parsed only 8/12, cost 65 output tokens, and repeated the over-calling of 'replaces' on unrelated PR-merge pairs. A JSON prefill is worse still — it forces the verdict before any reasoning and scored 4/9.
+- [decision] (2026-09-23) parseJudgeVerdict scans for the FIRST COMPLETE balanced JSON object rather than spanning the first '{' to the last '}', because the old span broke whenever a model emitted a good verdict and then kept talking — that alone cost 8 of 12 recoverable verdicts on 2026-09-22.
+- [decision] (2026-09-23) supersessionSuggestions now requires BOTH ends to be live: it already required the old fact to be unsuperseded but only required the suggesting fact to exist, so a retired fact kept stamping '⚠ possibly outdated' on live facts forever. Found by dogfooding on 2026-09-23 when a verification paraphrase left that warning on the canon fact 'gateway ships by cd gateway && npm run deploy'; fixed in index-db.ts and index-db-memory.ts and verified cleared in production.
+- [context] (2026-09-23) The plan-split test's final assertion was flaky because its query shared a token with 10 byte-for-byte parallel decision fixtures that tie exactly on BM25; tie order follows doc ids, which are per-run timestamps in that fixture, so the in-flight plan moved between rank 7 and 11 against renderSearchResults' 10-entry cap. 7 failures in 200 runs at 16-way concurrency before, 0 in 200 after querying only words the plan carries. Production ids are content-derived, so retrieval itself is reproducible.
+- [context] (2026-09-23) PR merged: fix(supersede): chat-mode judge, resilient parser, no stale 'possibly outdated' (skandaramanan/Wayform#82)
+- [context] (2026-09-23) The judge ran to the token cap instead of answering
+- [context] (2026-09-23) 10% of supersession judge calls were still failing to parse after the 2026-09-17 object-response fix
+- [context] (2026-09-23) The call used the raw `prompt:` completion interface, and the model continued the prompt's own `NEW (...) / OLD (...)` pattern until `JUDGE_MAX_TOKENS` truncated it
+- [context] (2026-09-23) Every failure used exactly 160 output tokens; every success finished in 49–69
+- [context] (2026-09-23) Members CAN see and revoke their own client sessions self-serve: the MCP tools list_sessions and revoke_session ship today (gateway/src/mcp-tools.ts, dispatched in mcp.ts) and act only on the caller's own account, with revoke_member remaining the admin-only way to remove a teammate. This supersedes the 2026-08-30 note that no self-serve path existed; verified against live code 2026-09-23.
+- [decision] (2026-09-23) The plan bake-off's 3-wins/2-ties scorecard is RETIRED and must not be cited: a pre-registered rubric (selection rule hashed from the store and the code before any plan was opened) re-scored the same ten plans and found ZERO decided cases, all five tie, with every original win tracing to a lexical-noise check or to PASS-beating-N/A on work only one arm attempted.
+- [decision] (2026-09-23) Bake-off scoring uses two instruments, recorded in eval/plan-bake-off/PROTOCOL.md: a pre-registered rubric as a cheap mechanical regression gate (the only instrument that catches 'both arms broke the same rule', which a comparative judge scores as no difference), and a blinded, position-swapped, length-controlled pairwise judge as the primary verdict.
+- [decision] (2026-09-23) Do not spend the ~72 model calls to re-judge the existing bake-off with the blinded pairwise protocol: five cases with ONE generation per arm means judge samples measure judge noise rather than generation variance, so the protocol would be more precise than the data. Generate fresh plans with more cases first.
+- [decision] (2026-09-23) The recall benchmark now carries negative controls (prompts where no recorded fact should bind, e.g. bumping the LICENSE copyright year) scored on how FEW query-matched facts the brief returns, because the padding problem has no metric otherwise and the obvious fix for it (a relative-score cut) was already falsified.
+- [context] (2026-09-23) Mined benchmark cases must have every fact id verified live and normal-tier before use: of 20 ids mined on 2026-09-22, one (a1a2672b#1xvb8xz) did not exist and would have made its case permanently unpassable, silently depressing the score.
+- [decision] (2026-09-23) EMBED_SCAN_CAP (2000) has not been crossed where it matters: retrieval scans per project and project MemoryLayer holds 1,899 live facts (2026-09-23); only the space-wide count (2,041) is over. The Vectorize trigger is per-project live facts reaching the cap, visible when retrieval_timing's total exceeds nEmb.
+- [constraint] (2026-09-23) Do not raise EMBED_SCAN_CAP as the fix when a project hits it, because D1 returns embedding blobs as plain JS byte arrays and 2,000 x 3,072 bytes is already ~6M array elements per query; the move at the cap is Vectorize.
+- [decision] (2026-09-23) Embedding calls (bge-base, 6,058 neurons/M input tokens) are charged to the daily neuron counter after the call and never block, because a failed embed only degrades retrieval to BM25, while uncounted reindex embeds let extraction overrun the real bill. Sub-neuron batches (single queries) are not charged, to keep KV off the prompt hook path. PR #84.
+- [context] (2026-09-23) PR merged: test(eval): 15 mined normal-tier recall cases + 3 negative controls (skandaramanan/Wayform#83)
+- [context] (2026-09-23) author skandaramanan, merged by skandaramanan | main←test/recall-cases
+- [context] (2026-09-23) The recall benchmark had 8 canon cases and only 3 normal-tier ones — too few to judge a retrieval change
+- [context] (2026-09-23) Cases were mined by an agent deliberately kept away from `retrieval.ts`, `rank.ts`, `plan-brief.ts` and the eval code
+- [context] (2026-09-23) Vetting caught a fabricated id. `a1a2672b#1xvb8xz` does not exist; corrected to `a1a2672b#1xsrp7y`
+- [context] (2026-09-23) PR fix(gateway): count embedding neurons; log scan total against the cap was authored by skandaramanan
+- [context] (2026-09-23) PR fix(gateway): count embedding neurons; log scan total against the cap was merged by skandaramanan
+- [context] (2026-09-23) PR fix(gateway): count embedding neurons; log scan total against the cap was merged into main from fix/scan-cap-embed-budget

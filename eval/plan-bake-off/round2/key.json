@@ -1,0 +1,114 @@
+[
+ {
+  "order": 1,
+  "cid": "C01",
+  "kind": "real",
+  "id": "check-prod-kv-value",
+  "A": "wayform",
+  "B": "cold"
+ },
+ {
+  "order": 1,
+  "cid": "C02",
+  "kind": "calibration",
+  "id": "check-prod-kv-value",
+  "A": "orig",
+  "B": "padded"
+ },
+ {
+  "order": 1,
+  "cid": "C03",
+  "kind": "calibration",
+  "id": "commit-personal-editor-settings",
+  "A": "orig",
+  "B": "padded"
+ },
+ {
+  "order": 1,
+  "cid": "C04",
+  "kind": "real",
+  "id": "dashboard-cross-origin-json-post",
+  "A": "wayform",
+  "B": "cold"
+ },
+ {
+  "order": 1,
+  "cid": "C05",
+  "kind": "real",
+  "id": "default-static-auth-header",
+  "A": "wayform",
+  "B": "cold"
+ },
+ {
+  "order": 1,
+  "cid": "C06",
+  "kind": "real",
+  "id": "custom-header-for-new-agent-client",
+  "A": "cold",
+  "B": "wayform"
+ },
+ {
+  "order": 1,
+  "cid": "C07",
+  "kind": "real",
+  "id": "commit-personal-editor-settings",
+  "A": "wayform",
+  "B": "cold"
+ },
+ {
+  "order": 2,
+  "cid": "C01",
+  "kind": "real",
+  "id": "check-prod-kv-value",
+  "A": "cold",
+  "B": "wayform"
+ },
+ {
+  "order": 2,
+  "cid": "C02",
+  "kind": "calibration",
+  "id": "check-prod-kv-value",
+  "A": "padded",
+  "B": "orig"
+ },
+ {
+  "order": 2,
+  "cid": "C03",
+  "kind": "calibration",
+  "id": "commit-personal-editor-settings",
+  "A": "padded",
+  "B": "orig"
+ },
+ {
+  "order": 2,
+  "cid": "C04",
+  "kind": "real",
+  "id": "dashboard-cross-origin-json-post",
+  "A": "cold",
+  "B": "wayform"
+ },
+ {
+  "order": 2,
+  "cid": "C05",
+  "kind": "real",
+  "id": "default-static-auth-header",
+  "A": "cold",
+  "B": "wayform"
+ },
+ {
+  "order": 2,
+  "cid": "C06",
+  "kind": "real",
+  "id": "custom-header-for-new-agent-client",
+  "A": "wayform",
+  "B": "cold"
+ },
+ {
+  "order": 2,
+  "cid": "C07",
+  "kind": "real",
+  "id": "commit-personal-editor-settings",
+  "A": "cold",
+  "B": "wayform"
+ }
+]
